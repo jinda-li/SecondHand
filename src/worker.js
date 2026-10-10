@@ -839,7 +839,7 @@ const aiPrompt = (currency, n = 1) => `${n > 1 ? `这是 ${n} 张同一件物品
 - model：型号或系列名，保持原文（例如「MALM」「Supersonic」「AirPods Pro」）。只在照片上印着、或外观独一无二、你非常确定时才写；同品牌有好几款长得像的，就写空字符串，写错比不写更糟。
 - name：2 到 8 个字，大家常用的叫法，不带品牌（例如「台灯」「吹风机」「抽屉柜」）。
 - detail：不超过 30 个字，只写看得出的颜色、尺寸、数量、配件，不要评价新旧成色；没有就写空字符串。
-- retail：只有认出了品牌时才填：这款全新时的大概零售价范围，单位 ${currency}，只写数字，格式「30-40」；没认出品牌或不确定就写空字符串。`;
+- retail：全新时的大概零售价范围，单位 ${currency}，只写数字，格式「30-40」。认出了品牌就估这一款的价；没认出品牌就估这类东西普通新品的常见价（例如无牌平板支架「10-20」）。范围尽量窄，完全没把握才写空字符串。`;
 
 async function aiQuota(env, clientId) {
   const row = await env.DB.prepare('SELECT * FROM ai_quota WHERE client_id = ?').bind(clientId).first();
@@ -884,7 +884,9 @@ function parseAiReply(reply) {
   // Brand and model also go into the details, where buyers look for them.
   const which = [brand && `品牌：${brand}`, model && `型号：${model}`].filter(Boolean).join('，');
   const note = [which, clean(out.detail ?? out.note, 40)].filter(Boolean).join('。');
-  return { name: clean(name, 30), brand, model, note: clean(note, 100), retail: brand ? parseRetail(out.retail) : null };
+  // Without a brand the range is for the kind of item in general, and the UI says so.
+  const retail = parseRetail(out.retail);
+  return { name: clean(name, 30), brand, model, note: clean(note, 100), retail: retail && { ...retail, generic: !brand } };
 }
 
 // "30-40" / "30~40" / "35" -> { low, high } in whole currency units; anything odd -> null.

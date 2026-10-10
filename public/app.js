@@ -1238,8 +1238,8 @@ function composer(S) {
   // AI's guess at the new price, shown next to the price box; the seller still sets the price.
   const retailHtml = (c) => {
     if (!c.retail) return `<div class="cretail"></div>`;
-    const { low, high } = c.retail;
-    return `<div class="cretail">新品原价约 ${esc(sym)}${low}${high > low ? `–${high}` : ''} · AI 估计，售价你来定</div>`;
+    const { low, high, generic } = c.retail;
+    return `<div class="cretail">${generic ? '同类新品约' : '新品原价约'}${esc(sym)}${low}${high > low ? `–${high}` : ''} · AI 估计，售价你来定</div>`;
   };
 
   const statusHtml = (c) => {
