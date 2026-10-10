@@ -7,6 +7,23 @@ const BOOT = window.__DATA__ || {};
 const isWeChat = /MicroMessenger/i.test(navigator.userAgent);
 // c=1 is set on our QR links; WeChat adds from= to links opened from a forwarded card.
 const OPENED_AS_CARD = ['c', 'from'].some((k) => new URLSearchParams(location.search).has(k));
+// A WeChat page opened from a QR code or a card keeps forwarding as a card after tapping links
+// inside it, so this is remembered for the tab. The seller can also set or clear it by hand
+// when the guess is wrong (old QR codes without c=1, cards whose links lack from=).
+function cardSession() {
+  try {
+    return sessionStorage.getItem('cardSession') === '1';
+  } catch {
+    return false;
+  }
+}
+function setCardSession(on) {
+  try {
+    if (on) sessionStorage.setItem('cardSession', '1');
+    else sessionStorage.removeItem('cardSession');
+  } catch {}
+}
+if (OPENED_AS_CARD) setCardSession(true);
 const HOUR = 3600 * 1000;
 const CHECK_AFTER_MS = 12 * HOUR;
 const MAX_PHOTOS = 3;
@@ -637,6 +654,23 @@ function sortItems(items, sort) {
   return [...items].sort((a, b) => (a.priceCents == null) - (b.priceCents == null) || dir * (a.priceCents - b.priceCents) || a.no - b.no);
 }
 
+// Buyers arrive from a group card without knowing what this is: a slim dismissible strip
+// (like a store's "get the app" bar) above a bar with the name and 我的二手.
+function appBarHtml(isOwner) {
+  const promo = !isOwner && !store.get('promoHidden', false);
+  return `
+    ${promo ? `<div class="promo">
+      <button class="promo-x" data-promo-x aria-label="关闭">✕</button>
+      <span class="promo-icon">二手</span>
+      <div class="promo-txt"><b>我也有二手要出</b><span>免登录 · 免安装 · 多群同步 · 免费</span></div>
+      <a class="promo-cta" href="/new">去发布</a>
+    </div>` : ''}
+    <div class="appbar">
+      <a class="brand" href="/">二手清单</a>
+      <a class="appbar-my" href="/">我的二手 ›</a>
+    </div>`;
+}
+
 function sortSegHtml(sort) {
   return `<div class="seg small">${SORTS.map(([k, t]) => `<button class="${sort === k ? 'on' : ''}" data-sort="${k}">${t}</button>`).join('')}</div>`;
 }
@@ -660,16 +694,14 @@ function buyerSale(saleId) {
     const list = [...sortItems(avail, sort), ...sortItems(reserved, sort)];
     document.title = `${sale.title}｜在售 ${avail.length} 件`;
     $app.innerHTML = `
+      ${appBarHtml(isOwner)}
       <div class="head">
         <h1>${esc(sale.title)}</h1>
         <div class="meta">📍 ${esc(sale.location)}${sale.leaveDate ? ` · ${dateText(sale.leaveDate)}前出完` : ''} · 卖家 ${agoText(sale.sellerActiveAt, now)}更新</div>
         ${sale.rules.length ? `<div class="tags">${sale.rules.map((r) => `<span class="tag">${esc(r)}</span>`).join('')}</div>` : ''}
       </div>
       ${ended ? `<div class="banner">这份清单已结束</div>` : ''}
-      ${isOwner ? ownerBanner(sale) : ''}${contact || ended ? '' : `<div class="how-to">
-        <b>怎么买</b>：点「预订」排队 → 排到第 1 位，这里会显示卖家联系方式 → 再去微信加卖家。<br>
-        页面是实时的：显示「预订」的就是还在。
-      </div>`}
+      ${isOwner ? ownerBanner(sale) : ''}${contact || ended ? '' : `<div class="how-line">点「预订」排队，排到第 1 位就能看到卖家微信。显示「预订」的都还在。</div>`}
       ${contact ? contactHtml(contact) : ''}
       <div class="list-bar"><div class="hint">在售 ${avail.length} · 已预订 ${reserved.length} · 已出 ${sold.length}</div>
         ${list.length > 1 ? sortSegHtml(sort) : ''}</div>
@@ -684,13 +716,16 @@ function buyerSale(saleId) {
       </div></div>` : ''}
       <div style="padding:28px 16px 8px;display:flex;gap:10px;justify-content:center">
         <a class="btn small" href="/my">我的排队</a>
-        <a class="btn small" href="/new">我也要发清单</a>
       </div>`;
   };
 
   $app.addEventListener('click', (e) => {
     if (e.target.closest('[data-sold]')) {
       showSold = true;
+      render();
+    }
+    if (e.target.closest('[data-promo-x]')) {
+      store.set('promoHidden', true);
       render();
     }
     const so = e.target.closest('[data-sort]');
@@ -996,7 +1031,7 @@ function manage(saleId) {
             </div>
             <span class="muted">›</span>
           </div>`).join('')}</div>`}
-      ${ended ? '' : `<div class="bottom-bar"><div class="inner"><button class="btn big" data-act="compose">上架</button><button class="btn primary big" data-act="share">分享到群</button></div></div>`}`;
+      ${ended ? '' : `<div class="bottom-bar"><div class="inner"><button class="btn big" data-act="compose">上架</button><button class="btn primary big" data-act="share">预览并分享</button></div></div>`}`;
   };
 
   $app.addEventListener('click', (e) => {
@@ -1018,7 +1053,8 @@ function manage(saleId) {
     if (a.dataset.act === 'compose') composer(S);
     if (a.dataset.act === 'reopen') reopenSale(S);
     if (a.dataset.act === 'savelink') sendSelfSheet(S, { onDone: render });
-    if (a.dataset.act === 'share') maybeCheck(S, true, () => shareSheet(S));
+    // Sharing starts from the buyer page: forwarding this page would send the 管理入口 card, key included.
+    if (a.dataset.act === 'share') maybeCheck(S, true, () => (location.href = `/s/${saleId}`));
     if (a.dataset.act === 'settings') settingsSheet(S);
   });
 
@@ -1817,7 +1853,7 @@ function publicUrl(S) {
 // A page opened in WeChat from a QR code or a card forwards as a card itself, so when that
 // page is the one being shared, no QR code is needed.
 function isCardHere(url) {
-  return isWeChat && OPENED_AS_CARD && new URL(url).pathname === location.pathname;
+  return isWeChat && cardSession() && new URL(url).pathname === location.pathname;
 }
 
 function shareSheet(S) {
@@ -1840,7 +1876,7 @@ function shareSheet(S) {
     <div class="share-help">
       <div class="survey-title">怎么分享图文卡片出去？</div>
       <div class="group"><div class="cell small" style="display:block;line-height:1.9">
-        ${here ? `这个页面就是从二维码或卡片打开的，可以直接转发：<br>
+        ${here ? `这个页面转发出去就是卡片，可以直接转发：<br>
         1. 点右上角 <b>···</b> →「发送给朋友」→ 选群，发出去就是卡片<br>
         2. 回来点「发文字」，复制后粘贴到同一个群` : `
         1. 点上面的「发卡片」，会出现一个二维码<br>
@@ -1938,11 +1974,19 @@ async function sendCard(url, what) {
   if (isCardHere(url)) {
     return openSheet(() => `<h2>发卡片</h2>
       <div class="group"><div class="cell small" style="display:block;line-height:1.9">
-        这个页面就是从二维码或卡片打开的，不用再扫码：<br>
+        这个页面转发出去就是卡片，不用再扫码：<br>
         点右上角 <b>···</b> →「发送给朋友」→ 选群，发出去就是卡片
       </div></div>
-      <div class="actions"><button class="btn block" data-act="close">好了</button></div>`, (act, el, s) => {
+      <div class="actions">
+        <button class="btn block" data-act="close">好了</button>
+        <button class="link-btn small" data-act="not-card" style="margin:4px auto 0">发出去只是一串网址？改用二维码</button>
+      </div>`, (act, el, s) => {
       if (act === 'close') s.close();
+      if (act === 'not-card') {
+        setCardSession(false);
+        s.close();
+        sendCard(url, what);
+      }
     });
   }
   const stop = loading('正在生成二维码…');
@@ -1966,8 +2010,14 @@ async function sendCard(url, what) {
     <div class="actions">
       ${isWeChat ? '' : `<a class="btn block" download="二维码.png" href="${src}">下载二维码图片</a>`}
       <button class="btn block" data-act="close">好了</button>
+      ${isWeChat && new URL(url).pathname === location.pathname ? `<button class="link-btn small" data-act="is-card" style="margin:4px auto 0">这页转发出去已经是卡片了？不用扫码</button>` : ''}
     </div>`, (act, el, s) => {
     if (act === 'close') s.close();
+    if (act === 'is-card') {
+      setCardSession(true);
+      s.close();
+      sendCard(url, what);
+    }
   });
 }
 
