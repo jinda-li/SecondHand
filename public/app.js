@@ -450,22 +450,39 @@ function guessCurrency() {
 function saleFormHtml(s, { create = false } = {}) {
   const titleHtml = create
     ? `<label class="field"><span>你的名字 <b class="req">*</b></span><input type="text" name="owner" maxlength="12" value="${esc(s.owner)}" placeholder="别人怎么称呼你" autocomplete="nickname"></label>
-      <div class="field" style="padding-top:0">
+      <div class="field">
+        <span>清单标题</span>
         <div class="seg">${TITLE_SUFFIXES.map((t, i) => `<button type="button" class="${i === 0 ? 'on' : ''}" data-suffix="${esc(t)}">${esc(t)}</button>`).join('')}</div>
-        <div class="small muted" style="margin-top:8px">标题：<b class="title-preview"></b></div>
+        <div class="help">标题：<b class="title-preview"></b></div>
         <input type="hidden" name="title">
       </div>`
     : `<label class="field"><span>标题</span><input type="text" name="title" maxlength="30" value="${esc(s.title)}"></label>`;
+  const contact = `<label class="field"><span>联系方式 <b class="req">*</b>${create ? '' : '（只给排第 1 位的人看）'}</span><input type="text" name="wechatId" maxlength="60" value="${esc(s.wechatId)}" placeholder="微信号、手机号都行" autocomplete="off">${create ? '<div class="help">只给排第 1 位的人看</div>' : ''}</label>
+      <label class="field"><span>取货地点 <b class="req">*</b></span><input type="text" name="location" maxlength="40" value="${esc(s.location)}" placeholder="例：地铁站附近自提"></label>`;
+  const more = `<label class="field"><span>货币</span><select name="currency">${Object.keys(CURRENCIES).map((c) => `<option value="${c}" ${c === s.currency ? 'selected' : ''}>${c} ${CURRENCIES[c].trim()}</option>`).join('')}</select></label>
+      <div class="field"><span>规则</span><div class="rules">${rulesEditor(s.rules)}</div></div>
+      <label class="field"><span>截止日期（选填）</span><input type="date" name="leaveDate" value="${esc(s.leaveDate)}"></label>`;
+  const nearby = `<label class="field nearby-row"><input type="checkbox" name="nearby" ${s.publicNearby === false ? '' : 'checked'}>
+        <span style="margin:0;color:var(--text)">公开到「附近的二手」，让附近的人也能看到<br><span class="small muted">会用到你的大概位置（约 1 公里范围），不会显示具体地址</span></span></label>`;
+  // Creating: the three required fields up front, the rest folded away with their defaults.
+  if (create) {
+    return `
+    <div class="form ik">
+      ${titleHtml}
+      ${contact}
+      <details class="ik-more">
+        <summary><span><b>更多设置</b><span class="help">货币 ${esc(s.currency)} · 规则 · 截止日期，都有默认值</span></span></summary>
+        ${more}
+      </details>
+      ${nearby}
+    </div>`;
+  }
   return `
     <div class="form">
       ${titleHtml}
-      <label class="field"><span>联系方式 <b class="req">*</b>（只给排第 1 位的人看）</span><input type="text" name="wechatId" maxlength="60" value="${esc(s.wechatId)}" placeholder="微信号、手机号都行" autocomplete="off"></label>
-      <label class="field"><span>取货地点 <b class="req">*</b></span><input type="text" name="location" maxlength="40" value="${esc(s.location)}" placeholder="例：地铁站附近自提"></label>
-      <label class="field"><span>货币</span><select name="currency">${Object.keys(CURRENCIES).map((c) => `<option value="${c}" ${c === s.currency ? 'selected' : ''}>${c} ${CURRENCIES[c].trim()}</option>`).join('')}</select></label>
-      <div class="field"><span>规则</span><div class="rules">${rulesEditor(s.rules)}</div></div>
-      <label class="field"><span>截止日期（选填）</span><input type="date" name="leaveDate" value="${esc(s.leaveDate)}"></label>
-      <label class="field nearby-row"><input type="checkbox" name="nearby" ${s.publicNearby === false ? '' : 'checked'}>
-        <span style="margin:0;color:var(--text)">公开到「附近的二手」，让附近的人也能看到<br><span class="small muted">会用到你的大概位置（约 1 公里范围），不会显示具体地址</span></span></label>
+      ${contact}
+      ${more}
+      ${nearby}
     </div>`;
 }
 
@@ -533,13 +550,56 @@ function intro() {
       </div>
       <div class="intro-free">免费 · 不用注册 · 不用下载</div>
     </div>
+    <div class="save-entry" id="save">
+      <div class="save-t">${ICON_STAR}收藏这个页面</div>
+      <div class="save-s">现在不发也没关系，以后想出二手，从${isWeChat ? '微信收藏' : '书签'}里打开就能用。</div>
+      <div class="save-btns">
+        <button class="pill dark" data-save="fav">${ICON_STAR}去收藏</button>
+        <button class="pill" data-save="send">分享给朋友</button>
+      </div>
+    </div>
     <div class="bottom-bar"><div class="inner"><a class="btn primary big" href="/new?go=1">开始发布</a></div></div>`;
+  // 收藏 on a buyer page's strip lands here; the card is rendered after load, so scroll by hand.
+  if (location.hash === '#save') $app.querySelector('#save').scrollIntoView({ block: 'center' });
+  $app.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-save]');
+    if (!b) return;
+    const fav = b.dataset.save === 'fav';
+    if (isWeChat) return menuGuide(fav ? '收藏' : '发送给朋友');
+    const url = `${location.origin}/new`;
+    if (!fav && navigator.share) {
+      try {
+        await navigator.share({ title: '二手清单｜出二手，不用一个个回消息', url });
+      } catch {}
+      return;
+    }
+    if (fav) return toast(/Mobi/i.test(navigator.userAgent) ? '在浏览器菜单里选「添加书签」或「添加到主屏幕」' : '按 Ctrl+D（Mac 上 ⌘+D）加到书签');
+    copy(url, '链接已复制，发给朋友吧');
+  });
+}
+
+const ICON_STAR = `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`;
+
+// WeChat gives pages no way to bookmark or share themselves, so point at its ··· menu instead.
+function menuGuide(item) {
+  const el = document.createElement('div');
+  el.className = 'menu-guide';
+  el.innerHTML = `
+    <svg class="mg-arrow" viewBox="0 0 120 120" aria-hidden="true"><path d="M20 110 C 30 60, 60 30, 100 18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 12"/><path d="M84 10 L104 16 L94 34" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="mg-steps">
+      <div class="mg-step"><span class="mg-no">1</span>点右上角 <b class="mg-dots">···</b></div>
+      <div class="mg-step"><span class="mg-no">2</span>选「<b>${esc(item)}</b>」</div>
+      ${item === '收藏' ? `<div class="mg-tip">以后在微信「我 → 收藏」里就能找到</div>` : ''}
+    </div>
+    <button class="pill mg-ok">知道了</button>`;
+  el.addEventListener('click', () => el.remove());
+  document.body.appendChild(el);
 }
 
 async function createSale() {
   const meData = await fetchMe();
   $app.innerHTML = `
-    <div class="head"><h1>发布二手清单</h1><div class="meta">只有三项必填，其余都有默认值</div></div>
+    <div class="ik-head"><a class="brand" href="/">二手清单</a><h1>发布二手清单</h1><div class="ik-sub">填 3 项就能开始上架，其他都有默认值。</div></div>
     ${googleOn() && !meData.user ? loginCardHtml('可以先用 Google 登录（可跳过）：清单跟着账号走，换手机也能管理') : ''}
     ${saleFormHtml({ owner: store.get('ownerName', '') || meData.user?.name || '', wechatId: '', location: '', currency: guessCurrency(), rules: DEFAULT_RULES, leaveDate: '' }, { create: true })}
     <div class="bottom-bar"><div class="inner"><button class="btn primary big" id="go">开始上架</button></div></div>`;
@@ -661,8 +721,8 @@ function appBarHtml(isOwner) {
   return `
     ${promo ? `<div class="promo">
       <button class="promo-x" data-promo-x aria-label="关闭">✕</button>
-      <span class="promo-icon">二手</span>
-      <div class="promo-txt"><b>我也有二手要出</b><span>免登录 · 免安装 · 多群同步 · 免费</span></div>
+      <div class="promo-txt"><b>我也有二手要出</b><span>免登录·免安装·多群同步·免费</span></div>
+      <a class="promo-fav" href="/new#save">收藏</a>
       <a class="promo-cta" href="/new">去发布</a>
     </div>` : ''}
     <div class="appbar">

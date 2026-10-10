@@ -74,7 +74,12 @@ async function route(req, env, ctx) {
   if ((m = p.match(/^\/s\/([A-Za-z0-9]+)\/i\/(\d+)\/?$/))) return itemPage(env, url, m[1], Number(m[2]));
   if ((m = p.match(/^\/s\/([A-Za-z0-9]+)\/?$/))) return salePage(env, url, m[1]);
   if ((m = p.match(/^\/manage\/([A-Za-z0-9]+)\/?$/))) return managePage(env, url, m[1]);
-  if (p === '/' || p === '/new' || p === '/my' || p === '/nearby') {
+  // /new is the public "what is this" page buyers reach from 我也有二手要出, and the one people
+  // save or forward, so its card says what the app does.
+  if (p === '/new') {
+    return page({ title: '二手清单｜出二手，不用一个个回消息', desc: '拍照上架，发到群里，想要的人自己排队。免费 · 不用注册 · 不用下载', url });
+  }
+  if (p === '/' || p === '/my' || p === '/nearby') {
     return page({ title: '二手清单', desc: '拍照就上架，别人点开就能排队', url });
   }
   return page({ title: '找不到这个页面', url, status: 404, data: { notFound: true } });
