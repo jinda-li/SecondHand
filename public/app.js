@@ -1239,7 +1239,7 @@ function composer(S) {
   const retailHtml = (c) => {
     if (!c.retail) return `<div class="cretail"></div>`;
     const { low, high, generic } = c.retail;
-    return `<div class="cretail">${generic ? '同类新品约' : '新品原价约'}${esc(sym)}${low}${high > low ? `–${high}` : ''} · AI 估计，售价你来定</div>`;
+    return `<div class="cretail">${generic ? '同类新品约' : '新品原价约'}${esc(sym)}${low}${high > low ? `–${high}` : ''}</div>`;
   };
 
   const statusHtml = (c) => {
@@ -1247,7 +1247,6 @@ function composer(S) {
     if (c.aiBusy) return `<div class="cstatus">✨ AI 正在认这是什么…</div>`;
     if (c.touched && !c.name.trim()) return `<div class="cstatus err">还没填名字</div>`;
     if (c.touched && priceCents(c) == null) return `<div class="cstatus err">还没填价格</div>`;
-    if (c.aiFilled) return `<div class="cstatus">✨ AI 填的，不对可以改</div>`;
     return `<div class="cstatus"></div>`;
   };
 
@@ -1317,14 +1316,8 @@ function composer(S) {
       const r = await aiRecognize(c.files.map((f) => f.file), sale.currency);
       c.aiDone = true;
       c.retail = r.retail || null;
-      if (force || !c.name.trim()) {
-        c.name = r.name;
-        c.aiFilled = true;
-      }
-      if ((force || !c.note.trim()) && r.note) {
-        c.note = r.note;
-        c.aiFilled = true;
-      }
+      if (force || !c.name.trim()) c.name = r.name;
+      if ((force || !c.note.trim()) && r.note) c.note = r.note;
       return true;
     } catch (err) {
       if (err.code === 'LIMIT') aiLimitSheet(onRegain);
@@ -1365,7 +1358,6 @@ function composer(S) {
     if (!inp) return;
     const c = cards[Number(inp.closest('[data-idx]').dataset.idx)];
     c[inp.dataset.in] = inp.value;
-    if (inp.dataset.in === 'name') c.aiFilled = false;
     c.error = '';
     refreshCard(c);
   });
@@ -1955,8 +1947,8 @@ async function uploadCover(S) {
 
 async function qrMatrix(text) {
   try {
-    const mod = await import('https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/+esm');
-    const qrcode = mod.default || mod;
+    // Self-hosted: jsDelivr is unreliable from mainland China.
+    const { default: qrcode } = await import('/vendor/qrcode-generator.mjs');
     const qr = qrcode(0, 'M');
     qr.addData(text);
     qr.make();

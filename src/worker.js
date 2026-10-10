@@ -1,6 +1,6 @@
 import { money, contactNote } from '../public/lib.js';
 
-const VERSION = '31';
+const VERSION = '32';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 const MAX_QUEUE_PER_SALE = 10;
