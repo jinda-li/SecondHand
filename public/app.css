@@ -85,6 +85,9 @@ img { display: block; max-width: 100%; }
 .no.big { min-width: 44px; height: 36px; font-size: 20px; border-radius: 8px; }
 .price { color: var(--red); font-weight: 700; }
 .price.free { color: var(--green); }
+.prices { display: inline-flex; align-items: baseline; gap: 6px; }
+.orig { color: var(--sub); font-size: 12px; font-weight: 400; }
+.item-info .orig { font-size: 15px; }
 .stamp {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(-14deg);
   border: 3px solid currentColor; border-radius: 8px; padding: 2px 10px;
@@ -188,6 +191,10 @@ img { display: block; max-width: 100%; }
 .seg button { border: 1px solid var(--line); background: #fff; border-radius: 16px; padding: 4px 12px; font-size: 14px; cursor: pointer; }
 .seg button.on { border-color: var(--green); color: var(--green); background: #effaf3; }
 .hint { padding: 8px 16px; color: var(--sub); font-size: 13px; }
+.list-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 16px 8px 0; }
+.list-bar .hint { padding-top: 0; padding-bottom: 0; }
+.list-bar.end { justify-content: flex-end; }
+.seg.small button { padding: 2px 10px; font-size: 13px; }
 
 /* ---------- sheets ---------- */
 .mask { position: fixed; inset: 0; z-index: 60; background: var(--mask); display: flex; align-items: flex-end; justify-content: center; animation: fade .15s; }
@@ -265,6 +272,7 @@ img { display: block; max-width: 100%; }
 .tile .track > span { flex: none; width: 100%; height: 100%; }
 .nearby-row { display: flex; gap: 10px; align-items: flex-start; }
 .nearby-row input[type=checkbox] { width: 20px; height: 20px; margin-top: 3px; accent-color: var(--green); flex: none; }
+.share-opts { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 10px 2px 0; }
 .intro { padding: 28px 20px 8px; text-align: center; }
 .intro-title { font-size: 30px; line-height: 1.25; margin: 0 0 10px; font-weight: 900; }
 .intro-sub { color: var(--sub); font-size: 15px; margin-bottom: 22px; }
@@ -292,8 +300,11 @@ img { display: block; max-width: 100%; }
 .cfields { display: flex; gap: 8px; margin-top: 10px; }
 .cfields .inp.boxed { flex: 1; min-width: 0; font-size: 16px; }
 .ccard .cnote { display: block; width: 100%; margin-top: 8px; font-size: 16px; resize: none; line-height: 1.4; font-family: inherit; }
-.cretail { text-align: right; font-size: 12px; color: var(--sub); margin-top: 4px; }
+.corig { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 8px; }
+.cretail { font-size: 12px; color: var(--sub); text-align: right; }
 .cretail:empty { display: none; }
+.corig .price-in { width: 128px; }
+.corig .price-in span { font-weight: 400; font-size: 13px; white-space: nowrap; }
 .price-in { display: flex; align-items: center; gap: 4px; width: 104px; flex: none; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; background: #fff; }
 .price-in span { color: var(--sub); font-weight: 700; }
 .price-in input { width: 100%; border: 0; outline: none; font-size: 16px; padding: 8px 0; background: transparent; }

@@ -1,6 +1,6 @@
 import { money, contactNote } from '../public/lib.js';
 
-const VERSION = '32';
+const VERSION = '33';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 const MAX_QUEUE_PER_SALE = 10;
@@ -248,7 +248,7 @@ async function nearby(env, req, url) {
   if (scope === 'near' && !hasLoc) fail('INVALID', '需要你的大概位置');
   const cityFilter = scope === 'city' && city ? 'AND s.city = ?' : '';
   const { results } = await env.DB.prepare(
-    `SELECT i.no, i.name, i.price_cents, i.photos, i.created_at, s.id AS sale_id, s.location, s.currency, s.lat, s.lng, s.city
+    `SELECT i.no, i.name, i.price_cents, i.orig_price_cents, i.photos, i.created_at, s.id AS sale_id, s.location, s.currency, s.lat, s.lng, s.city
      FROM items i JOIN sales s ON s.id = i.sale_id
      WHERE s.public_nearby = 1 AND s.status = 'active' AND i.status = 'available' ${cityFilter}
      ORDER BY i.created_at DESC LIMIT 400`,
@@ -258,6 +258,7 @@ async function nearby(env, req, url) {
     no: r.no,
     name: r.name,
     priceCents: r.price_cents,
+    origPriceCents: r.orig_price_cents ?? null,
     currency: r.currency,
     photo: JSON.parse(r.photos || '[]')[0] || '',
     location: r.location,
@@ -277,6 +278,7 @@ function mapItem(r, t) {
     no: r.no,
     name: r.name,
     priceCents: r.price_cents,
+    origPriceCents: r.orig_price_cents ?? null,
     condition: r.condition,
     note: r.note,
     photos: JSON.parse(r.photos || '[]'),
@@ -445,6 +447,7 @@ async function api(req, env, url) {
   if (p === '/nearby' && M === 'GET') return nearby(env, req, url);
   if (p === '/ai/quota' && M === 'GET') return ok(await aiQuota(env, requireClient(req)));
   if (p === '/ai/identify' && M === 'POST') return aiIdentify(env, req);
+  if (p === '/ai/batch' && M === 'POST') return aiBatch(env, req);
   if (p === '/ai/survey' && M === 'POST') return aiSurvey(env, req);
   if (p === '/ai/invite' && M === 'POST') return aiInvite(env, req);
   if (p === '/ai/nudge' && M === 'POST') return aiNudge(env, req);
@@ -625,6 +628,11 @@ function itemFields(b, partial) {
     if (!Number.isInteger(c) || c < 0 || c > 100_000_000) fail('INVALID', '价格不对');
     out.price_cents = c;
   }
+  if (!partial || 'origPriceCents' in b) {
+    const c = b.origPriceCents ?? null;
+    if (c !== null && (!Number.isInteger(c) || c < 0 || c > 100_000_000)) fail('INVALID', '原价不对');
+    out.orig_price_cents = c;
+  }
   if (!partial || 'condition' in b) {
     out.condition = CONDITION_CODES.includes(b.condition ?? '') ? b.condition ?? '' : fail('INVALID', '成色不对');
   }
@@ -641,9 +649,9 @@ async function createItem(env, sale, b) {
   // Number allocation and the counter bump run in one transaction; numbers are never reused.
   const [, , got] = await env.DB.batch([
     env.DB.prepare(
-      `INSERT INTO items (id, sale_id, no, name, price_cents, condition, note, photos, status, status_checked_at, status_changed_at, created_at, updated_at)
-       VALUES (?1, ?2, (SELECT next_no FROM sales WHERE id = ?2), ?3, ?4, ?5, ?6, ?7, 'available', ?8, ?8, ?8, ?8)`,
-    ).bind(id, sale.id, f.name, f.price_cents, f.condition, f.note, photos, t),
+      `INSERT INTO items (id, sale_id, no, name, price_cents, orig_price_cents, condition, note, photos, status, status_checked_at, status_changed_at, created_at, updated_at)
+       VALUES (?1, ?2, (SELECT next_no FROM sales WHERE id = ?2), ?3, ?4, ?9, ?5, ?6, ?7, 'available', ?8, ?8, ?8, ?8)`,
+    ).bind(id, sale.id, f.name, f.price_cents, f.condition, f.note, photos, t, f.orig_price_cents),
     env.DB.prepare('UPDATE sales SET next_no = next_no + 1, seller_active_at = ?1, updated_at = ?1 WHERE id = ?2').bind(t, sale.id),
     env.DB.prepare('SELECT no FROM items WHERE id = ?').bind(id),
   ]);
@@ -832,14 +840,27 @@ const AI_SURVEY_BONUS = 10;
 const AI_DAILY_CAP = 400;
 const AI_MAX_IMAGE_BYTES = 400_000;
 const AI_MAX_IMAGES = 3;
+// Several photos picked at once: sorted into items and recognised in one call.
+const AI_BATCH_MAX_IMAGES = 8;
+const AI_BATCH_MAX_IMAGE_BYTES = 250_000;
 
-const aiPrompt = (currency, n = 1) => `${n > 1 ? `这是 ${n} 张同一件物品的照片，准备在留学生二手群里出售。请结合所有照片识别这件物品` : '这是一张准备在留学生二手群里出售的物品照片。请识别照片里的主要物品'}，用简体中文回答。
-只输出一行 JSON，不要任何别的文字：{"brand":"品牌","model":"型号","name":"物品叫法","detail":"详情","retail":"原价范围"}
-- brand：看 logo、印的字或很有辨识度的外观认出的品牌，用中国人常用的叫法（例如「宜家」「戴森」「苹果」「无印良品」）；认不出就写空字符串。
+const AI_FIELDS = '"brand":"品牌","model":"型号","name":"物品叫法","detail":"详情","retail":"原价范围"';
+const aiFieldRules = (currency) => `- brand：看 logo、印的字或很有辨识度的外观认出的品牌，用中国人常用的叫法（例如「宜家」「戴森」「苹果」「无印良品」）；认不出就写空字符串。
 - model：型号或系列名，保持原文（例如「MALM」「Supersonic」「AirPods Pro」）。只在照片上印着、或外观独一无二、你非常确定时才写；同品牌有好几款长得像的，就写空字符串，写错比不写更糟。
 - name：2 到 8 个字，大家常用的叫法，不带品牌（例如「台灯」「吹风机」「抽屉柜」）。
-- detail：不超过 30 个字，只写看得出的颜色、尺寸、数量、配件，不要评价新旧成色；没有就写空字符串。
+- detail：不超过 30 个字，写照片里看不出来、但买家想知道的信息：这一款的用途、功能、用法或关键规格（例如「1600W，三档风速，带负离子」「适合 140×200 床垫」「可放 13 寸笔记本」）。照片已经给买家看了，不要再描述颜色、外观、数量这些看得见的东西，也不要评价新旧成色。只写你有把握的；一看就懂的普通东西（杯子、衣架）写空字符串。
 - retail：全新时的大概零售价范围，单位 ${currency}，只写数字，格式「30-40」。认出了品牌就估这一款的价；没认出品牌就估这类东西普通新品的常见价（例如无牌平板支架「10-20」）。范围尽量窄，完全没把握才写空字符串。`;
+
+const aiPrompt = (currency, n = 1) => `${n > 1 ? `这是 ${n} 张同一件物品的照片，准备在留学生二手群里出售。请结合所有照片识别这件物品` : '这是一张准备在留学生二手群里出售的物品照片。请识别照片里的主要物品'}，用简体中文回答。
+只输出一行 JSON，不要任何别的文字：{${AI_FIELDS}}
+${aiFieldRules(currency)}`;
+
+const aiBatchPrompt = (currency, n) => `下面是同一个人准备在留学生二手群里出售的 ${n} 张照片，每张前面标了编号。有的东西拍了好几张（不同角度、细节、标签、包装），有的只拍了一张。
+第一步：按编号顺序一张一张看，给每张照片标上它拍的是哪件物品，用字母 A、B、C… 表示，同一件物品用同一个字母。同类但不是同一件的东西（例如两个不同的杯子）用不同字母；一套东西（例如一套餐具）算一件。
+第二步：结合每件物品的所有照片识别它，用简体中文回答。
+只输出一行 JSON，不要任何别的文字。photos 按编号顺序正好 ${n} 个字母：{"photos":["A","B","A"],"items":[{"id":"A",${AI_FIELDS}}]}
+每件物品的字段：
+${aiFieldRules(currency)}`;
 
 async function aiQuota(env, clientId) {
   const row = await env.DB.prepare('SELECT * FROM ai_quota WHERE client_id = ?').bind(clientId).first();
@@ -883,7 +904,7 @@ function parseAiReply(reply) {
   const name = model ? `${brand}${brand ? ' ' : ''}${model} ${what}` : `${brand}${what}`;
   // Brand and model also go into the details, where buyers look for them.
   const which = [brand && `品牌：${brand}`, model && `型号：${model}`].filter(Boolean).join('，');
-  const note = [which, clean(out.detail ?? out.note, 40)].filter(Boolean).join('。');
+  const note = [which, clean(out.detail ?? out.note, 50)].filter(Boolean).join('。');
   // Without a brand the range is for the kind of item in general, and the UI says so.
   const retail = parseRetail(out.retail);
   return { name: clean(name, 30), brand, model, note: clean(note, 100), retail: retail && { ...retail, generic: !brand } };
@@ -899,38 +920,44 @@ function parseRetail(v) {
   return { low: Math.round(low), high: Math.round(high) };
 }
 
-async function aiIdentify(env, req) {
-  const clientId = requireClient(req);
+async function imagePart(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${btoa(bin)}` } };
+}
+
+// Quota and daily-cap checks shared by single and batch recognition.
+async function aiGate(env, clientId) {
   const q = await aiQuota(env, clientId);
   if (!q.unlimited && q.left <= 0) fail('LIMIT', q.surveyDone ? '送的次数用完了' : '送的 3 次用完了', 429);
   const day = new Date().toISOString().slice(0, 10);
   const daily = await env.DB.prepare('SELECT count FROM ai_daily WHERE day = ?').bind(day).first();
   if (!q.unlimited && (daily?.count ?? 0) >= AI_DAILY_CAP) fail('AI_BUSY', '今天的 AI 免费额度用完了，先打字也很快', 503);
+  return { q, day };
+}
 
+async function aiImages(req, max, maxBytes) {
   let form;
   try {
     form = await req.formData();
   } catch {
     fail('INVALID', '照片格式不对');
   }
-  // Up to AI_MAX_IMAGES shots of the same item; one call, one use of the quota.
-  const files = form.getAll('image').filter((f) => f && typeof f !== 'string').slice(0, AI_MAX_IMAGES);
+  const files = form.getAll('image').filter((f) => f && typeof f !== 'string').slice(0, max);
   if (!files.length) fail('INVALID', '没有收到照片');
-  if (files.some((f) => f.size > AI_MAX_IMAGE_BYTES)) fail('INVALID', '照片太大了');
+  if (files.some((f) => f.size > maxBytes)) fail('INVALID', '照片太大了');
   const currency = /^[A-Z]{3}$/.test(form.get('currency') || '') ? form.get('currency') : 'EUR';
-  const images = [];
-  for (const file of files) {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    let bin = '';
-    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    images.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${btoa(bin)}` } });
-  }
+  return { images: await Promise.all(files.map(imagePart)), currency };
+}
 
+// Workers AI returns either { response } or an OpenAI-style { choices: [{ message }] }.
+async function runAi(env, content, maxTokens) {
   let reply;
   try {
     reply = await env.AI.run(AI_MODEL, {
-      messages: [{ role: 'user', content: [{ type: 'text', text: aiPrompt(currency, images.length) }, ...images] }],
-      max_tokens: 250,
+      messages: [{ role: 'user', content }],
+      max_tokens: maxTokens,
       temperature: 0.2,
       chat_template_kwargs: { enable_thinking: false },
     });
@@ -940,17 +967,85 @@ async function aiIdentify(env, req) {
     if (/neuron|quota|limit|free plan|4006|5035/i.test(String(e?.message))) fail('AI_BUSY', '今天的 AI 免费额度用完了，先打字也很快', 503);
     fail('AI_ERROR', 'AI 暂时识别不了，直接打字也行', 502);
   }
-  // Workers AI returns either { response } or an OpenAI-style { choices: [{ message }] }.
-  const result = parseAiReply(reply?.response || reply?.choices?.[0]?.message?.content);
+  return reply?.response || reply?.choices?.[0]?.message?.content;
+}
+
+// uses: recognised items, charged to the seller; calls: rough work done, for our daily cap.
+function chargeAi(env, clientId, day, uses, calls) {
+  return env.DB.batch([
+    ...(uses ? upsertQuota(env, clientId, `used = used + ${uses}`) : []),
+    env.DB.prepare('INSERT INTO ai_daily (day, count) VALUES (?1, ?2) ON CONFLICT (day) DO UPDATE SET count = count + ?2').bind(day, calls),
+  ]);
+}
+
+async function aiIdentify(env, req) {
+  const clientId = requireClient(req);
+  const { day } = await aiGate(env, clientId);
+  // Up to AI_MAX_IMAGES shots of the same item; one call, one use of the quota.
+  const { images, currency } = await aiImages(req, AI_MAX_IMAGES, AI_MAX_IMAGE_BYTES);
+  const result = parseAiReply(await runAi(env, [{ type: 'text', text: aiPrompt(currency, images.length) }, ...images], 250));
   if (!result.name) fail('AI_ERROR', '没认出来是什么，直接打字吧', 502);
 
   // Only successful recognitions count against the quota.
-  await env.DB.batch([
-    ...upsertQuota(env, clientId, 'used = used + 1'),
-    env.DB.prepare('INSERT INTO ai_daily (day, count) VALUES (?, 1) ON CONFLICT (day) DO UPDATE SET count = count + 1').bind(day),
-  ]);
+  await chargeAi(env, clientId, day, 1, 1);
   const after = await aiQuota(env, clientId);
   return ok({ ...result, left: after.left, unlimited: after.unlimited });
+}
+
+// The reply labels each photo, in order, with the letter of the item it shows. Photos with
+// the same letter become one item; a missing or unknown label makes a photo its own,
+// unrecognised item. Items come back ordered by their first photo, photos counted from 0.
+function parseBatch(reply, n) {
+  let out = {};
+  if (reply && typeof reply === 'object') out = reply;
+  else {
+    const m = String(reply || '').match(/\{[\s\S]*\}/);
+    try {
+      out = m ? JSON.parse(m[0]) : {};
+    } catch {}
+  }
+  const info = new Map();
+  for (const it of Array.isArray(out.items) ? out.items : []) if (it && typeof it === 'object') info.set(String(it.id ?? '').trim(), it);
+  const labels = Array.isArray(out.photos) ? out.photos : [];
+  const byLabel = new Map();
+  const items = [];
+  for (let i = 0; i < n; i++) {
+    const label = String(labels[i] ?? '').trim();
+    const known = label && info.has(label);
+    if (known && byLabel.has(label)) byLabel.get(label).photos.push(i);
+    else {
+      const item = { photos: [i], ...parseAiReply(known ? info.get(label) : {}) };
+      if (known) byLabel.set(label, item);
+      items.push(item);
+    }
+  }
+  return items;
+}
+
+// One call for a batch of photos: which ones show the same item, and what each item is.
+// Each recognised item uses one of the seller's uses; past what is left, items come back
+// grouped but unnamed, with limited set.
+async function aiBatch(env, req) {
+  const clientId = requireClient(req);
+  const { q, day } = await aiGate(env, clientId);
+  const { images, currency } = await aiImages(req, AI_BATCH_MAX_IMAGES, AI_BATCH_MAX_IMAGE_BYTES);
+  const content = [{ type: 'text', text: aiBatchPrompt(currency, images.length) }];
+  images.forEach((im, i) => content.push({ type: 'text', text: `第 ${i + 1} 张：` }, im));
+  const items = parseBatch(await runAi(env, content, 120 + 110 * images.length), images.length);
+
+  let uses = 0;
+  let limited = false;
+  for (const it of items) {
+    if (!it.name) continue;
+    if (q.unlimited || uses < q.left) uses++;
+    else {
+      Object.assign(it, parseAiReply({}));
+      limited = true;
+    }
+  }
+  await chargeAi(env, clientId, day, uses, Math.max(uses, Math.ceil(images.length / 3)));
+  const after = await aiQuota(env, clientId);
+  return ok({ items, limited, left: after.left, unlimited: after.unlimited });
 }
 
 const SURVEY_FIELDS = ['slowest', 'hours', 'pay', 'detail', 'contact'];

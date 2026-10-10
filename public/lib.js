@@ -60,12 +60,13 @@ export function stripLinks(s) {
   return String(s ?? '').replace(/\s*https?:\/\/\S+/g, '').trim();
 }
 
-// Group text: intro, then a regenerated "name price" list of everything not yet sold.
+// Group text: intro, then a regenerated list of everything not yet sold — names only unless
+// prices is set, one per line or, when compact, joined with " · ".
 // Buyers don't see item numbers here; reserved items are listed like the rest.
-export function shareText(sale, items, { intro, maxListed = 30 } = {}) {
+export function shareText(sale, items, { intro, maxListed = 30, prices = false, compact = false } = {}) {
   const open = items.filter((i) => i.status === 'available' || i.status === 'reserved').sort((a, b) => a.no - b.no);
-  const lines = [intro ?? defaultIntro(sale), '', LIST_MARK];
-  for (const i of open.slice(0, maxListed)) lines.push(`${cut(i.name, 12)} ${money(i.priceCents, sale.currency)}`);
+  const names = open.slice(0, maxListed).map((i) => (prices ? `${i.name} ${money(i.priceCents, sale.currency)}` : i.name));
+  const lines = [intro ?? defaultIntro(sale), '', LIST_MARK, ...(compact && names.length ? [names.join(' · ')] : names)];
   if (open.length > maxListed) lines.push(`还有 ${open.length - maxListed} 件，点卡片看全部`);
   return lines.join('\n');
 }

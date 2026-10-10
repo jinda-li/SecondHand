@@ -5,6 +5,8 @@ const UI = new URLSearchParams(location.search).get('ui');
 if (UI) document.documentElement.dataset.ui = UI;
 const BOOT = window.__DATA__ || {};
 const isWeChat = /MicroMessenger/i.test(navigator.userAgent);
+// c=1 is set on our QR links; WeChat adds from= to links opened from a forwarded card.
+const OPENED_AS_CARD = ['c', 'from'].some((k) => new URLSearchParams(location.search).has(k));
 const HOUR = 3600 * 1000;
 const CHECK_AFTER_MS = 12 * HOUR;
 const MAX_PHOTOS = 3;
@@ -164,8 +166,18 @@ async function copy(text, okMsg = '已复制') {
 
 const img = (id, thumb = true) => (id ? `/img/${id}${thumb ? '/t' : ''}` : '');
 
-function moneyHtml(cents, cur) {
-  return `<span class="price${cents === 0 ? ' free' : ''}">${esc(money(cents, cur))}</span>`;
+// Asking price, with the original price struck through after it when one is set and higher.
+function moneyHtml(cents, cur, orig) {
+  const p = `<span class="price${cents === 0 ? ' free' : ''}">${esc(money(cents, cur))}</span>`;
+  return orig > cents ? `<span class="prices">${p}<s class="orig">${esc(money(orig, cur))}</s></span>` : p;
+}
+
+// Optional price box: blank means none; a number like "5", "5.5" or "5,50"; anything else is invalid.
+function parsePrice(v) {
+  const t = String(v ?? '').trim().replace(',', '.');
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : NaN;
 }
 
 function agoText(ts, now) {
@@ -576,7 +588,7 @@ function tileHtml(sale, it, mine) {
         ${stamp}
       </div>
       <div class="info">
-        <div class="sub">${moneyHtml(it.priceCents, sale.currency)}${it.status === 'reserved' && it.queueCount > 1 ? `<span class="muted">${it.queueCount - 1} 人候补</span>` : ''}</div>
+        <div class="sub">${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)}${it.status === 'reserved' && it.queueCount > 1 ? `<span class="muted">${it.queueCount - 1} 人候补</span>` : ''}</div>
         <a class="name" href="/s/${sale.id}/i/${it.no}">${esc(it.name)}</a>
         ${extra ? `<div class="extra">${esc(extra)}</div>` : ''}
         ${btn}
@@ -617,10 +629,23 @@ function bindCopy(root) {
   });
 }
 
+// Display order only: item numbers stay with their items. Items without a price go last.
+const SORTS = [['no', '默认'], ['asc', '价格↑'], ['desc', '价格↓']];
+function sortItems(items, sort) {
+  if (sort !== 'asc' && sort !== 'desc') return items;
+  const dir = sort === 'asc' ? 1 : -1;
+  return [...items].sort((a, b) => (a.priceCents == null) - (b.priceCents == null) || dir * (a.priceCents - b.priceCents) || a.no - b.no);
+}
+
+function sortSegHtml(sort) {
+  return `<div class="seg small">${SORTS.map(([k, t]) => `<button class="${sort === k ? 'on' : ''}" data-sort="${k}">${t}</button>`).join('')}</div>`;
+}
+
 function buyerSale(saleId) {
   // Assume seller view right away if this browser holds the key; the refetch below confirms it.
   let data = BOOT.sale ? { ...BOOT, isOwner: !!localKey(saleId) } : null;
   let showSold = false;
+  let sort = store.get('buyerSort', 'no');
 
   const render = () => {
     if (!data) {
@@ -632,7 +657,7 @@ function buyerSale(saleId) {
     const reserved = items.filter((i) => i.status === 'reserved');
     const sold = items.filter((i) => i.status === 'sold');
     const ended = sale.status === 'ended';
-    const list = [...avail, ...reserved];
+    const list = [...sortItems(avail, sort), ...sortItems(reserved, sort)];
     document.title = `${sale.title}｜在售 ${avail.length} 件`;
     $app.innerHTML = `
       <div class="head">
@@ -646,7 +671,8 @@ function buyerSale(saleId) {
         页面是实时的：显示「预订」的就是还在。
       </div>`}
       ${contact ? contactHtml(contact) : ''}
-      <div class="hint" style="padding-top:0">在售 ${avail.length} · 已预订 ${reserved.length} · 已出 ${sold.length}</div>
+      <div class="list-bar"><div class="hint">在售 ${avail.length} · 已预订 ${reserved.length} · 已出 ${sold.length}</div>
+        ${list.length > 1 ? sortSegHtml(sort) : ''}</div>
       ${list.length ? `<div class="grid">${list.map((it) => tileHtml(sale, it, mine)).join('')}</div>`
         : `<div class="empty">${items.length ? '都卖完了' : '卖家还没上架东西'}</div>`}
       ${sold.length ? (showSold
@@ -665,6 +691,12 @@ function buyerSale(saleId) {
   $app.addEventListener('click', (e) => {
     if (e.target.closest('[data-sold]')) {
       showSold = true;
+      render();
+    }
+    const so = e.target.closest('[data-sort]');
+    if (so) {
+      sort = so.dataset.sort;
+      store.set('buyerSort', sort);
       render();
     }
     const j = e.target.closest('[data-join]');
@@ -736,7 +768,7 @@ function buyerItem(saleId, no) {
         ${stamp}
       </div>
       <div class="item-info">
-        <div class="row">${moneyHtml(it.priceCents, sale.currency)}</div>
+        <div class="row">${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)}</div>
         <h1>${esc(it.name)}</h1>
         ${it.condition ? `<div class="meta">${esc(CONDITIONS[it.condition])}</div>` : ''}
         ${it.note ? `<div style="margin-top:6px;white-space:pre-line">${esc(it.note)}</div>` : ''}
@@ -915,6 +947,7 @@ function manage(saleId) {
   const params = new URLSearchParams(location.search);
   let data = null;
   let tab = 'all';
+  let sort = store.get('manageSort', 'no');
   let checkedThisOpen = false;
   let hiddenAt = 0;
   const S = { saleId, key };
@@ -933,7 +966,7 @@ function manage(saleId) {
   const render = () => {
     const { sale, items, soldCents } = data;
     const count = (st) => items.filter((i) => i.status === st).length;
-    const list = tab === 'all' ? items : items.filter((i) => i.status === tab);
+    const list = sortItems(tab === 'all' ? items : items.filter((i) => i.status === tab), sort);
     const ended = sale.status === 'ended';
     document.title = `管理｜${sale.title}`;
     $app.innerHTML = `
@@ -950,6 +983,7 @@ function manage(saleId) {
       <div class="chips">
         ${[['all', '全部'], ['available', '在售'], ['reserved', '已预订'], ['sold', '已出']].map(([k, l]) => `<button class="chip ${tab === k ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('')}
       </div>
+      ${list.length > 1 ? `<div class="list-bar end">${sortSegHtml(sort)}</div>` : ''}
       ${items.length === 0 ? `<div class="empty">拍张照、填个价格，就上架了。<br><br><button class="btn primary" data-act="compose">选照片</button></div>`
         : list.length === 0 ? `<div class="empty">这里没有东西</div>`
         : `<div class="section">${list.map((it) => `
@@ -958,7 +992,7 @@ function manage(saleId) {
             <img src="${img(it.photos[0])}" alt="" loading="lazy">
             <div class="grow">
               <div class="ellipsis">${esc(it.name)}</div>
-              <div class="small">${moneyHtml(it.priceCents, sale.currency)} · <span class="st ${it.status}">${statusText[it.status]}</span>${it.queueCount ? ` · ${it.queueCount} 人排队${it.queue[0] ? `（第 1 位：${esc(it.queue[0].nickname)}）` : ''}` : ''}</div>
+              <div class="small">${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)} · <span class="st ${it.status}">${statusText[it.status]}</span>${it.queueCount ? ` · ${it.queueCount} 人排队${it.queue[0] ? `（第 1 位：${esc(it.queue[0].nickname)}）` : ''}` : ''}</div>
             </div>
             <span class="muted">›</span>
           </div>`).join('')}</div>`}
@@ -969,6 +1003,12 @@ function manage(saleId) {
     const t = e.target.closest('[data-tab]');
     if (t) {
       tab = t.dataset.tab;
+      return render();
+    }
+    const so = e.target.closest('[data-sort]');
+    if (so) {
+      sort = so.dataset.sort;
+      store.set('manageSort', sort);
       return render();
     }
     const row = e.target.closest('[data-item]');
@@ -1228,12 +1268,10 @@ function composer(S) {
 
   // Price box: a number ("5", "5.5", "5,50"); 0 means free.
   const priceCents = (c) => {
-    const t = c.price.trim().replace(',', '.');
-    if (!t) return null;
-    const n = Number(t);
-    return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+    const n = parsePrice(c.price);
+    return Number.isNaN(n) ? null : n;
   };
-  const valid = (c) => !!c.name.trim() && priceCents(c) != null;
+  const valid = (c) => !!c.name.trim() && priceCents(c) != null && !Number.isNaN(parsePrice(c.orig));
 
   // AI's guess at the new price, shown next to the price box; the seller still sets the price.
   const retailHtml = (c) => {
@@ -1247,6 +1285,7 @@ function composer(S) {
     if (c.aiBusy) return `<div class="cstatus">✨ AI 正在认这是什么…</div>`;
     if (c.touched && !c.name.trim()) return `<div class="cstatus err">还没填名字</div>`;
     if (c.touched && priceCents(c) == null) return `<div class="cstatus err">还没填价格</div>`;
+    if (c.touched && Number.isNaN(parsePrice(c.orig))) return `<div class="cstatus err">原价填数字，不填也行</div>`;
     return `<div class="cstatus"></div>`;
   };
 
@@ -1257,11 +1296,12 @@ function composer(S) {
     <div class="ccard ${c.error || (c.touched && !valid(c)) ? 'bad' : ''}" data-idx="${idx}">
       <div class="crow">
         <div class="thumbs">
-          ${c.files.map((f, j) => `<div class="t"><img src="${f.url}" alt="">${c.files.length > 1 ? `<button class="x" data-act="rmph" data-j="${j}">✕</button>` : ''}</div>`).join('')}
+          ${c.files.map((f, j) => `<div class="t"><img src="${f.url}" alt="" ${c.files.length > 1 ? `data-act="photo" data-j="${j}"` : ''}>${c.files.length > 1 ? `<button class="x" data-act="rmph" data-j="${j}">✕</button>` : ''}</div>`).join('')}
           ${c.files.length < MAX_PHOTOS ? `<button class="addph" data-act="addph" title="给这件东西再加图">＋</button>` : ''}
         </div>
         <div class="cside">
           <button class="link-btn small cdel" data-act="del">删除</button>
+          ${idx > 0 && cards[idx - 1].files.length + c.files.length <= MAX_PHOTOS ? `<button class="link-btn small" data-act="merge">并到上一件</button>` : ''}
           ${aiBtnHtml(c)}
         </div>
       </div>
@@ -1269,7 +1309,10 @@ function composer(S) {
         <input class="inp boxed" type="text" maxlength="30" enterkeyhint="next" placeholder="${c.aiBusy ? 'AI 识别中…' : '名字，例：宜家台灯'}" value="${esc(c.name)}" data-in="name">
         <label class="price-in"><span>${esc(sym)}</span><input type="text" inputmode="decimal" maxlength="9" enterkeyhint="next" placeholder="价格" value="${esc(c.price)}" data-in="price"></label>
       </div>
-      ${retailHtml(c)}
+      <div class="corig">
+        ${retailHtml(c)}
+        <label class="price-in"><span>原价${esc(sym)}</span><input type="text" inputmode="decimal" maxlength="9" enterkeyhint="next" placeholder="选填" value="${esc(c.orig)}" data-in="orig"></label>
+      </div>
       <textarea class="inp boxed cnote" rows="2" maxlength="100" placeholder="详情（选填）：型号、尺寸、用了多久、有没有瑕疵…" data-in="note">${esc(c.note)}</textarea>
       ${statusHtml(c)}
     </div>`;
@@ -1285,8 +1328,8 @@ function composer(S) {
     el.innerHTML = `
       <div class="inner">
         <div class="bar"><button class="link-btn" data-act="close">‹ 返回</button><b>上架</b><span style="width:48px"></span></div>
-        <div class="hint" style="padding-bottom:0">每张照片是一件新物品；同一件东西的多张图，点卡片里的「＋」加。价格填 0 就是免费送。</div>
-        ${cards.length ? cards.map(cardHtml).join('') : `<div class="empty">点下面的「＋ 新物品」选照片。<br>可以一次选很多张，每张是一件。</div>`}
+        <div class="hint" style="padding-bottom:0">${aiAutoOn() ? '同一件东西的几张照片会自动归到一张卡片里；分错了，点照片拆开，或点「并到上一件」。' : '每张照片是一件新物品；同一件东西的多张图，点卡片里的「＋」加，或点「并到上一件」。'}价格填 0 就是免费送。</div>
+        ${cards.length ? cards.map(cardHtml).join('') : `<div class="empty">点下面的「＋ 新物品」选照片。<br>可以一次选很多张，同一件的几张会自动放在一起。</div>`}
         <div class="footer"><div class="inner">${footerHtml()}</div></div>
       </div>`;
   };
@@ -1330,28 +1373,90 @@ function composer(S) {
     }
   };
 
+  // Quota regained via survey or invite: pick up where we stopped (named cards are skipped).
+  const regain = () => {
+    if (!el.isConnected || !aiAutoOn()) return;
+    aiStopped = false;
+    recognise(cards);
+  };
+
   // Recognise new photos one by one in the background; stop after the first quota/busy answer.
   const recognise = async (list) => {
     for (const c of list) {
       if (aiStopped) return;
       if (c.name.trim() || !cards.includes(c)) continue;
-      // Quota regained via survey or invite: pick up where we stopped (named cards are skipped).
-      const ok = await aiFill(c, false, () => {
-        if (!el.isConnected || !aiAutoOn()) return;
-        aiStopped = false;
-        recognise(cards);
-      });
+      const ok = await aiFill(c, false, regain);
       if (!ok) aiStopped = true;
     }
   };
 
+  const newCard = (files) => ({ files: files.map((f) => ({ file: f, url: URL.createObjectURL(f) })), name: '', price: '', orig: '', note: '', touched: false, error: '' });
+
+  // Several photos picked at once: one AI call per batch puts shots of the same thing on one
+  // card and names each card. A single photo, or AI off / stopped: one card per photo, as before.
   const addFiles = async () => {
     const files = await pickFiles();
-    const added = files.map((f) => ({ files: [{ file: f, url: URL.createObjectURL(f) }], name: '', price: '', note: '', touched: false, error: '' }));
+    if (!files.length) return;
+    if (files.length === 1 || aiStopped) {
+      const added = files.map((f) => newCard([f]));
+      cards.push(...added);
+      render();
+      return recognise(added);
+    }
+    const stop = loading('AI 正在整理照片…');
+    const added = [];
+    let dropped = 0;
+    let sheet = null;
+    for (let i = 0; i < files.length; i += AI_BATCH_MAX) {
+      const batch = files.slice(i, i + AI_BATCH_MAX);
+      let items = batch.map((_, j) => ({ photos: [j] }));
+      if (!aiStopped) {
+        try {
+          const r = await aiBatch(batch, sale.currency);
+          items = r.items;
+          if (r.limited) sheet = 'limit';
+        } catch (err) {
+          if (err.code === 'LIMIT') sheet = 'limit';
+          else if (err.code === 'AI_BUSY') sheet = 'busy';
+        }
+        if (sheet) aiStopped = true;
+      }
+      for (const it of items) {
+        dropped += Math.max(0, it.photos.length - MAX_PHOTOS);
+        const c = newCard(it.photos.slice(0, MAX_PHOTOS).map((j) => batch[j]));
+        if (it.name) Object.assign(c, { name: it.name, note: it.note || '', retail: it.retail || null, aiDone: true });
+        added.push(c);
+      }
+    }
+    stop();
     cards.push(...added);
     render();
-    recognise(added);
+    if (dropped) toast(`每件最多 ${MAX_PHOTOS} 张，多出的 ${dropped} 张没放进去`, 3000);
+    if (sheet === 'limit') aiLimitSheet(regain);
+    else if (sheet === 'busy') aiBusySheet();
   };
+
+  // Tapping a photo on a card with several: move it to its own card, or drop it.
+  const photoSheet = (c, j) => openSheet(() => `
+    <div class="actions">
+      <button class="btn block" data-act="split">拆成单独一件</button>
+      <button class="btn danger block" data-act="rm">删掉这张</button>
+      <button class="btn block" data-act="cancel">取消</button>
+    </div>`, (act, _el, s) => {
+    s.close();
+    if (!cards.includes(c) || !c.files[j]) return;
+    if (act === 'rm') {
+      URL.revokeObjectURL(c.files[j].url);
+      c.files.splice(j, 1);
+      return render();
+    }
+    if (act === 'split') {
+      const one = { ...newCard([]), files: c.files.splice(j, 1) };
+      cards.splice(cards.indexOf(c) + 1, 0, one);
+      render();
+      recognise([one]);
+    }
+  });
 
   el.addEventListener('input', (e) => {
     const inp = e.target.closest('[data-in]');
@@ -1401,6 +1506,19 @@ function composer(S) {
         URL.revokeObjectURL(c.files[Number(a.dataset.j)].url);
         c.files.splice(Number(a.dataset.j), 1);
         return render();
+      case 'photo':
+        return photoSheet(c, Number(a.dataset.j));
+      case 'merge': {
+        if (c.aiBusy) return;
+        const prev = cards[cards.indexOf(c) - 1];
+        prev.files.push(...c.files);
+        // Keep whatever the seller typed on the card that goes away.
+        if (!prev.name.trim()) prev.name = c.name;
+        if (!prev.price.trim()) prev.price = c.price;
+        if (!prev.note.trim()) prev.note = c.note;
+        cards.splice(cards.indexOf(c), 1);
+        return render();
+      }
       case 'addph': {
         const fs = await pickFiles();
         for (const f of fs.slice(0, MAX_PHOTOS - c.files.length)) c.files.push({ file: f, url: URL.createObjectURL(f) });
@@ -1425,7 +1543,7 @@ function composer(S) {
         await api(`/sale/${S.saleId}/items`, {
           method: 'POST',
           key: S.key,
-          body: { name: c.name.trim(), priceCents: priceCents(c), condition: '', note: c.note.trim(), photos: c.photoIds },
+          body: { name: c.name.trim(), priceCents: priceCents(c), origPriceCents: parsePrice(c.orig), condition: '', note: c.note.trim(), photos: c.photoIds },
         });
         c.files.forEach((f) => URL.revokeObjectURL(f.url));
         cards.splice(cards.indexOf(c), 1);
@@ -1475,6 +1593,7 @@ function itemSheet(S, itemId) {
         <div class="group">
           <label class="field"><span>名字</span><input class="inp" name="name" maxlength="30" value="${esc(edit.name)}"></label>
           <label class="field"><span>价格（${esc(CURRENCIES[sale.currency].trim())}，0 = 免费送）</span><input class="inp" name="price" type="number" inputmode="decimal" min="0" step="0.01" value="${edit.priceCents / 100}"></label>
+          <label class="field"><span>原价（选填，会划掉显示在价格旁边）</span><input class="inp" name="orig" type="text" inputmode="decimal" maxlength="9" value="${edit.origPriceCents == null || Number.isNaN(edit.origPriceCents) ? '' : edit.origPriceCents / 100}"></label>
           <label class="field"><span>详情（选填）</span><textarea class="inp" name="note" rows="3" maxlength="100" placeholder="型号、尺寸、用了多久、有没有瑕疵…">${esc(edit.note)}</textarea></label>
         </div>
         <div class="actions"><button class="btn primary block" data-act="save">保存</button><button class="btn block" data-act="cancel-edit">取消</button></div>`;
@@ -1485,7 +1604,7 @@ function itemSheet(S, itemId) {
         <img src="${img(it.photos[0])}" style="width:72px;height:72px;border-radius:8px;object-fit:cover" alt="">
         <div class="grow">
           <div><span class="no">${it.no}</span> <b>${esc(it.name)}</b></div>
-          <div>${moneyHtml(it.priceCents, sale.currency)} · <span class="st ${it.status}">${statusText[it.status]}</span>${it.condition ? ` · ${CONDITIONS[it.condition]}` : ''}</div>
+          <div>${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)} · <span class="st ${it.status}">${statusText[it.status]}</span>${it.condition ? ` · ${CONDITIONS[it.condition]}` : ''}</div>
           ${it.note ? `<div class="small muted">${esc(it.note)}</div>` : ''}
         </div>
         ${open ? `<button class="btn small" data-act="edit">编辑</button>` : ''}
@@ -1543,7 +1662,7 @@ function itemSheet(S, itemId) {
       case 'share-item':
         return shareItem(S, it);
       case 'edit':
-        edit = { name: it.name, priceCents: it.priceCents, condition: it.condition, note: it.note, photos: [...it.photos] };
+        edit = { name: it.name, priceCents: it.priceCents, origPriceCents: it.origPriceCents ?? null, condition: it.condition, note: it.note, photos: [...it.photos] };
         return s.refresh();
       case 'cancel-edit':
         edit = null;
@@ -1569,6 +1688,7 @@ function itemSheet(S, itemId) {
         syncEdit(s);
         if (!edit.name) return toast('名字不能为空');
         if (!Number.isFinite(edit.priceCents) || edit.priceCents < 0) return toast('价格不对');
+        if (Number.isNaN(edit.origPriceCents)) return toast('原价填数字，不填也行');
         el.disabled = true;
         try {
           await api(`/item/${it.id}`, { method: 'PATCH', key: S.key, body: edit });
@@ -1587,6 +1707,7 @@ function itemSheet(S, itemId) {
     const v = (n) => s.el.querySelector(`[name=${n}]`)?.value ?? '';
     edit.name = v('name').trim();
     edit.priceCents = Math.round(parseFloat(v('price') || '0') * 100);
+    edit.origPriceCents = parsePrice(v('orig'));
     edit.note = v('note').trim();
   }
 }
@@ -1693,8 +1814,15 @@ function publicUrl(S) {
   return `${location.origin}/s/${S.saleId}`;
 }
 
+// A page opened in WeChat from a QR code or a card forwards as a card itself, so when that
+// page is the one being shared, no QR code is needed.
+function isCardHere(url) {
+  return isWeChat && OPENED_AS_CARD && new URL(url).pathname === location.pathname;
+}
+
 function shareSheet(S) {
   const { sale } = S.data();
+  const here = isCardHere(publicUrl(S));
   openSheet(() => `<h2>分享到群</h2>
     <div class="share-step">
       <div class="small muted">推荐：按顺序发两条</div>
@@ -1712,12 +1840,15 @@ function shareSheet(S) {
     <div class="share-help">
       <div class="survey-title">怎么分享图文卡片出去？</div>
       <div class="group"><div class="cell small" style="display:block;line-height:1.9">
+        ${here ? `这个页面就是从二维码或卡片打开的，可以直接转发：<br>
+        1. 点右上角 <b>···</b> →「发送给朋友」→ 选群，发出去就是卡片<br>
+        2. 回来点「发文字」，复制后粘贴到同一个群` : `
         1. 点上面的「发卡片」，会出现一个二维码<br>
         2. ${isWeChat ? '<b>长按二维码</b> →「识别图中二维码」' : '保存二维码图片，发到微信「文件传输助手」，在微信里<b>长按这张图</b> →「识别图中二维码」'}<br>
         3. 页面打开后，点右上角 <b>···</b> →「发送给朋友」→ 选群，发出去就是卡片<br>
-        4. 回来点「发文字」，复制后粘贴到同一个群
+        4. 回来点「发文字」，复制后粘贴到同一个群`}
       </div></div>
-      <div class="small muted" style="margin:0 4px">别直接点链接打开再转发，那样微信只会发出一串网址。群里有了卡片以后，别人从卡片点进去再转发，也是卡片。</div>
+      ${here ? '' : `<div class="small muted" style="margin:0 4px">别直接点链接打开再转发，那样微信只会发出一串网址。群里有了卡片以后，别人从卡片点进去再转发，也是卡片。</div>`}
     </div>`, async (act, el, s) => {
     if (act === 'text') {
       s.close();
@@ -1747,7 +1878,8 @@ function shareSheet(S) {
 function textSheet(S) {
   const { sale, items } = S.data();
   const intros = store.get('shareIntro', {});
-  const text = shareText(sale, items, { intro: stripLinks(intros[S.saleId]) || defaultIntro(sale) });
+  const opts = { prices: false, compact: false, ...store.get('shareTextOpts', {}) };
+  const text = shareText(sale, items, { ...opts, intro: stripLinks(intros[S.saleId]) || defaultIntro(sale) });
   const canShare = !isWeChat && !!navigator.share;
   const remember = (t) => {
     const intro = t.split(LIST_MARK)[0].trim();
@@ -1759,12 +1891,22 @@ function textSheet(S) {
   const sh = openSheet(() => `<h2>群文字</h2>
     <div class="hint" style="padding-top:0">开头那段可以随便改，下次会记住；${LIST_MARK}下面每次按最新状态重新生成。</div>
     <textarea class="inp boxed share-text" rows="12">${esc(text)}</textarea>
+    <div class="share-opts">
+      <label class="nearby-row"><input type="checkbox" data-act="prices" ${opts.prices ? 'checked' : ''}><span>带价格</span></label>
+      <label class="nearby-row"><input type="checkbox" data-act="compact" ${opts.compact ? 'checked' : ''}><span>紧凑（用 · 隔开，不换行）</span></label>
+    </div>
     <div class="actions" style="margin-top:12px">
       <button class="btn primary block" data-act="copy">复制，去群里粘贴</button>
       ${canShare ? `<button class="btn block" data-act="share">分享到微信</button>` : ''}
       <button class="link-btn small" data-act="reset" style="margin:4px auto 0">恢复默认开头</button>
     </div>`, async (act, el, s) => {
-    const t = s.el.querySelector('.share-text').value;
+    const box = s.el.querySelector('.share-text');
+    const t = box.value;
+    if (act === 'prices' || act === 'compact') {
+      opts[act] = el.checked;
+      store.set('shareTextOpts', opts);
+      box.value = shareText(sale, items, { ...opts, intro: t.split(LIST_MARK)[0].trim() || defaultIntro(sale) });
+    }
     if (act === 'copy') {
       remember(t);
       copy(t, '已复制，去群里粘贴');
@@ -1779,7 +1921,7 @@ function textSheet(S) {
       const all = store.get('shareIntro', {});
       delete all[S.saleId];
       store.set('shareIntro', all);
-      s.el.querySelector('.share-text').value = shareText(sale, items);
+      box.value = shareText(sale, items, opts);
     }
   });
   return sh;
@@ -1793,10 +1935,22 @@ function shareItem(S, it) {
 // a QR code as a card. So every card starts from a QR code; once one card is in the group,
 // anyone who opens it and forwards it sends a card too.
 async function sendCard(url, what) {
+  if (isCardHere(url)) {
+    return openSheet(() => `<h2>发卡片</h2>
+      <div class="group"><div class="cell small" style="display:block;line-height:1.9">
+        这个页面就是从二维码或卡片打开的，不用再扫码：<br>
+        点右上角 <b>···</b> →「发送给朋友」→ 选群，发出去就是卡片
+      </div></div>
+      <div class="actions"><button class="btn block" data-act="close">好了</button></div>`, (act, el, s) => {
+      if (act === 'close') s.close();
+    });
+  }
   const stop = loading('正在生成二维码…');
   let src;
   try {
-    src = await qrImage(url);
+    const qrUrl = new URL(url);
+    qrUrl.searchParams.set('c', '1');
+    src = await qrImage(qrUrl.href);
   } finally {
     stop();
   }
@@ -1885,6 +2039,18 @@ function drawPriceTag(g, text, rx, by, size) {
   g.textBaseline = 'middle';
   g.fillText(text, rx - w + size * 0.3, by - h / 2 + 1);
   g.textBaseline = 'alphabetic';
+}
+
+// Original price in small grey type with a line through it; left out when it would overflow maxX.
+function drawStruck(g, text, x, cy, maxX) {
+  g.font = `400 24px ${FONT}`;
+  const w = g.measureText(text).width;
+  if (x + w > maxX) return;
+  g.fillStyle = '#888';
+  g.textBaseline = 'middle';
+  g.fillText(text, x, cy);
+  g.textBaseline = 'alphabetic';
+  g.fillRect(x - 1, cy - 1, w + 2, 2);
 }
 
 function drawStamp(g, text, cx, cy, size, color) {
@@ -2027,7 +2193,9 @@ async function drawSalePage(sale, list, qr, url, pi, pn) {
     g.fillText(fitText(g, it.name, cell - 8), x + 2, y + cell + 40);
     const price = money(it.priceCents, sale.currency);
     g.font = `900 30px ${FONT}`;
-    drawPriceTag(g, price, x + 2 + g.measureText(price).width + 18, y + cell + 90, 30);
+    const tagRight = x + 2 + g.measureText(price).width + 18;
+    drawPriceTag(g, price, tagRight, y + cell + 90, 30);
+    if (it.origPriceCents > it.priceCents) drawStruck(g, money(it.origPriceCents, sale.currency), tagRight + 12, y + cell + 71, x + cell);
   });
 
   const fy = H - footH + 30;
@@ -2201,6 +2369,27 @@ function aiAutoOn() {
   return store.get('aiAuto', true) !== false;
 }
 
+// Photos per batch call; a bigger pick is sent in several batches.
+const AI_BATCH_MAX = 8;
+
+// Sort photos picked together into items and recognise each one, in one call.
+// Returns { items: [{ photos: [indices into files], name, note, retail }], limited }.
+async function aiBatch(files, currency) {
+  buyerToken(true);
+  const form = new FormData();
+  for (const file of files) {
+    const url = URL.createObjectURL(file);
+    try {
+      // Smaller than a single recognition (1024) to keep a batch cheap; big print still reads.
+      form.append('image', await resize(await loadImage(url), 768, 0.72), 'photo.jpg');
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+  if (currency) form.append('currency', currency);
+  return api('/ai/batch', { method: 'POST', form });
+}
+
 // Recognise one item from its photos (all shots of the same thing). Throws { code: 'LIMIT' | 'AI_BUSY' | ... }.
 async function aiRecognize(files, currency) {
   buyerToken(true);
@@ -2261,7 +2450,7 @@ function mountNearbyFeed(root) {
           <a class="tile nearby-tile" href="/s/${esc(it.saleId)}/i/${it.no}">
             <div class="ph"><div class="track"><span><img src="${img(it.photo)}" loading="lazy" alt=""></span></div></div>
             <div class="info">
-              <div class="sub">${moneyHtml(it.priceCents, it.currency)}</div>
+              <div class="sub">${moneyHtml(it.priceCents, it.currency, it.origPriceCents)}</div>
               <div class="name">${esc(it.name)}</div>
               <div class="extra">📍 ${esc(it.location)}${it.km != null ? ` · ${kmText(it.km)}` : ''}</div>
             </div>

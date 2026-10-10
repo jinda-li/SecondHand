@@ -33,9 +33,24 @@ const ITEMS = [
   { no: 5, name: '旧锅', priceCents: 500, status: 'sold' },
 ];
 
-test('shareText: default intro, then name + price for everything not sold', () => {
+test('shareText: default intro, then names of everything not sold', () => {
   assert.equal(
     shareText(SALE, ITEMS),
+    [
+      '打扰了出二手，地铁站附近自提，点上面的卡片可以看大图和预订。',
+      '',
+      '【物品清单】',
+      '杯子碟子',
+      '碗',
+      '拉蒜器',
+      '揉面套装',
+    ].join('\n'),
+  );
+});
+
+test('shareText with prices lists name + price', () => {
+  assert.equal(
+    shareText(SALE, ITEMS, { prices: true }),
     [
       '打扰了出二手，地铁站附近自提，点上面的卡片可以看大图和预订。',
       '',
@@ -50,7 +65,12 @@ test('shareText: default intro, then name + price for everything not sold', () =
 
 test('shareText keeps a custom intro and regenerates the list', () => {
   const text = shareText(SALE, ITEMS, { intro: '毕业了，东西都便宜出' });
-  assert.ok(text.startsWith('毕业了，东西都便宜出\n\n【物品清单】\n杯子碟子 €3'));
+  assert.ok(text.startsWith('毕业了，东西都便宜出\n\n【物品清单】\n杯子碟子\n'));
+});
+
+test('shareText compact joins the list with dots', () => {
+  assert.ok(shareText(SALE, ITEMS, { compact: true }).endsWith('【物品清单】\n杯子碟子 · 碗 · 拉蒜器 · 揉面套装'));
+  assert.ok(shareText(SALE, ITEMS, { compact: true, prices: true }).endsWith('\n杯子碟子 €3 · 碗 €3 · 拉蒜器 €1 · 揉面套装 €2'));
 });
 
 test('stripLinks removes URLs left in old saved intros', () => {
@@ -58,11 +78,11 @@ test('stripLinks removes URLs left in old saved intros', () => {
   assert.equal(stripLinks('毕业甩卖 https://x.dev/s/abc 都便宜'), '毕业甩卖 都便宜');
 });
 
-test('shareText truncates long names and long lists', () => {
+test('shareText keeps full names and truncates long lists', () => {
   const sale = { title: 'T', location: 'L', currency: 'EUR', rules: [] };
   const items = Array.from({ length: 32 }, (_, i) => ({ no: i + 1, name: '一二三四五六七八九十十一十二十三', priceCents: 100, status: 'available' }));
-  const text = shareText(sale, items);
-  assert.ok(text.includes('\n一二三四五六七八九十十一… €1'));
+  const text = shareText(sale, items, { prices: true });
+  assert.ok(text.includes('\n一二三四五六七八九十十一十二十三 €1'));
   assert.ok(text.includes('还有 2 件，点卡片看全部'));
   assert.equal(text.split('\n').filter((l) => l.endsWith('€1')).length, 30);
 });
