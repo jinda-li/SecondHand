@@ -10,7 +10,6 @@
 [data-ui~=dense] .grid { gap: 8px; padding: 0 8px; }
 [data-ui~=dense] .tile .info { padding: 6px 8px 8px; }
 [data-ui~=dense] .tile .name { -webkit-line-clamp: 1; font-size: 14px; }
-[data-ui~=dense] .tile .extra { display: none; }
 [data-ui~=dense] .tile .sub .price { font-size: 16px; }
 [data-ui~=dense] .tile .info .btn { min-height: 32px; font-size: 13px; }
 [data-ui~=dense] .tile .info > :nth-last-child(2) { margin-bottom: 6px; }
@@ -63,4 +62,3 @@
 [data-ui~=nordic] .tile .info > :nth-last-child(2) { margin-bottom: 0; }
 [data-ui~=nordic] .tile .sub { margin: 6px 0 12px; }
 [data-ui~=nordic] .tile .extra { margin-top: 2px; }
-[data-ui~=nordic] .tile .info .btn.owner-btn { background: #f5f5f5; color: #111; }

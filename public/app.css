@@ -265,7 +265,6 @@ img { display: block; max-width: 100%; }
 .nearby-entry b { font-size: 16px; }
 .nearby-entry > span { font-size: 22px; color: var(--sub); }
 .tile .track > span { flex: none; width: 100%; height: 100%; }
-.tile.nearby-tile .info .extra { display: block; }
 .nearby-row { display: flex; gap: 10px; align-items: flex-start; }
 .nearby-row input[type=checkbox] { width: 20px; height: 20px; margin-top: 3px; accent-color: var(--green); flex: none; }
 .intro { padding: 28px 20px 8px; text-align: center; }
@@ -291,6 +290,7 @@ img { display: block; max-width: 100%; }
 .crow { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
 .crow .thumbs { flex-wrap: wrap; }
 .crow .addph { width: 84px; height: 84px; }
+.crow .cside { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; flex: none; }
 .cfields { display: flex; gap: 8px; margin-top: 10px; }
 .cfields .inp.boxed { flex: 1; min-width: 0; font-size: 16px; }
 .ccard .cnote { display: block; width: 100%; margin-top: 8px; font-size: 16px; resize: none; line-height: 1.4; font-family: inherit; }

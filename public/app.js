@@ -348,6 +348,11 @@ function ownerBanner(sale) {
   return `<div class="banner">这是买家看到的样子。你是卖家，不能预订自己的东西。</div>`;
 }
 
+// Seller previewing their own list sees buyer buttons; tapping one points them to the management page.
+async function ownerTap(sale) {
+  if (await ask({ title: '这是你自己的东西', text: '买家点这里会排队预订。\n要改价格、标已出，去管理页。', ok: '去管理' })) location.href = `/manage/${sale.id}`;
+}
+
 // Ended and deleted lists look the same to buyers.
 function notFound() {
   const item = BOOT.item;
@@ -550,15 +555,14 @@ async function createSale() {
 // ---------- 7.2 buyer sale page ----------
 
 // Grid tile: swipeable photos, price + name, and the queue button right on the sale page.
-function tileHtml(sale, it, mine, isOwner) {
+function tileHtml(sale, it, mine) {
   const my = mine?.[it.id];
   const ended = sale.status === 'ended';
   let stamp = '';
   if (it.status === 'reserved') stamp = `<div class="stamp reserved">${it.maybeSold ? '可能已出' : '已预订'}</div>`;
   else if (it.status === 'sold') stamp = `<div class="stamp sold">已出</div>`;
   let btn;
-  if (isOwner) btn = `<a class="btn small owner-btn" href="/manage/${sale.id}">自己的 · 去管理</a>`;
-  else if (my) btn = `<button class="btn small mine-btn" data-cancel-item="${it.id}"><b>第 ${my.position} 位</b><span class="s"> · 取消</span></button>`;
+  if (my) btn = `<button class="btn small mine-btn" data-cancel-item="${it.id}"><b>第 ${my.position} 位</b><span class="s"> · 取消</span></button>`;
   else if (it.status === 'sold' || ended) btn = `<button class="btn small" disabled>${ended ? '已结束' : '已出'}</button>`;
   else if (it.queueCount === 0) btn = `<button class="btn small primary" data-join="${it.id}">预订</button>`;
   else btn = `<button class="btn small primary ghost" data-join="${it.id}"><b>排候补</b><span class="s"> · 前面 ${it.queueCount} 人</span></button>`;
@@ -638,16 +642,16 @@ function buyerSale(saleId) {
         ${sale.rules.length ? `<div class="tags">${sale.rules.map((r) => `<span class="tag">${esc(r)}</span>`).join('')}</div>` : ''}
       </div>
       ${ended ? `<div class="banner">这份清单已结束</div>` : ''}
-      ${isOwner ? ownerBanner(sale) : contact || ended ? '' : `<div class="how-to">
+      ${isOwner ? ownerBanner(sale) : ''}${contact || ended ? '' : `<div class="how-to">
         <b>怎么买</b>：点「预订」排队 → 排到第 1 位，这里会显示卖家联系方式 → 再去微信加卖家。<br>
         页面是实时的：显示「预订」的就是还在。
       </div>`}
       ${contact ? contactHtml(contact) : ''}
       <div class="hint" style="padding-top:0">在售 ${avail.length} · 已预订 ${reserved.length} · 已出 ${sold.length}</div>
-      ${list.length ? `<div class="grid">${list.map((it) => tileHtml(sale, it, mine, isOwner)).join('')}</div>`
+      ${list.length ? `<div class="grid">${list.map((it) => tileHtml(sale, it, mine)).join('')}</div>`
         : `<div class="empty">${items.length ? '都卖完了' : '卖家还没上架东西'}</div>`}
       ${sold.length ? (showSold
-        ? `<div class="hint">已出 ${sold.length} 件</div><div class="grid">${sold.map((it) => tileHtml(sale, it, mine, isOwner)).join('')}</div>`
+        ? `<div class="hint">已出 ${sold.length} 件</div><div class="grid">${sold.map((it) => tileHtml(sale, it, mine)).join('')}</div>`
         : `<button class="link-btn fold" data-sold>已出 ${sold.length} 件（展开）</button>`) : ''}
       ${isOwner ? `<div class="bottom-bar"><div class="inner">
         <a class="btn big" href="/manage/${sale.id}">回到管理</a>
@@ -665,7 +669,7 @@ function buyerSale(saleId) {
       render();
     }
     const j = e.target.closest('[data-join]');
-    if (j) joinSheet(data.sale, data.items.find((i) => i.id === j.dataset.join), reload);
+    if (j) data.isOwner ? ownerTap(data.sale) : joinSheet(data.sale, data.items.find((i) => i.id === j.dataset.join), reload);
     // Seller previewing their own list: same share options as on the management page.
     if (e.target.closest('[data-owner-share]')) shareSheet({ saleId, key: localKey(saleId), data: () => data });
     const c = e.target.closest('[data-cancel-item]');
@@ -729,15 +733,14 @@ function buyerItem(saleId, no) {
       $app.innerHTML = `<div class="empty">加载中…</div>`;
       return;
     }
-    const { sale, items, mine, contact, isOwner } = data;
+    const { sale, items, mine, contact } = data;
     const it = items.find((i) => i.no === no);
     if (!it) return notFound();
     const my = mine?.[it.id];
     const ended = sale.status === 'ended';
     const closed = it.status === 'sold' || ended;
     let btn;
-    if (isOwner) btn = `<a class="btn primary big" href="/manage/${sale.id}">自己的东西 · 回到管理</a>`;
-    else if (my) btn = `<button class="btn big" data-act="cancel">你排在第 ${my.position} 位 · 取消</button>`;
+    if (my) btn = `<button class="btn big" data-act="cancel">你排在第 ${my.position} 位 · 取消</button>`;
     else if (closed) btn = `<button class="btn big" disabled>${ended ? '清单已结束' : '已出'}</button>`;
     else if (it.queueCount === 0) btn = `<button class="btn primary big" data-act="join">预订（排第 1 位）</button>`;
     else btn = `<button class="btn primary big" data-act="join">排候补（前面 ${it.queueCount} 人）</button>`;
@@ -761,7 +764,7 @@ function buyerItem(saleId, no) {
           ? it.maybeSold ? '预订中，可能已出' : `已预订 · ${it.queueCount} 人在排`
           : statusText[it.status]} · 📍 ${esc(sale.location)}</div>
       </div>
-      ${!my && !isOwner && !closed ? `<div class="how-to" style="margin-top:10px">点「预订」排队，排到第 1 位这里会显示卖家联系方式，再去微信加卖家。页面是实时的，能预订就是还在。</div>` : ''}
+      ${!my && !closed ? `<div class="how-to" style="margin-top:10px">点「预订」排队，排到第 1 位这里会显示卖家联系方式，再去微信加卖家。页面是实时的，能预订就是还在。</div>` : ''}
       ${my && my.position > 1 ? `<div class="hint">前面的人不要了，你会自动升到第 1 位，到时回来这里看卖家联系方式。</div>` : ''}
       ${my && my.position === 1 && contact ? contactHtml(contact) : ''}
       <div class="bottom-bar"><div class="inner">${btn}</div></div>`;
@@ -783,7 +786,7 @@ function buyerItem(saleId, no) {
     const a = e.target.closest('[data-act]');
     if (!a) return;
     const it = data.items.find((i) => i.no === no);
-    if (a.dataset.act === 'join') joinSheet(data.sale, it, reload);
+    if (a.dataset.act === 'join') data.isOwner ? ownerTap(data.sale) : joinSheet(data.sale, it, reload);
     if (a.dataset.act === 'cancel') {
       if (!(await ask({ title: '确定取消排队？', text: '取消后你的位置会让给后面的人。', ok: '取消排队', danger: true }))) return;
       try {
@@ -1268,6 +1271,9 @@ function composer(S) {
     return `<div class="cstatus"></div>`;
   };
 
+  // Manual AI run: after adding photos, or when auto-recognition was off / stopped.
+  const aiBtnHtml = (c) => `<button class="ai-btn cai" data-act="reai" ${c.aiBusy ? 'disabled' : ''}>${c.aiBusy ? '识别中…' : c.aiDone ? 'AI 重新识别' : 'AI 识别'}</button>`;
+
   const cardHtml = (c, idx) => `
     <div class="ccard ${c.error || (c.touched && !valid(c)) ? 'bad' : ''}" data-idx="${idx}">
       <div class="crow">
@@ -1275,7 +1281,10 @@ function composer(S) {
           ${c.files.map((f, j) => `<div class="t"><img src="${f.url}" alt="">${c.files.length > 1 ? `<button class="x" data-act="rmph" data-j="${j}">✕</button>` : ''}</div>`).join('')}
           ${c.files.length < MAX_PHOTOS ? `<button class="addph" data-act="addph" title="给这件东西再加图">＋</button>` : ''}
         </div>
-        <button class="link-btn small cdel" data-act="del">删除</button>
+        <div class="cside">
+          <button class="link-btn small cdel" data-act="del">删除</button>
+          ${aiBtnHtml(c)}
+        </div>
       </div>
       <div class="cfields">
         <input class="inp boxed" type="text" maxlength="30" enterkeyhint="next" placeholder="${c.aiBusy ? 'AI 识别中…' : '名字，例：宜家台灯'}" value="${esc(c.name)}" data-in="name">
@@ -1315,7 +1324,37 @@ function composer(S) {
     card.classList.toggle('bad', !!(c.error || (c.touched && !valid(c))));
     card.querySelector('.cstatus').outerHTML = statusHtml(c);
     card.querySelector('.cretail').outerHTML = retailHtml(c);
+    card.querySelector('.cai').outerHTML = aiBtnHtml(c);
     el.querySelector('.footer .inner').innerHTML = footerHtml();
+  };
+
+  // Ask the AI about one card using all its photos. Automatic runs only fill empty fields;
+  // a manual re-run (force) replaces name and details. Returns false on a quota/busy answer.
+  const aiFill = async (c, force, onRegain) => {
+    c.aiBusy = true;
+    refreshCard(c);
+    try {
+      const r = await aiRecognize(c.files.map((f) => f.file), sale.currency);
+      c.aiDone = true;
+      c.retail = r.retail || null;
+      if (force || !c.name.trim()) {
+        c.name = r.name;
+        c.aiFilled = true;
+      }
+      if ((force || !c.note.trim()) && r.note) {
+        c.note = r.note;
+        c.aiFilled = true;
+      }
+      return true;
+    } catch (err) {
+      if (err.code === 'LIMIT') aiLimitSheet(onRegain);
+      else if (err.code === 'AI_BUSY') aiBusySheet();
+      else if (force) toast(err.message);
+      return err.code !== 'LIMIT' && err.code !== 'AI_BUSY';
+    } finally {
+      c.aiBusy = false;
+      refreshCard(c);
+    }
   };
 
   // Recognise new photos one by one in the background; stop after the first quota/busy answer.
@@ -1323,29 +1362,13 @@ function composer(S) {
     for (const c of list) {
       if (aiStopped) return;
       if (c.name.trim() || !cards.includes(c)) continue;
-      c.aiBusy = true;
-      refreshCard(c);
-      try {
-        const r = await aiRecognize(c.files[0].file, sale.currency);
-        c.retail = r.retail || null;
-        if (!c.name.trim()) {
-          c.name = r.name;
-          c.aiFilled = true;
-        }
-        if (!c.note.trim() && r.note) {
-          c.note = r.note;
-          c.aiFilled = true;
-        }
-      } catch (err) {
-        if (err.code === 'LIMIT' || err.code === 'AI_BUSY') {
-          aiStopped = true;
-          if (err.code === 'LIMIT') aiLimitSheet();
-          else aiBusySheet();
-        }
-      } finally {
-        c.aiBusy = false;
-        refreshCard(c);
-      }
+      // Quota regained via survey or invite: pick up where we stopped (named cards are skipped).
+      const ok = await aiFill(c, false, () => {
+        if (!el.isConnected || !aiAutoOn()) return;
+        aiStopped = false;
+        recognise(cards);
+      });
+      if (!ok) aiStopped = true;
     }
   };
 
@@ -1395,6 +1418,9 @@ function composer(S) {
         return close();
       case 'pick':
         return addFiles();
+      case 'reai':
+        if (c.aiBusy) return;
+        return aiFill(c, true, () => cards.includes(c) && el.isConnected && aiFill(c, true));
       case 'del':
         c.files.forEach((f) => URL.revokeObjectURL(f.url));
         cards.splice(cards.indexOf(c), 1);
@@ -2107,25 +2133,25 @@ function aiBusySheet() {
 }
 
 // This device used its free tries: survey for 10 more, otherwise an "it is useful to me" vote / invite code.
-async function aiLimitSheet() {
+async function aiLimitSheet(onRegain) {
   let q = { surveyDone: true };
   try {
     q = await api('/ai/quota');
   } catch {}
-  if (!q.surveyDone) return surveySheet();
+  if (!q.surveyDone) return surveySheet(onRegain);
   openSheet(() => `<h2>你的免费次数薅完了</h2>
     <div class="hint" style="padding-top:0">AI 识别是开发者自掏腰包付的，每人先送这么多次。自己填名字也很快。<br>还想接着用？催开发者加预算吧，催的人多了他就会加。</div>
     <div class="actions"><button class="btn primary big block" data-act="nudge">催开发者加预算</button></div>
     <div style="margin-top:12px">${inviteRowHtml()}</div>`, (act, el, s) => {
     if (act === 'nudge') nudge(el);
-    if (act === 'invite') useInvite(s);
+    if (act === 'invite') useInvite(s, onRegain);
   });
 }
 
 // Three Mom-Test style questions about what actually happened last time, not opinions.
-function surveySheet() {
+function surveySheet(onRegain) {
   const a = { slowest: '', hours: '', pay: '', detail: '', contact: '' };
-  const sh = openSheet(() => `<div class="quota-out">AI 识图额度用完了呀</div>
+  const sh = openSheet(() => `<div class="quota-out">送你的 3 次 AI 识图用完啦</div>
     <h2>想听听你的真实想法</h2>
     <div class="hint" style="padding-top:0">这是我们自己做的小工具，还在摸索怎么做才真正好用。AI 识别每用一次，开发者都要自掏腰包付一点钱，所以先送了 3 次。<br>想请你花半分钟，按真实情况回答 3 个问题。你的回答会直接影响我们接下来做什么。作为感谢，<b>再送你 10 次</b>。</div>
     ${SURVEY.map((s, i) => `
@@ -2152,7 +2178,7 @@ function surveySheet() {
       s.refresh();
       s.el.scrollTop = y;
     }
-    if (act === 'invite') useInvite(s);
+    if (act === 'invite') useInvite(s, onRegain);
     if (act === 'submit') {
       sync();
       if (!a.slowest || !a.hours || !a.pay) return toast('三道题都选一下就好');
@@ -2162,6 +2188,7 @@ function surveySheet() {
         const q = await api('/ai/survey', { method: 'POST', body: a });
         s.close();
         toast(`谢谢你！又送了 10 次，现在还剩 ${q.left ?? '不限'} 次`);
+        onRegain?.();
       } catch (err) {
         toast(err.message);
         el.disabled = false;
@@ -2176,19 +2203,19 @@ function aiAutoOn() {
   return store.get('aiAuto', true) !== false;
 }
 
-// Recognise one photo: resize to 600px and ask the server. Throws { code: 'LIMIT' | 'AI_BUSY' | ... }.
-async function aiRecognize(file, currency) {
+// Recognise one item from its photos (all shots of the same thing). Throws { code: 'LIMIT' | 'AI_BUSY' | ... }.
+async function aiRecognize(files, currency) {
   buyerToken(true);
-  const url = URL.createObjectURL(file);
-  let blob;
-  try {
-    // Large enough to read printed brand / model text.
-    blob = await resize(await loadImage(url), 1024, 0.75);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
   const form = new FormData();
-  form.append('image', blob, 'photo.jpg');
+  for (const file of files.slice(0, MAX_PHOTOS)) {
+    const url = URL.createObjectURL(file);
+    try {
+      // Large enough to read printed brand / model text.
+      form.append('image', await resize(await loadImage(url), 1024, 0.75), 'photo.jpg');
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
   if (currency) form.append('currency', currency);
   return api('/ai/identify', { method: 'POST', form });
 }

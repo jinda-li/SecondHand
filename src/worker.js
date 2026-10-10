@@ -831,8 +831,9 @@ const AI_SURVEY_BONUS = 10;
 // Our own cap, well inside the Workers AI free daily allocation (~10 neurons per call).
 const AI_DAILY_CAP = 400;
 const AI_MAX_IMAGE_BYTES = 400_000;
+const AI_MAX_IMAGES = 3;
 
-const aiPrompt = (currency) => `这是一张准备在留学生二手群里出售的物品照片。请识别照片里的主要物品，用简体中文回答。
+const aiPrompt = (currency, n = 1) => `${n > 1 ? `这是 ${n} 张同一件物品的照片，准备在留学生二手群里出售。请结合所有照片识别这件物品` : '这是一张准备在留学生二手群里出售的物品照片。请识别照片里的主要物品'}，用简体中文回答。
 只输出一行 JSON，不要任何别的文字：{"brand":"品牌","model":"型号","name":"物品叫法","detail":"详情","retail":"原价范围"}
 - brand：看 logo、印的字或很有辨识度的外观认出的品牌，用中国人常用的叫法（例如「宜家」「戴森」「苹果」「无印良品」）；认不出就写空字符串。
 - model：型号或系列名，保持原文（例如「MALM」「Supersonic」「AirPods Pro」）。只在照片上印着、或外观独一无二、你非常确定时才写；同品牌有好几款长得像的，就写空字符串，写错比不写更糟。
@@ -910,19 +911,23 @@ async function aiIdentify(env, req) {
   } catch {
     fail('INVALID', '照片格式不对');
   }
-  const file = form.get('image');
-  if (!file || typeof file === 'string') fail('INVALID', '没有收到照片');
-  if (file.size > AI_MAX_IMAGE_BYTES) fail('INVALID', '照片太大了');
+  // Up to AI_MAX_IMAGES shots of the same item; one call, one use of the quota.
+  const files = form.getAll('image').filter((f) => f && typeof f !== 'string').slice(0, AI_MAX_IMAGES);
+  if (!files.length) fail('INVALID', '没有收到照片');
+  if (files.some((f) => f.size > AI_MAX_IMAGE_BYTES)) fail('INVALID', '照片太大了');
   const currency = /^[A-Z]{3}$/.test(form.get('currency') || '') ? form.get('currency') : 'EUR';
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let bin = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  const dataUrl = `data:image/jpeg;base64,${btoa(bin)}`;
+  const images = [];
+  for (const file of files) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    images.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${btoa(bin)}` } });
+  }
 
   let reply;
   try {
     reply = await env.AI.run(AI_MODEL, {
-      messages: [{ role: 'user', content: [{ type: 'text', text: aiPrompt(currency) }, { type: 'image_url', image_url: { url: dataUrl } }] }],
+      messages: [{ role: 'user', content: [{ type: 'text', text: aiPrompt(currency, images.length) }, ...images] }],
       max_tokens: 250,
       temperature: 0.2,
       chat_template_kwargs: { enable_thinking: false },
