@@ -1,0 +1,27 @@
+name = "ershouqingdan"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "banjia"
+database_id = "d62a5b22-d587-42cd-8902-d0327bdeb0b7"
+migrations_dir = "migrations"
+
+[observability]
+enabled = true
+
+[vars]
+# OAuth Web client ID (Google Cloud project "ershouqingdan"):
+#   701807910613-h3753h0s5h1pljr88ovddvg9oc9uq6oi.apps.googleusercontent.com
+# Empty hides Google sign-in. Off for now: sharing happens inside WeChat, where Google sign-in is blocked.
+GOOGLE_CLIENT_ID = ""
+# INVITE_CODE (unlimited AI photo recognition) is a secret: `wrangler secret put INVITE_CODE`;
+# for local dev put it in .dev.vars.
+
+[ai]
+binding = "AI"

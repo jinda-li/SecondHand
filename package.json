@@ -1,0 +1,12 @@
+{
+  "name": "banjia",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply banjia --local",
+    "migrate:remote": "wrangler d1 migrations apply banjia --remote",
+    "test": "node --test"
+  }
+}

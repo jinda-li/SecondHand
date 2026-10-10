@@ -1,0 +1,66 @@
+/* Default look: Scandinavian home-store catalog, dense two-column grid.
+   html[data-ui] is set by the server; ?ui=... overrides it for previews. */
+
+/* ---------- density helpers ---------- */
+[data-ui~=dense] .head { padding: 14px 12px 4px; }
+[data-ui~=dense] .head h1 { font-size: 24px; margin: 0 0 2px; }
+[data-ui~=dense] .meta { font-size: 13px; }
+[data-ui~=dense] .tags { margin-top: 6px; }
+[data-ui~=dense] .hint { padding: 6px 12px 8px; font-size: 12px; }
+[data-ui~=dense] .grid { gap: 8px; padding: 0 8px; }
+[data-ui~=dense] .tile .info { padding: 6px 8px 8px; }
+[data-ui~=dense] .tile .name { -webkit-line-clamp: 1; font-size: 14px; }
+[data-ui~=dense] .tile .extra { display: none; }
+[data-ui~=dense] .tile .sub .price { font-size: 16px; }
+[data-ui~=dense] .tile .info .btn { min-height: 32px; font-size: 13px; }
+[data-ui~=dense] .tile .info > :nth-last-child(2) { margin-bottom: 6px; }
+[data-ui~=dense] .no { height: 22px; min-width: 24px; font-size: 13px; padding: 0 5px; }
+[data-ui~=dense] .tile .ph .stamp { font-size: 14px; padding: 1px 6px; border-width: 2px; }
+[data-ui~=three] .grid { grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 0 6px; }
+[data-ui~=three] .btn .s, [data-ui~=three] .tile .sub .muted { display: none; }
+[data-ui~=three] .tile .name { font-size: 13px; }
+[data-ui~=three] .tile .sub .price { font-size: 15px; }
+[data-ui~=three] .tile .info .btn { min-height: 30px; font-size: 13px; }
+[data-ui~=three] .tile .ph .stamp { font-size: 12px; }
+
+/* ---------- nordic: Scandinavian home-store catalog (blue/yellow, price labels) ---------- */
+[data-ui~=nordic] {
+  --bg: #fff; --card: #fff; --text: #111; --sub: #484848; --line: #dfdfdf;
+  --green: #0058a3; --green-dark: #004f93; --red: #111; --orange: #0058a3; --badge: #0058a3; --radius: 2px;
+}
+[data-ui~=nordic] body { font-family: Verdana, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif; border-top: 6px solid #0058a3; }
+[data-ui~=nordic] body::before { content: ""; display: block; height: 4px; background: #ffdb00; }
+[data-ui~=nordic] .head h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; }
+[data-ui~=nordic] .tag { background: #f5f5f5; color: #111; border-radius: 999px; font-weight: 700; }
+[data-ui~=nordic] .grid { gap: 18px 10px; padding: 0 12px; }
+[data-ui~=nordic] .tile { border-radius: 0; }
+[data-ui~=nordic] .tile .ph { background: #f5f5f5; }
+[data-ui~=nordic] .tile .track img { object-fit: contain; mix-blend-mode: multiply; }
+[data-ui~=nordic] .tile .info { padding: 8px 0 0; }
+[data-ui~=nordic] .tile .sub { order: 3; margin-top: 4px; }
+[data-ui~=nordic] .tile .name { order: 1; font-weight: 800; font-size: 14px; text-transform: uppercase; }
+[data-ui~=nordic] .tile .extra { order: 2; color: #484848; }
+[data-ui~=nordic] .tile .info .btn { order: 4; }
+[data-ui~=nordic] .price { display: inline-block; background: #ffdb00; color: #111; font-weight: 900; padding: 0 6px; box-shadow: 2px 2px 0 rgba(0,0,0,.12); letter-spacing: -0.02em; }
+[data-ui~=nordic] .price.free { background: #ffdb00; color: #111; }
+[data-ui~=nordic] .no { background: #0058a3; border-radius: 0; box-shadow: none !important; }
+[data-ui~=nordic] .tile .info .btn { border-radius: 999px; background: #0058a3; color: #fff; }
+[data-ui~=nordic] .tile .info .btn.ghost { background: #fff; color: #0058a3; border: 2px solid #0058a3; }
+[data-ui~=nordic] .tile .info .btn.mine-btn { background: #ffdb00; color: #111; }
+[data-ui~=nordic] .stamp { border-radius: 0; transform: translate(-50%, -50%); background: #ffdb00; color: #111 !important; border-color: #111; font-size: 14px !important; }
+[data-ui~=nordic] .dots i { background: #bbb; box-shadow: none; }
+[data-ui~=nordic] .dots i.on { background: #111; }
+[data-ui~=nordic] .gallery .stamp { font-size: 24px !important; }
+[data-ui~=nordic] .chip { background: #f5f5f5; }
+[data-ui~=nordic] .chip.on { background: #111; }
+[data-ui~=nordic] .stats { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+[data-ui~=nordic] .bottom-bar { background: rgba(255,255,255,.96); }
+[data-ui~=nordic] .sheet { background: #f5f5f5; }
+[data-ui~=nordic] .composer { background: #f5f5f5; }
+[data-ui~=nordic] .composer .bar { background: rgba(245,245,245,.96); }
+[data-ui~=nordic] .login-card { background: #f5f5f5; }
+/* Price label sits above the button (CSS order), so give it its own breathing room. */
+[data-ui~=nordic] .tile .info > :nth-last-child(2) { margin-bottom: 0; }
+[data-ui~=nordic] .tile .sub { margin: 6px 0 12px; }
+[data-ui~=nordic] .tile .extra { margin-top: 2px; }
+[data-ui~=nordic] .tile .info .btn.owner-btn { background: #f5f5f5; color: #111; }
