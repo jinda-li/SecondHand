@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>二手清单</title>
+  <rect width="64" height="64" rx="14" fill="#0058a3"/>
+  <g transform="rotate(14 32 36)">
+    <path d="M19 23 L32 11 L45 23 V51 a4 4 0 0 1 -4 4 H23 a4 4 0 0 1 -4 -4 Z" fill="#ffdb00"/>
+    <circle cx="32" cy="20.5" r="3" fill="#0058a3"/>
+    <g stroke="#0058a3" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M24 31 l2 2 l3.5 -4"/>
+      <path d="M33 31 H40"/>
+      <path d="M24 39.5 l2 2 l3.5 -4"/>
+      <path d="M33 39.5 H40"/>
+      <path d="M25 48 H29.5"/>
+      <path d="M33 48 H40"/>
+    </g>
+  </g>
+  <path d="M33.2 19.6 C 40 10, 48 9, 54 12" stroke="#fff" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+</svg>

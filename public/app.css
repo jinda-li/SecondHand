@@ -160,7 +160,11 @@ img { display: block; max-width: 100%; }
 .promo-fav { flex: none; border: 1px solid #111; color: #111; font-size: 14px; font-weight: 700; padding: 7px 12px; border-radius: 999px; }
 .promo-cta { flex: none; background: #111; color: #fff; font-size: 14px; font-weight: 700; padding: 8px 16px; border-radius: 999px; }
 .appbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px 0; }
-.appbar .brand { background: #0058a3; color: #ffdb00; font-weight: 900; font-size: 14px; padding: 3px 8px; letter-spacing: .02em; }
+.logo { display: inline-flex; align-items: center; gap: 8px; color: var(--text); }
+.logo img { width: 34px; height: 34px; flex: none; }
+.logo-txt { display: flex; flex-direction: column; line-height: 1.15; }
+.logo-txt b { font-size: 17px; font-weight: 900; letter-spacing: .02em; }
+.logo-txt small { font-size: 11px; color: var(--sub); letter-spacing: .06em; }
 .appbar-my { color: var(--text); font-size: 14px; font-weight: 700; }
 .how-line { margin: 0 16px 12px; padding: 8px 12px; background: #f5f5f5; border-radius: 8px; font-size: 13px; color: #484848; line-height: 1.5; }
 .topbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px 0; }
@@ -198,7 +202,6 @@ img { display: block; max-width: 100%; }
 .field .req { color: var(--red); }
 /* IKEA-style form: bold labels, bordered inputs, black pills, an accordion for the optional part. */
 .ik-head { padding: 16px 16px 4px; background: #fff; }
-.ik-head .brand { display: inline-block; background: #0058a3; color: #ffdb00; font-weight: 900; font-size: 13px; padding: 2px 8px; }
 .ik-head h1 { font-size: 26px; font-weight: 800; margin: 14px 0 4px; }
 .ik-sub { font-size: 14px; color: #484848; }
 .form.ik { padding: 8px 16px 12px; }

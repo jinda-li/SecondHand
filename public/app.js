@@ -399,7 +399,8 @@ async function home() {
   const meData = await fetchMe();
   const mine = store.get('mySales', []);
   $app.innerHTML = `
-    <div class="head"><h1>二手清单</h1><div class="meta">拍照就上架，别人点开就能排队</div></div>
+    <div class="appbar">${LOGO}</div>
+    <div class="head"><h1>我的二手</h1><div class="meta">拍照就上架，别人点开就能排队</div></div>
     ${!googleOn() ? '' : meData.user
       ? `<div class="hint">已登录 ${esc(meData.user.email)} · 清单跟着账号走 · <button class="link-btn small" id="logout">退出</button></div>`
       : loginCardHtml('用 Google 登录，清单跟着账号走，换手机也能管理')}
@@ -535,6 +536,7 @@ function intro() {
     ['🙋', '自动排队，不撞单', '第 1 位才看到你的联系方式'],
   ];
   $app.innerHTML = `
+    <div class="appbar">${LOGO}</div>
     <div class="intro">
       <h1 class="intro-title">出二手，<br>不用一个个回消息</h1>
       <div class="intro-sub">拍照上架，发到群里，想要的人自己排队</div>
@@ -599,7 +601,7 @@ function menuGuide(item) {
 async function createSale() {
   const meData = await fetchMe();
   $app.innerHTML = `
-    <div class="ik-head"><a class="brand" href="/">二手清单</a><h1>发布二手清单</h1><div class="ik-sub">填 3 项就能开始上架，其他都有默认值。</div></div>
+    <div class="ik-head">${LOGO}<h1>发布二手清单</h1><div class="ik-sub">填 3 项就能开始上架，其他都有默认值。</div></div>
     ${googleOn() && !meData.user ? loginCardHtml('可以先用 Google 登录（可跳过）：清单跟着账号走，换手机也能管理') : ''}
     ${saleFormHtml({ owner: store.get('ownerName', '') || meData.user?.name || '', wechatId: '', location: '', currency: guessCurrency(), rules: DEFAULT_RULES, leaveDate: '' }, { create: true })}
     <div class="bottom-bar"><div class="inner"><button class="btn primary big" id="go">开始上架</button></div></div>`;
@@ -714,6 +716,9 @@ function sortItems(items, sort) {
   return [...items].sort((a, b) => (a.priceCents == null) - (b.priceCents == null) || dir * (a.priceCents - b.priceCents) || a.no - b.no);
 }
 
+// Brand mark: the tag icon with the name, so people remember (and can search for) 二手清单.
+const LOGO = `<a class="logo" href="/"><img src="/icon.svg" alt="" width="34" height="34"><span class="logo-txt"><b>二手清单</b><small>AI识别 · 多群同步</small></span></a>`;
+
 // Buyers arrive from a group card without knowing what this is: a slim dismissible strip
 // (like a store's "get the app" bar) above a bar with the name and 我的二手.
 function appBarHtml(isOwner) {
@@ -726,7 +731,7 @@ function appBarHtml(isOwner) {
       <a class="promo-cta" href="/new">去发布</a>
     </div>` : ''}
     <div class="appbar">
-      <a class="brand" href="/">二手清单</a>
+      ${LOGO}
       <a class="appbar-my" href="/">我的二手 ›</a>
     </div>`;
 }

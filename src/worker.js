@@ -1,6 +1,6 @@
 import { money, contactNote } from '../public/lib.js';
 
-const VERSION = '33';
+const VERSION = '34';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 const MAX_QUEUE_PER_SALE = 10;
@@ -76,10 +76,10 @@ async function route(req, env, ctx) {
   if ((m = p.match(/^\/manage\/([A-Za-z0-9]+)\/?$/))) return managePage(env, url, m[1]);
   // /new is the public "what is this" page buyers reach from 我也有二手要出, and the one people
   // save or forward, so its card says what the app does.
-  if (p === '/new') {
-    return page({ title: '二手清单｜出二手，不用一个个回消息', desc: '拍照上架，发到群里，想要的人自己排队。免费 · 不用注册 · 不用下载', url });
+  if (p === '/' || p === '/new') {
+    return page({ title: APP_TITLE, desc: APP_DESC, image: `${url.origin}/icon-300.png`, imageSize: 300, url, jsonLd: appJsonLd(url) });
   }
-  if (p === '/' || p === '/my' || p === '/nearby') {
+  if (p === '/my' || p === '/nearby') {
     return page({ title: '二手清单', desc: '拍照就上架，别人点开就能排队', url });
   }
   return page({ title: '找不到这个页面', url, status: 404, data: { notFound: true } });
@@ -87,7 +87,23 @@ async function route(req, env, ctx) {
 
 // ---------- HTML shell with per-link share card meta ----------
 
-function page({ title, desc = '', image = '', url, data = {}, status = 200, robots = false, keepQuery = false }) {
+// What people searching for 二手清单 should land on: the home and /new pages.
+const APP_TITLE = '二手清单｜出二手，不用一个个回消息';
+const APP_DESC = '二手清单：拍照上架，AI 识别物品，一个链接发到多个群，想要的人自己排队预订。免费 · 不用注册 · 不用下载。';
+const appJsonLd = (url) => ({
+  '@context': 'https://schema.org',
+  '@type': 'WebApplication',
+  name: '二手清单',
+  url: `${url.origin}/`,
+  description: APP_DESC,
+  applicationCategory: 'ShoppingApplication',
+  operatingSystem: 'Web',
+  inLanguage: 'zh-CN',
+  image: `${url.origin}/icon-300.png`,
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
+});
+
+function page({ title, desc = '', image = '', imageSize = 600, url, data = {}, status = 200, robots = false, keepQuery = false, jsonLd = null }) {
   const canonical = url.origin + url.pathname + (keepQuery ? url.search : '');
   const dataJson = JSON.stringify(data).replace(/</g, '\\u003c');
   const html = `<!doctype html>
@@ -104,8 +120,8 @@ ${robots ? '<meta name="robots" content="noindex"><meta name="referrer" content=
 <meta property="og:description" content="${esc(desc)}">
 <meta property="og:url" content="${esc(canonical)}">
 ${image ? `<meta property="og:image" content="${esc(image)}">
-<meta property="og:image:width" content="600">
-<meta property="og:image:height" content="600">
+<meta property="og:image:width" content="${imageSize}">
+<meta property="og:image:height" content="${imageSize}">
 <meta itemprop="image" content="${esc(image)}">
 <meta name="twitter:image" content="${esc(image)}">` : ''}
 <meta itemprop="name" content="${esc(title)}">
@@ -114,7 +130,9 @@ ${image ? `<meta property="og:image" content="${esc(image)}">
 <meta name="twitter:title" content="${esc(title)}">
 <meta name="twitter:description" content="${esc(desc)}">
 <meta name="theme-color" content="#0058a3">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>` : ''}
 <link rel="stylesheet" href="/app.css?v=${VERSION}">
 <link rel="stylesheet" href="/theme.css?v=${VERSION}">
 </head>
