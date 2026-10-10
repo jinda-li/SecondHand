@@ -50,17 +50,23 @@ function cut(s, n) {
 export const LIST_MARK = '【物品清单】';
 
 // The editable opening line of the group text; the seller can rewrite it.
-export function defaultIntro(sale, url) {
-  return `打扰了出二手，${sale.location}，点开链接可以看大图和预订。${url}`;
+// No link: it goes under the card sent just before, which is what buyers tap.
+export function defaultIntro(sale) {
+  return `打扰了出二手，${sale.location}，点上面的卡片可以看大图和预订。`;
+}
+
+// Intros saved before the text went link-free may still carry the old URL.
+export function stripLinks(s) {
+  return String(s ?? '').replace(/\s*https?:\/\/\S+/g, '').trim();
 }
 
 // Group text: intro, then a regenerated "name price" list of everything not yet sold.
 // Buyers don't see item numbers here; reserved items are listed like the rest.
-export function shareText(sale, items, url, { intro, maxListed = 30 } = {}) {
+export function shareText(sale, items, { intro, maxListed = 30 } = {}) {
   const open = items.filter((i) => i.status === 'available' || i.status === 'reserved').sort((a, b) => a.no - b.no);
-  const lines = [intro ?? defaultIntro(sale, url), '', LIST_MARK];
+  const lines = [intro ?? defaultIntro(sale), '', LIST_MARK];
   for (const i of open.slice(0, maxListed)) lines.push(`${cut(i.name, 12)} ${money(i.priceCents, sale.currency)}`);
-  if (open.length > maxListed) lines.push(`还有 ${open.length - maxListed} 件，点链接看全部`);
+  if (open.length > maxListed) lines.push(`还有 ${open.length - maxListed} 件，点卡片看全部`);
   return lines.join('\n');
 }
 

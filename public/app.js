@@ -1,4 +1,4 @@
-import { money, shareText, defaultIntro, LIST_MARK, CONDITIONS, CURRENCIES } from './lib.js';
+import { money, shareText, defaultIntro, stripLinks, LIST_MARK, CONDITIONS, CURRENCIES } from './lib.js';
 
 const $app = document.getElementById('app');
 const UI = new URLSearchParams(location.search).get('ui');
@@ -621,7 +621,6 @@ function buyerSale(saleId) {
   // Assume seller view right away if this browser holds the key; the refetch below confirms it.
   let data = BOOT.sale ? { ...BOOT, isOwner: !!localKey(saleId) } : null;
   let showSold = false;
-  const params = new URLSearchParams(location.search);
 
   const render = () => {
     if (!data) {
@@ -699,27 +698,8 @@ function buyerSale(saleId) {
   }
 
   render();
-  if (params.get('share') === '1') shareGuide(data?.sale);
   // Always ask the server: it knows whether this viewer is the seller or already in line.
   reload().catch((e) => (e.code === 'NOT_FOUND' ? notFound() : toast(e.message)));
-}
-
-// In WeChat, the share card comes from the top-right ··· menu on this public page.
-function shareGuide() {
-  const el = document.createElement('div');
-  el.className = 'guide';
-  el.innerHTML = isWeChat
-    ? `<div class="arrow">⤴</div>
-       <div class="txt">点右上角 <b>···</b><br>选 <b>发送给朋友</b>，再选群<br>就是带图的卡片</div>
-       <div class="txt2">发完卡片，回来点下面的「分享到群」→「② 发文字」<br><br>点任意处关闭</div>`
-    : `<div class="txt" style="text-align:left;margin-top:30px">要发成带图的卡片：<br>
-       1. 复制这个页面的链接<br>2. 发到微信「文件传输助手」<br>3. 在微信里点开它<br>4. 点右上角 <b>···</b> → <b>发送给朋友</b> → 选群</div>
-       <div class="txt2" style="text-align:left">直接在群里贴链接只会是一行蓝字。<br><br>点任意处关闭</div>`;
-  el.onclick = () => {
-    el.remove();
-    history.replaceState(null, '', location.pathname);
-  };
-  document.body.appendChild(el);
 }
 
 // ---------- 7.3 buyer item page ----------
@@ -1727,7 +1707,7 @@ function shareSheet(S) {
     <div class="share-step">
       <div class="small muted">推荐：按顺序发两条</div>
       <button class="btn primary big block" data-act="card"><span class="step-no">1</span>发卡片</button>
-      <div class="small muted step-why">带图的卡片，群友点开就能看大图、预订</div>
+      <div class="small muted step-why">群友点卡片就能看大图、预订</div>
       <button class="btn primary big block" data-act="text"><span class="step-no">2</span>发文字</button>
       <div class="small muted step-why">接着粘贴物品清单，不点开也知道有什么、多少钱</div>
     </div>
@@ -1736,6 +1716,16 @@ function shareSheet(S) {
     <div class="actions">
       <button class="btn big block" data-act="image">直接发清单图</button>
       <div class="small muted center">一张长图，所有东西和价格都在上面，扫码进来预订</div>
+    </div>
+    <div class="share-help">
+      <div class="survey-title">怎么分享图文卡片出去？</div>
+      <div class="group"><div class="cell small" style="display:block;line-height:1.9">
+        1. 点上面的「发卡片」，会出现一个二维码<br>
+        2. ${isWeChat ? '<b>长按二维码</b> →「识别图中二维码」' : '保存二维码图片，发到微信「文件传输助手」，在微信里<b>长按这张图</b> →「识别图中二维码」'}<br>
+        3. 页面打开后，点右上角 <b>···</b> →「发送给朋友」→ 选群，发出去就是卡片<br>
+        4. 回来点「发文字」，复制后粘贴到同一个群
+      </div></div>
+      <div class="small muted" style="margin:0 4px">别直接点链接打开再转发，那样微信只会发出一串网址。群里有了卡片以后，别人从卡片点进去再转发，也是卡片。</div>
     </div>`, async (act, el, s) => {
     if (act === 'text') {
       s.close();
@@ -1755,7 +1745,7 @@ function shareSheet(S) {
       } finally {
         stop();
       }
-      return sendCard(S, publicUrl(S), `${sale.title}｜在售 ${S.data().items.filter((i) => i.status === 'available').length} 件`);
+      return sendCard(publicUrl(S), sale.title);
     }
   });
 }
@@ -1764,14 +1754,13 @@ function shareSheet(S) {
 // the item list below 【物品清单】 is regenerated every time so it is never stale.
 function textSheet(S) {
   const { sale, items } = S.data();
-  const url = publicUrl(S);
   const intros = store.get('shareIntro', {});
-  const text = shareText(sale, items, url, { intro: intros[S.saleId] || defaultIntro(sale, url) });
+  const text = shareText(sale, items, { intro: stripLinks(intros[S.saleId]) || defaultIntro(sale) });
   const canShare = !isWeChat && !!navigator.share;
   const remember = (t) => {
     const intro = t.split(LIST_MARK)[0].trim();
     const all = store.get('shareIntro', {});
-    if (intro && intro !== defaultIntro(sale, url)) all[S.saleId] = intro;
+    if (intro && intro !== defaultIntro(sale)) all[S.saleId] = intro;
     else delete all[S.saleId];
     store.set('shareIntro', all);
   };
@@ -1798,42 +1787,59 @@ function textSheet(S) {
       const all = store.get('shareIntro', {});
       delete all[S.saleId];
       store.set('shareIntro', all);
-      s.el.querySelector('.share-text').value = shareText(sale, items, url);
+      s.el.querySelector('.share-text').value = shareText(sale, items);
     }
   });
   return sh;
 }
 
 function shareItem(S, it) {
-  const { sale } = S.data();
-  return sendCard(S, `${publicUrl(S)}/i/${it.no}`, `${it.no}号 ${it.name} ${money(it.priceCents, sale.currency)}`);
+  return sendCard(`${publicUrl(S)}/i/${it.no}`, it.name);
 }
 
-// A rich card in WeChat needs the page opened inside WeChat, then ··· → 发送给朋友.
-function sendCard(S, url, title) {
-  if (isWeChat) {
-    location.href = `${url}?share=1`;
-    return;
+// WeChat forwards a page opened from a chat link as a bare URL, but a page opened by scanning
+// a QR code as a card. So every card starts from a QR code; once one card is in the group,
+// anyone who opens it and forwards it sends a card too.
+async function sendCard(url, what) {
+  const stop = loading('正在生成二维码…');
+  let src;
+  try {
+    src = await qrImage(url);
+  } finally {
+    stop();
   }
-  const canShare = !!navigator.share;
+  if (!src) return toast('二维码没生成出来，检查网络再试');
   openSheet(() => `<h2>发卡片</h2>
-    <div class="hint">直接把链接贴进群只会是一行蓝字。要变成带图的卡片：</div>
-    <div class="group"><div class="cell small" style="display:block;line-height:1.8">
-      1. 复制链接，发到微信「文件传输助手」<br>
-      2. 在微信里点开它<br>
-      3. 点右上角 <b>···</b> → <b>发送给朋友</b> → 选群
+    <div class="qr-card"><img src="${src}" alt="${esc(what)} 的二维码"><div class="small muted">${esc(what)}</div></div>
+    <div class="group"><div class="cell small" style="display:block;line-height:1.9">
+      ${isWeChat
+        ? `1. <b>长按上面的二维码</b> →「识别图中二维码」<br>2. 打开后点右上角 <b>···</b> →「发送给朋友」→ 选群`
+        : `1. 长按二维码保存图片（或截图），发到微信「文件传输助手」<br>2. 在微信里长按这张图 →「识别图中二维码」<br>3. 打开后点右上角 <b>···</b> →「发送给朋友」→ 选群`}
     </div></div>
+    <div class="hint" style="padding-top:0">要从二维码打开再转发：直接点链接打开的页面，微信只会转发成一串网址。群里有了卡片，别人从卡片点进去再转发，也都是卡片。</div>
     <div class="actions">
-      <button class="btn primary block" data-act="copy">复制链接</button>
-      ${canShare ? `<button class="btn block" data-act="native">用系统分享（iPhone Safari 可直接成卡片）</button>` : ''}
-    </div>`, async (act) => {
-    if (act === 'copy') copy(url, '已复制，发到「文件传输助手」再点开');
-    if (act === 'native') {
-      try {
-        await navigator.share({ title, url });
-      } catch {}
-    }
+      ${isWeChat ? '' : `<a class="btn block" download="二维码.png" href="${src}">下载二维码图片</a>`}
+      <button class="btn block" data-act="close">好了</button>
+    </div>`, (act, el, s) => {
+    if (act === 'close') s.close();
   });
+}
+
+// A plain QR code image (PNG data URL) with a white quiet zone; null if the QR library can't load.
+async function qrImage(text) {
+  const qr = await qrMatrix(text);
+  if (!qr) return null;
+  const m = Math.ceil(480 / qr.n);
+  const pad = m * 4;
+  const size = qr.n * m + pad * 2;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, size, size);
+  g.fillStyle = '#111';
+  for (let r = 0; r < qr.n; r++) for (let col = 0; col < qr.n; col++) if (qr.dark(r, col)) g.fillRect(pad + col * m, pad + r * m, m, m);
+  return c.toDataURL('image/png');
 }
 
 // ---------- canvas drawing ----------
