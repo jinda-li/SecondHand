@@ -1,6 +1,6 @@
 import { money, contactNote } from '../public/lib.js';
 
-const VERSION = '32';
+const VERSION = '33';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 const MAX_QUEUE_PER_SALE = 10;
@@ -65,7 +65,7 @@ export default {
 let CLIENT_CFG = {};
 
 async function route(req, env, ctx) {
-  CLIENT_CFG = { googleClientId: env.GOOGLE_CLIENT_ID || '' };
+  CLIENT_CFG = { googleClientId: env.GOOGLE_CLIENT_ID || '', keepGiftUses: KEEP_GIFT_USES };
   const url = new URL(req.url);
   const p = url.pathname;
   let m;
@@ -76,6 +76,20 @@ async function route(req, env, ctx) {
   if ((m = p.match(/^\/manage\/([A-Za-z0-9]+)\/?$/))) return managePage(env, url, m[1]);
   if (p === '/' || p === '/new' || p === '/my' || p === '/nearby') {
     return page({ title: '二手清单', desc: '拍照就上架，别人点开就能排队', url });
+  }
+  // The page buyers save to WeChat 收藏 for later. Its title is what they will see and search for,
+  // so a saved gift link says what is waiting inside.
+  if (p === '/keep') {
+    const gift = url.searchParams.has('save') || url.searchParams.has('gift');
+    return page({
+      title: gift ? `二手清单｜送你 ${KEEP_GIFT_USES} 次 AI 识图，搬家时用` : '二手清单｜搬家、毕业、回国出闲置',
+      desc: gift
+        ? `这个链接里存着送你的 ${KEEP_GIFT_USES} 次 AI 识图：拍照就认出是什么，不用打字。搬家、毕业、回国出闲置时打开。`
+        : '拍照就上架，发到群里，群友点开自己排队',
+      image: url.origin + '/keep-icon.png',
+      url,
+      robots: gift,
+    });
   }
   return page({ title: '找不到这个页面', url, status: 404, data: { notFound: true } });
 }
@@ -144,22 +158,22 @@ async function managePage(env, url, saleId) {
   });
 }
 
-// Ended (hidden) and deleted lists look the same to buyers.
-function gonePage(url) {
-  return page({ title: '这份清单已经不见了', desc: '卖家已经结束或删除了这份清单', url, status: 404, data: { notFound: true } });
+// Ended (hidden) and deleted lists look the same to buyers, except an ended list still names itself.
+function gonePage(url, endedTitle = '') {
+  return page({ title: '这份清单已经不见了', desc: '卖家已经结束或删除了这份清单', url, status: 404, data: { notFound: true, endedTitle } });
 }
 
 async function salePage(env, url, saleId) {
   const data = await loadPublic(env, saleId, null);
-  if (!data || data.sale.status !== 'active') return gonePage(url);
+  if (!data || data.sale.status !== 'active') return gonePage(url, data?.sale.title);
   const { sale, items } = data;
   const avail = items.filter((i) => i.status === 'available');
   const ended = sale.status === 'ended';
   const title = ended ? `${sale.title}｜已结束` : `${sale.title}｜在售 ${avail.length} 件`;
-  const sample = avail.slice(0, 4).map((i) => i.name).join(' · ');
+  const sample = avail.slice(0, 3).map((i) => i.name).join(' · ');
   const desc = ended
     ? '这份清单已结束'
-    : `${sale.location}${sale.leaveDate ? ` · ${fmtDate(sale.leaveDate)}前出完` : ''} · ${sample || '点开看图、排队'}`;
+    : `${sale.location}${sale.leaveDate ? ` · ${fmtDate(sale.leaveDate)}前出完` : ''} · ${sample || '点开看图、排队'} · 用「二手清单」做的`;
   const firstPhoto = (avail[0] || items[0])?.photos?.[0];
   const image = sale.coverPhoto
     ? `${url.origin}/img/${sale.coverPhoto}`
@@ -169,7 +183,7 @@ async function salePage(env, url, saleId) {
 
 async function itemPage(env, url, saleId, no) {
   const data = await loadPublic(env, saleId, null);
-  if (!data || data.sale.status !== 'active') return gonePage(url);
+  if (!data || data.sale.status !== 'active') return gonePage(url, data?.sale.title);
   const item = data.items.find((i) => i.no === no);
   if (!item) return page({ title: '找不到这件东西', url, status: 404, data: { notFound: true, item: true } });
   const { sale } = data;
@@ -248,13 +262,14 @@ async function nearby(env, req, url) {
   if (scope === 'near' && !hasLoc) fail('INVALID', '需要你的大概位置');
   const cityFilter = scope === 'city' && city ? 'AND s.city = ?' : '';
   const { results } = await env.DB.prepare(
-    `SELECT i.no, i.name, i.price_cents, i.photos, i.created_at, s.id AS sale_id, s.location, s.currency, s.lat, s.lng, s.city
+    `SELECT i.no, i.name, i.price_cents, i.photos, i.created_at, s.id AS sale_id, s.title AS sale_title, s.location, s.currency, s.lat, s.lng, s.city
      FROM items i JOIN sales s ON s.id = i.sale_id
      WHERE s.public_nearby = 1 AND s.status = 'active' AND i.status = 'available' ${cityFilter}
      ORDER BY i.created_at DESC LIMIT 400`,
   ).bind(...(cityFilter ? [city] : [])).all();
   const items = results.map((r) => ({
     saleId: r.sale_id,
+    saleTitle: r.sale_title,
     no: r.no,
     name: r.name,
     priceCents: r.price_cents,
@@ -448,6 +463,8 @@ async function api(req, env, url) {
   if (p === '/ai/survey' && M === 'POST') return aiSurvey(env, req);
   if (p === '/ai/invite' && M === 'POST') return aiInvite(env, req);
   if (p === '/ai/nudge' && M === 'POST') return aiNudge(env, req);
+  if (p === '/keep/gift' && M === 'POST') return keepGiftCreate(env, req);
+  if ((m = p.match(/^\/keep\/gift\/(\w+)$/)) && M === 'POST') return keepGiftRedeem(env, req, m[1]);
   if (p === '/auth/google' && M === 'POST') return googleLogin(env, await body(req));
   if (p === '/auth/logout' && M === 'POST') return logout(req, env);
   if (p === '/me' && M === 'GET') return me(req, env);
@@ -974,6 +991,47 @@ async function aiNudge(env, req) {
   await env.DB.prepare('INSERT OR IGNORE INTO ai_nudges (client_id, day, created_at) VALUES (?, ?, ?)').bind(clientId, day, now()).run();
   const total = await env.DB.prepare('SELECT COUNT(DISTINCT client_id) AS n FROM ai_nudges').first();
   return ok({ total: total.n });
+}
+
+// ---------- keep gift: AI tries that live in a saved /keep link ----------
+
+const KEEP_GIFT_USES = 10;
+// Reopening the link this soon is the saver checking it, not coming back to sell.
+const KEEP_GIFT_MIN_AGE = HOUR;
+// Dorms and campus Wi-Fi share one address, so this only stops scripted farming.
+const KEEP_GIFTS_PER_IP_DAY = 20;
+
+// One gift per device per day: asking again the same day returns the same code.
+async function keepGiftCreate(env, req) {
+  const clientId = requireClient(req);
+  const t = now();
+  const since = t - 24 * HOUR;
+  const mine = await env.DB.prepare('SELECT code FROM keep_gifts WHERE created_by = ? AND created_at > ? ORDER BY created_at DESC LIMIT 1').bind(clientId, since).first();
+  if (mine) return ok({ code: mine.code, uses: KEEP_GIFT_USES });
+  const ip = req.headers.get('cf-connecting-ip') || null;
+  if (ip) {
+    const r = await env.DB.prepare('SELECT COUNT(*) AS n FROM keep_gifts WHERE created_ip = ? AND created_at > ?').bind(ip, since).first();
+    if (r.n >= KEEP_GIFTS_PER_IP_DAY) fail('LIMIT', '今天送出的太多了，明天再来', 429);
+  }
+  const code = rid(8);
+  await env.DB.prepare('INSERT INTO keep_gifts (code, created_at, created_by, created_ip) VALUES (?, ?, ?, ?)').bind(code, t, clientId, ip).run();
+  return ok({ code, uses: KEEP_GIFT_USES });
+}
+
+// Moves the gift onto this device. status: added | early | mine | taken | onePerDevice | invalid.
+async function keepGiftRedeem(env, req, code) {
+  const clientId = requireClient(req);
+  const g = await env.DB.prepare('SELECT * FROM keep_gifts WHERE code = ?').bind(code).first();
+  if (!g) return ok({ status: 'invalid' });
+  if (g.redeemed_by) return ok({ status: g.redeemed_by === clientId ? 'mine' : 'taken' });
+  const t = now();
+  if (t - g.created_at < KEEP_GIFT_MIN_AGE) return ok({ status: 'early', uses: KEEP_GIFT_USES });
+  const had = await env.DB.prepare('SELECT 1 FROM keep_gifts WHERE redeemed_by = ? LIMIT 1').bind(clientId).first();
+  if (had) return ok({ status: 'onePerDevice' });
+  const res = await env.DB.prepare('UPDATE keep_gifts SET redeemed_at = ?, redeemed_by = ? WHERE code = ? AND redeemed_by IS NULL').bind(t, clientId, code).run();
+  if (!res.meta.changes) return ok({ status: 'taken' });
+  await env.DB.batch(upsertQuota(env, clientId, `bonus = bonus + ${KEEP_GIFT_USES}`));
+  return ok({ status: 'added', uses: KEEP_GIFT_USES });
 }
 
 async function aiInvite(env, req) {
