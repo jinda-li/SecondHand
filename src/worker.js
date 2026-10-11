@@ -580,8 +580,15 @@ async function endSale(env, sale) {
   return ok({});
 }
 
+// Opening the management page counts as the seller being online (shown to buyers as
+// "卖家 N 分钟前在线"); written at most every 5 minutes.
+const SELLER_SEEN_EVERY = 5 * 60 * 1000;
+
 async function manageData(env, sale) {
   const t = now();
+  if (t - (sale.seller_active_at || 0) > SELLER_SEEN_EVERY) {
+    await env.DB.prepare('UPDATE sales SET seller_active_at = ? WHERE id = ?').bind(t, sale.id).run();
+  }
   const [itemsRes, queuesRes] = await env.DB.batch([
     env.DB.prepare("SELECT * FROM items WHERE sale_id = ? AND status != 'removed' ORDER BY no").bind(sale.id),
     env.DB.prepare("SELECT seq, item_id, nickname, note, added_by, created_at FROM queues WHERE sale_id = ? AND status = 'waiting' ORDER BY seq").bind(sale.id),

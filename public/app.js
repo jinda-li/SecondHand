@@ -765,7 +765,7 @@ function buyerSale(saleId) {
     $app.innerHTML = `
       <div class="head">
         <h1>${esc(sale.title)}</h1>
-        <div class="meta">📍 ${esc(sale.location)}${sale.leaveDate ? ` · ${dateText(sale.leaveDate)}前出完` : ''} · 卖家 ${agoText(sale.sellerActiveAt, now)}更新</div>
+        <div class="meta">📍 ${esc(sale.location)}${sale.leaveDate ? ` · ${dateText(sale.leaveDate)}前出完` : ''} · 卖家 ${agoText(sale.sellerActiveAt, now)}在线</div>
         ${sale.rules.length ? `<div class="tags">${sale.rules.map((r) => `<span class="tag">${esc(r)}</span>`).join('')}</div>` : ''}
       </div>
       ${ended ? `<div class="banner">这份清单已结束</div>` : ''}
