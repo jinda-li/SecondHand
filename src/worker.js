@@ -1,6 +1,6 @@
 import { money, contactNote } from '../public/lib.js';
 
-const VERSION = '33';
+const VERSION = '34';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 const MAX_QUEUE_PER_SALE = 10;
@@ -76,6 +76,10 @@ async function route(req, env, ctx) {
   if ((m = p.match(/^\/manage\/([A-Za-z0-9]+)\/?$/))) return managePage(env, url, m[1]);
   if (p === '/' || p === '/new' || p === '/my' || p === '/nearby') {
     return page({ title: '二手清单', desc: '拍照就上架，别人点开就能排队', url });
+  }
+  // A seller's lists in one page; the link carries each list's key, so it is never indexed.
+  if (p === '/lists') {
+    return page({ title: '我的清单｜二手清单 管理入口', desc: '所有清单一个入口。只收藏，别发到群里。', image: url.origin + '/keep-icon.png', url, robots: true });
   }
   // The page buyers save to WeChat 收藏 for later. Its title is what they will see and search for,
   // so a saved gift link says what is waiting inside.

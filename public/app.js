@@ -338,6 +338,7 @@ function boot() {
   if (path === '/my') return myQueues();
   if (path === '/nearby') return nearbyPage();
   if (path === '/keep') return keepPage();
+  if (path === '/lists') return listsPage();
   if (path === '/new') return new URLSearchParams(location.search).has('go') ? createSale() : intro();
   return home();
 }
@@ -380,7 +381,7 @@ async function home() {
     ${!googleOn() ? '' : meData.user
       ? `<div class="hint">已登录 ${esc(meData.user.email)} · 清单跟着账号走 · <button class="link-btn small" id="logout">退出</button></div>`
       : loginCardHtml('用 Google 登录，清单跟着账号走，换手机也能管理')}
-    ${mine.length ? `<div class="hint" style="padding-bottom:4px">我的清单（${mine.length}）</div><div class="section">${mine.map((s) => `
+    ${mine.length ? `<div class="hint" style="padding-bottom:4px">我的清单（${mine.length}） · <a href="/lists">全部清单和收藏入口 ›</a></div><div class="section">${mine.map((s) => `
       <a class="cell" href="/manage/${esc(s.id)}"><div class="grow"><div>${esc(s.title)}</div><div class="muted small">管理我的清单</div></div><span class="muted">›</span></a>`).join('')}
     </div>` : ''}
     <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
@@ -635,6 +636,101 @@ async function redeemKeepGift(code) {
   if (msg) toast(msg, 2600);
 }
 
+// ---------- 我的清单: every list this seller can manage ----------
+
+// The /lists address carries each list's id and key, so a saved copy opens them on any phone.
+function listsLink(lists) {
+  return `/lists?${lists.map((s) => `s=${encodeURIComponent(`${s.id}-${s.key}`)}`).join('&')}`;
+}
+
+// Management data for every stored list. Lists that are gone (or whose key no longer works)
+// are forgotten; a network error keeps them for next time.
+async function loadMyLists() {
+  const res = await Promise.all(store.get('mySales', []).map((s) => api(`/sale/${s.id}/manage`, { key: s.key }).then(
+    (d) => ({ ...s, d }),
+    (e) => ({ ...s, gone: e.code === 'NOT_FOUND' || e.code === 'FORBIDDEN' }),
+  )));
+  res.filter((r) => r.gone).forEach((r) => forgetSale(r.id));
+  const lists = res.filter((r) => r.d);
+  mergeSales(lists.map((r) => ({ id: r.id, key: r.key, title: r.d.sale.title })));
+  return lists;
+}
+
+function earnedText(d) {
+  return d.soldCents ? money(d.soldCents, d.sale.currency) : CURRENCIES[d.sale.currency].trim() + '0';
+}
+
+function listRowHtml({ id, key, d }) {
+  const n = (st) => d.items.filter((i) => i.status === st).length;
+  return `<a class="list-row" href="/manage/${esc(id)}?k=${esc(key)}">
+    <div class="row"><b class="grow ellipsis">${esc(d.sale.title)}</b><span class="small muted">${d.sale.status === 'ended' ? '已结束' : '进行中'}</span><span class="muted">›</span></div>
+    <div class="list-row-stats"><span>在售 <b>${n('available')}</b></span><span>已预订 <b>${n('reserved')}</b></span><span>已出 <b>${n('sold')}</b></span><span>已收回 <b class="earned-tag">${esc(earnedText(d))}</b></span></div>
+  </a>`;
+}
+
+async function listsPage() {
+  // Lists in the opened link join the ones this phone already knows.
+  const mine = store.get('mySales', []);
+  for (const v of new URLSearchParams(location.search).getAll('s')) {
+    const [id, key] = v.split('-');
+    if (id && key && !mine.some((m) => m.id === id)) mine.push({ id, key, title: '' });
+  }
+  store.set('mySales', mine);
+  $app.innerHTML = `<div class="empty">加载中…</div>`;
+  const lists = await loadMyLists();
+  // Keep the address complete, so whatever gets saved opens every list.
+  history.replaceState(null, '', lists.length ? listsLink(lists) : '/lists');
+  const currencies = new Set(lists.map((l) => l.d.sale.currency));
+  const total = lists.reduce((a, l) => a + l.d.soldCents, 0);
+  $app.innerHTML = `
+    <div class="head"><h1>我的清单</h1><div class="meta">${lists.length} 份${currencies.size === 1 && total ? ` · 共收回 ${esc(money(total, [...currencies][0]))}` : ''}</div></div>
+    ${lists.length && !store.get('listsKept', false) ? `<div class="highlight lists-keep">
+      <b>☆ 把这一页${isWeChat ? '收藏到微信' : '存成书签'}</b>所有清单一个入口，换手机、清了浏览器也能管理。
+      <div class="small muted">只收藏，别发到群里：拿到链接的人能改你的清单。</div>
+      <div class="keep-btns"><button class="btn primary" data-act="howto">怎么收藏</button><button class="btn" data-act="kept">收藏好了</button></div>
+    </div>` : ''}
+    ${lists.length ? lists.map(listRowHtml).join('')
+      : `<div class="empty">这台手机上还没有清单。<br>换过手机的话，从收藏或聊天记录里打开以前存的管理入口。</div>`}
+    <div class="bottom-bar"><div class="inner"><a class="btn primary big" href="/new?go=1">＋ 新建一份清单</a></div></div>`;
+  $app.onclick = (e) => {
+    const a = e.target.closest('[data-act]');
+    if (a?.dataset.act === 'kept') {
+      store.set('listsKept', true);
+      $app.querySelector('.lists-keep')?.remove();
+    }
+    if (a?.dataset.act === 'howto') {
+      const removeArrow = isWeChat ? wxMenuArrow() : () => {};
+      openSheet(() => `<h2>${isWeChat ? '收藏到微信' : '存成书签'}</h2>
+        <div class="group"><div class="cell small" style="display:block;line-height:2">
+          ${isWeChat
+            ? '1. 点右上角 <b>···</b><br>2. 选「<b>收藏</b>」<br>3. 以后在「<b>我 → 收藏</b>」里点开，所有清单都在'
+            : '用浏览器的「<b>添加书签</b>」或「<b>添加到主屏幕</b>」，以后点开就是这一页。'}
+        </div></div>
+        <div class="hint" style="padding-top:0">只收藏，别发到群里：拿到链接的人能改你的清单。</div>
+        <div class="actions"><button class="btn primary block" data-act="close">知道了</button></div>`,
+      (act, el, s) => act === 'close' && s.close(), { onClose: removeArrow });
+    }
+  };
+}
+
+// Manage page: switch between lists without going back to the home page.
+async function listsSheet(S) {
+  const sh = openSheet(() => `<h2>我的清单</h2><div class="empty" style="padding:24px">加载中…</div>`, () => {});
+  const lists = await loadMyLists();
+  sh.el.innerHTML = `<h2>我的清单</h2>
+    <div class="group">${lists.map((l) => `
+      <a class="cell" href="/manage/${esc(l.id)}?k=${esc(l.key)}">
+        <div class="grow"><div class="ellipsis">${esc(l.d.sale.title)}${l.id === S.saleId ? ' <span class="small muted">（当前）</span>' : ''}</div>
+        <div class="small muted">在售 ${l.d.items.filter((i) => i.status === 'available').length} · 已收回 ${esc(earnedText(l.d))}${l.d.sale.status === 'ended' ? ' · 已结束' : ''}</div></div>
+        <span class="muted">›</span>
+      </a>`).join('')}
+    </div>
+    <div class="actions">
+      <a class="btn primary block" href="/new?go=1">＋ 新建一份清单</a>
+      <a class="btn block" href="${esc(listsLink(lists))}">☆ 收藏「我的清单」入口</a>
+    </div>`;
+}
+
 async function createSale() {
   const meData = await fetchMe();
   $app.innerHTML = `
@@ -762,8 +858,10 @@ function buyerSale(saleId) {
     const ended = sale.status === 'ended';
     const list = [...avail, ...reserved];
     document.title = `${sale.title}｜在售 ${avail.length} 件`;
+    const keepTag = !isOwner && !ended && keepWanted();
     $app.innerHTML = `
-      <div class="head">
+      <div class="head${keepTag ? ' has-keep-tag' : ''}">
+        ${keepTag ? `<a class="keep-tag" href="/keep?save=1">☆ 收藏<small>送 ${GIFT_USES} 次 AI 识图</small></a>` : ''}
         <h1>${esc(sale.title)}</h1>
         <div class="meta">📍 ${esc(sale.location)}${sale.leaveDate ? ` · ${dateText(sale.leaveDate)}前出完` : ''} · 卖家 ${agoText(sale.sellerActiveAt, now)}在线</div>
         ${sale.rules.length ? `<div class="tags">${sale.rules.map((r) => `<span class="tag">${esc(r)}</span>`).join('')}</div>` : ''}
@@ -1069,7 +1167,7 @@ function manage(saleId) {
     const ended = sale.status === 'ended';
     document.title = `管理｜${sale.title}`;
     $app.innerHTML = `
-      <div class="topbar"><a class="btn" href="/s/${sale.id}">看买家看到的页面</a><button class="btn" data-act="settings">设置</button></div>
+      <div class="topbar"><button class="btn" data-act="lists">我的清单 (${store.get('mySales', []).length}) ▾</button><a class="btn" href="/s/${sale.id}">买家视角</a><button class="btn" data-act="settings">设置</button></div>
       <div class="head" style="padding-top:8px"><h1>${esc(sale.title)}</h1><div class="meta">📍 ${esc(sale.location)}</div></div>
       ${ended ? `<div class="banner">这份清单已结束：买家打开链接会看到「清单已经不见了」。<br><button class="btn small primary" style="margin-top:8px" data-act="reopen">重新公开</button></div>` : ''}
       ${linkSaved(saleId) ? '' : `<div class="banner">还没把管理入口发给自己：换手机或在微信里打开时，没有它就管理不了这份清单。<br><button class="btn small primary" style="margin-top:8px" data-act="savelink">发给自己</button></div>`}
@@ -1112,6 +1210,7 @@ function manage(saleId) {
     if (a.dataset.act === 'savelink') sendSelfSheet(S, { onDone: render });
     if (a.dataset.act === 'share') maybeCheck(S, true, () => shareSheet(S));
     if (a.dataset.act === 'settings') settingsSheet(S);
+    if (a.dataset.act === 'lists') listsSheet(S);
   });
 
   // 6.5: ask "卖掉了吗" once per open; returning from background after a while counts as a new open.
