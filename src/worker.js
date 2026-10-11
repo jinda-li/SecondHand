@@ -1,6 +1,6 @@
-import { money, contactNote } from '../public/lib.js';
+import { money, contactNote, CURRENCIES } from '../public/lib.js';
 
-const VERSION = '34';
+const VERSION = '35';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 const MAX_QUEUE_PER_SALE = 10;
@@ -85,6 +85,17 @@ async function route(req, env, ctx) {
   // so a saved gift link says what is waiting inside.
   if (p === '/keep') {
     const gift = url.searchParams.has('save') || url.searchParams.has('gift');
+    const friend = await friendGift(env, url.searchParams.get('gift'));
+    if (friend) {
+      return page({
+        title: `${friend.name || '朋友'}送你 ${KEEP_GIFT_USES} 次 AI 识图｜二手清单`,
+        desc: `${friend.earned ? `我用它出闲置，已经收回 ${friend.earned}。` : '我用它出过闲置，挺好用。'}拍照就上架，发到群里，群友点开自己排队。打开就到账，收藏起来搬家时用。`,
+        image: url.origin + '/keep-icon.png',
+        url,
+        robots: true,
+        data: { friendGift: friend },
+      });
+    }
     return page({
       title: gift ? `二手清单｜送你 ${KEEP_GIFT_USES} 次 AI 识图，搬家时用` : '二手清单｜搬家、毕业、回国出闲置',
       desc: gift
@@ -1012,37 +1023,62 @@ const KEEP_GIFT_MIN_AGE = HOUR;
 // Dorms and campus Wi-Fi share one address, so this only stops scripted farming.
 const KEEP_GIFTS_PER_IP_DAY = 20;
 
-// One gift per device per day: asking again the same day returns the same code.
+// Each card sent to a friend is its own gift (one friend claims it); this caps a device per day.
+const FRIEND_GIFTS_PER_DAY = 5;
+
+// Saving for yourself: one gift per device per day, asking again the same day returns the same code.
+// For a friend ({ friend: true, name, earnedCents, currency }): a new code each time.
 async function keepGiftCreate(env, req) {
   const clientId = requireClient(req);
+  const b = await body(req);
+  const friend = !!b.friend;
   const t = now();
   const since = t - 24 * HOUR;
-  const mine = await env.DB.prepare('SELECT code FROM keep_gifts WHERE created_by = ? AND created_at > ? ORDER BY created_at DESC LIMIT 1').bind(clientId, since).first();
-  if (mine) return ok({ code: mine.code, uses: KEEP_GIFT_USES });
+  if (friend) {
+    const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM keep_gifts WHERE created_by = ? AND kind = 'friend' AND created_at > ?").bind(clientId, since).first();
+    if (r.n >= FRIEND_GIFTS_PER_DAY) fail('LIMIT', `今天已经送出 ${FRIEND_GIFTS_PER_DAY} 份了，明天再送`, 429);
+  } else {
+    const mine = await env.DB.prepare("SELECT code FROM keep_gifts WHERE created_by = ? AND kind = 'keep' AND created_at > ? ORDER BY created_at DESC LIMIT 1").bind(clientId, since).first();
+    if (mine) return ok({ code: mine.code, uses: KEEP_GIFT_USES });
+  }
   const ip = req.headers.get('cf-connecting-ip') || null;
   if (ip) {
     const r = await env.DB.prepare('SELECT COUNT(*) AS n FROM keep_gifts WHERE created_ip = ? AND created_at > ?').bind(ip, since).first();
     if (r.n >= KEEP_GIFTS_PER_IP_DAY) fail('LIMIT', '今天送出的太多了，明天再来', 429);
   }
   const code = rid(8);
-  await env.DB.prepare('INSERT INTO keep_gifts (code, created_at, created_by, created_ip) VALUES (?, ?, ?, ?)').bind(code, t, clientId, ip).run();
+  const name = friend ? String(b.name ?? '').replace(/[\s<>]+/g, ' ').trim().slice(0, 12) || null : null;
+  const cents = Number(b.earnedCents);
+  const earned = friend && Number.isInteger(cents) && cents > 0 && cents < 1e9 && CURRENCIES[b.currency] ? money(cents, b.currency) : null;
+  await env.DB.prepare('INSERT INTO keep_gifts (code, created_at, created_by, created_ip, kind, from_name, earned) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .bind(code, t, clientId, ip, friend ? 'friend' : 'keep', name, earned).run();
   return ok({ code, uses: KEEP_GIFT_USES });
 }
 
-// Moves the gift onto this device. status: added | early | mine | taken | onePerDevice | invalid.
+// The sender's name and earnings for a friend gift's card, or null for any other link.
+async function friendGift(env, code) {
+  if (!code || !/^\w{1,32}$/.test(code)) return null;
+  const g = await env.DB.prepare("SELECT from_name, earned FROM keep_gifts WHERE code = ? AND kind = 'friend'").bind(code).first();
+  return g ? { name: g.from_name || '', earned: g.earned || '' } : null;
+}
+
+// Moves the gift onto this device. status: added | early | mine | taken | onePerDevice | invalid,
+// or own when the sender opens their friend gift (it stays for the friend).
 async function keepGiftRedeem(env, req, code) {
   const clientId = requireClient(req);
   const g = await env.DB.prepare('SELECT * FROM keep_gifts WHERE code = ?').bind(code).first();
   if (!g) return ok({ status: 'invalid' });
-  if (g.redeemed_by) return ok({ status: g.redeemed_by === clientId ? 'mine' : 'taken' });
+  const friend = g.kind === 'friend';
+  if (g.redeemed_by) return ok({ status: g.redeemed_by === clientId ? 'mine' : 'taken', friend });
+  if (friend && g.created_by === clientId) return ok({ status: 'own', friend, uses: KEEP_GIFT_USES });
   const t = now();
-  if (t - g.created_at < KEEP_GIFT_MIN_AGE) return ok({ status: 'early', uses: KEEP_GIFT_USES });
+  if (!friend && t - g.created_at < KEEP_GIFT_MIN_AGE) return ok({ status: 'early', uses: KEEP_GIFT_USES });
   const had = await env.DB.prepare('SELECT 1 FROM keep_gifts WHERE redeemed_by = ? LIMIT 1').bind(clientId).first();
   if (had) return ok({ status: 'onePerDevice' });
   const res = await env.DB.prepare('UPDATE keep_gifts SET redeemed_at = ?, redeemed_by = ? WHERE code = ? AND redeemed_by IS NULL').bind(t, clientId, code).run();
   if (!res.meta.changes) return ok({ status: 'taken' });
   await env.DB.batch(upsertQuota(env, clientId, `bonus = bonus + ${KEEP_GIFT_USES}`));
-  return ok({ status: 'added', uses: KEEP_GIFT_USES });
+  return ok({ status: 'added', friend, uses: KEEP_GIFT_USES });
 }
 
 async function aiInvite(env, req) {
