@@ -72,7 +72,7 @@ export function shareText(sale, items, { intro, maxListed = 30, prices = false, 
 }
 
 // "小王 想要 1号 笔记本支架、3号 台灯" — what a head-of-queue buyer says when contacting the seller.
-export function contactNote(items, nickname) {
+export function contactNote(items) {
   const list = [...items].sort((a, b) => a.no - b.no).map((i) => `${i.no}号 ${cut(i.name, 10)}`).join('、');
-  return `${nickname} 想要 ${list}`;
+  return `我预订了 ${list}`;
 }

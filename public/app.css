@@ -367,3 +367,5 @@ img { display: block; max-width: 100%; }
 .cstatus { font-size: 13px; color: var(--sub); margin-top: 6px; min-height: 1em; }
 .cstatus.err { color: var(--red); }
 [data-ui~=nordic] .cstatus.err { color: #cc0008; }
+
+.tip-qr { display: block; width: 200px; max-width: 70%; margin: 8px auto 0; border-radius: 8px; }

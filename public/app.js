@@ -412,8 +412,10 @@ async function home() {
       <a class="btn big block" href="/my">我的排队</a>
     </div>
     ${nearbyEntryHtml()}
-    <div class="hint center"><a href="/privacy">隐私政策</a> · <a href="/terms">服务条款</a></div>`;
+    <div class="hint center"><a href="/privacy">隐私政策</a> · <a href="/terms">服务条款</a> · <button class="link-btn small" id="feedback">反馈</button> · <button class="link-btn small" id="tip">打赏开发者</button></div>`;
   googleButton($app.querySelector('.gbtn'), () => home());
+  $app.querySelector('#tip').onclick = () => tipSheet();
+  $app.querySelector('#feedback').onclick = feedbackSheet;
   const lo = $app.querySelector('#logout');
   if (lo) {
     lo.onclick = async () => {
@@ -464,7 +466,7 @@ function saleFormHtml(s, { create = false } = {}) {
       <div class="field"><span>规则</span><div class="rules">${rulesEditor(s.rules)}</div></div>
       <label class="field"><span>截止日期（选填）</span><input type="date" name="leaveDate" value="${esc(s.leaveDate)}"></label>`;
   const nearby = `<label class="field nearby-row"><input type="checkbox" name="nearby" ${s.publicNearby === false ? '' : 'checked'}>
-        <span style="margin:0;color:var(--text)">公开到「附近的二手」，让附近的人也能看到<br><span class="small muted">会用到你的大概位置（约 1 公里范围），不会显示具体地址</span></span></label>`;
+        <span style="margin:0;color:var(--text)">公开到「附近的二手」：你的东西会出现在附近别人的清单下面，卖得更快<br><span class="small muted">会用到你的大概位置（约 1 公里范围），不会显示具体地址</span></span></label>`;
   // Creating: the three required fields up front, the rest folded away with their defaults.
   if (create) {
     return `
@@ -534,6 +536,7 @@ function intro() {
     ['📷', '拍照，填个价格', 'AI 自动认出是什么，名字不用打'],
     ['💬', '一个链接，发几个群都行', '群友点开就能看图、预订'],
     ['🙋', '自动排队，不撞单', '第 1 位才看到你的联系方式'],
+    ['📍', '附近的人也能刷到', '也会出现在附近别人的清单下面，卖得更快'],
   ];
   $app.innerHTML = `
     <div class="appbar">${LOGO}</div>
@@ -781,7 +784,9 @@ function buyerSale(saleId) {
       </div></div>` : ''}
       <div style="padding:28px 16px 8px;display:flex;gap:10px;justify-content:center">
         <a class="btn small" href="/my">我的排队</a>
-      </div>`;
+        <button class="btn small" data-feedback>反馈问题</button>
+      </div>
+      ${nearbyEntryHtml(sale.id)}`;
   };
 
   $app.addEventListener('click', (e) => {
@@ -789,6 +794,7 @@ function buyerSale(saleId) {
       showSold = true;
       render();
     }
+    if (e.target.closest('[data-feedback]')) feedbackSheet();
     if (e.target.closest('[data-promo-x]')) {
       store.set('promoHidden', true);
       render();
@@ -879,6 +885,7 @@ function buyerItem(saleId, no) {
       ${!my && !closed ? `<div class="how-to" style="margin-top:10px">点「预订」排队，排到第 1 位这里会显示卖家联系方式，再去微信加卖家。页面是实时的，能预订就是还在。</div>` : ''}
       ${my && my.position > 1 ? `<div class="hint">前面的人不要了，你会自动升到第 1 位，到时回来这里看卖家联系方式。</div>` : ''}
       ${my && my.position === 1 && contact ? contactHtml(contact) : ''}
+      ${nearbyEntryHtml(sale.id)}
       <div class="bottom-bar"><div class="inner">${btn}</div></div>`;
     const track = $app.querySelector('.track');
     const count = $app.querySelector('.count');
@@ -931,21 +938,20 @@ function joinSheet(sale, it, reload) {
     }
     return `<h2>${esc(it.name)}</h2>
       <div class="group">
-        <label class="field"><span>称呼 <b class="req">*</b></span><input class="inp" type="text" name="nick" maxlength="20" value="${esc(store.get('nickname', ''))}" placeholder="卖家怎么称呼你"></label>
-        <label class="field"><span>备注（选填）</span><input class="inp" type="text" name="note" maxlength="30" placeholder="例：能送到 Aalto 吗"></label>
+        <label class="field"><span>你的微信号 <b class="req">*</b></span><input class="inp" type="text" name="wechat" maxlength="30" autocomplete="off" value="${esc(store.get('buyerWechat', ''))}"></label>
       </div>
+      <div class="hint" style="padding-top:0">填真实的微信号。排到你时，由你去微信加卖家；万一你忘了，卖家也能联系到你。</div>
       <div class="actions"><button class="btn primary big block" data-act="go">排上</button></div>`;
   }, async (act, el, s) => {
     if (act === 'close') return s.close();
     if (act !== 'go') return;
-    const nickname = s.el.querySelector('[name=nick]').value.trim();
-    const note = s.el.querySelector('[name=note]').value.trim();
-    if (!nickname) return toast('填一个称呼');
-    store.set('nickname', nickname);
+    const wechat = s.el.querySelector('[name=wechat]').value.trim();
+    if (!wechat) return toast('填一下你的微信号');
+    store.set('buyerWechat', wechat);
     buyerToken(true);
     el.disabled = true;
     try {
-      result = await api(`/item/${it.id}/join`, { method: 'POST', body: { nickname, note } });
+      result = await api(`/item/${it.id}/join`, { method: 'POST', body: { wechat } });
       s.refresh();
       reload();
     } catch (err) {
@@ -954,7 +960,7 @@ function joinSheet(sale, it, reload) {
     }
   });
   bindCopy(sh.el);
-  setTimeout(() => sh.el.querySelector('[name=nick]')?.focus(), 250);
+  setTimeout(() => sh.el.querySelector('[name=wechat]')?.focus(), 250);
 }
 
 // ---------- 7.4 my queues ----------
@@ -1429,7 +1435,7 @@ function composer(S) {
     el.innerHTML = `
       <div class="inner">
         <div class="bar"><button class="link-btn" data-act="close">‹ 返回</button><b>上架</b><span style="width:48px"></span></div>
-        <div class="hint" style="padding-bottom:0">${aiAutoOn() ? '同一件东西的几张照片会自动归到一张卡片里；分错了，点照片拆开，或点「并到上一件」。' : '每张照片是一件新物品；同一件东西的多张图，点卡片里的「＋」加，或点「并到上一件」。'}价格填 0 就是免费送。</div>
+        <div class="hint" style="padding-bottom:0">${aiAutoOn() ? '同一件东西的几张照片会自动归到一张卡片里；分错了，点照片拆开，或点「并到上一件」。' : '每张照片是一件新物品；同一件东西的多张图，点卡片里的「＋」加，或点「并到上一件」。'}价格填 0 就是免费送。<br>详情填得越详细，群里来回问的就越少。</div>
         ${cards.length ? cards.map(cardHtml).join('') : `<div class="empty">点下面的「＋ 新物品」选照片。<br>可以一次选很多张，同一件的几张会自动放在一起。</div>`}
         <div class="footer"><div class="inner">${footerHtml()}</div></div>
       </div>`;
@@ -1717,8 +1723,7 @@ function itemSheet(S, itemId) {
             <div class="qrow ${i === 0 ? 'head' : ''}">
               <span class="pos">${i + 1}</span>
               <div class="grow">
-                <div><b>${esc(r.nickname)}</b>${r.addedBy === 'seller' ? ' <span class="small muted">（手动加）</span>' : ''}</div>
-                ${r.note ? `<div class="small">${esc(r.note)}</div>` : ''}
+                <div><b>${esc(r.nickname)}</b>${r.addedBy === 'seller' ? ' <span class="small muted">（手动加）</span>' : ''}${r.wechat ? ` <button class="link-btn small" data-copy="${esc(r.wechat)}">复制微信号</button>` : ''}</div>
                 <div class="small muted">${new Date(r.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
                 ${i === 0 ? `<div class="acts"><button class="btn primary" data-act="sell">卖给他了</button><button class="btn" data-act="decline" data-seq="${r.seq}">他不要了</button></div>` : ''}
               </div>
@@ -1730,7 +1735,9 @@ function itemSheet(S, itemId) {
           ${q.length ? '' : `<button class="btn primary block" data-act="sell">已经卖掉了</button>`}
           <button class="btn block" data-act="share-item">发这件的卡片</button>
           <button class="btn danger block" data-act="remove">下架</button>
-        </div>` : `<div class="hint center">这件${statusText[it.status]}了</div>`}`;
+        </div>` : it.status === 'sold'
+        ? `<div class="hint center">卖出去了！觉得好用？<button class="link-btn small" data-act="tip">请开发者喝杯咖啡</button></div>`
+        : `<div class="hint center">这件${statusText[it.status]}了</div>`}`;
   }, async (act, el, s) => {
     const run = async (body, msg) => {
       el.disabled = true;
@@ -1762,6 +1769,8 @@ function itemSheet(S, itemId) {
         return s.close();
       case 'share-item':
         return shareItem(S, it);
+      case 'tip':
+        return tipSheet();
       case 'edit':
         edit = { name: it.name, priceCents: it.priceCents, origPriceCents: it.origPriceCents ?? null, condition: it.condition, note: it.note, photos: [...it.photos] };
         return s.refresh();
@@ -1803,6 +1812,7 @@ function itemSheet(S, itemId) {
       }
     }
   });
+  bindCopy(sh.el);
 
   function syncEdit(s) {
     const v = (n) => s.el.querySelector(`[name=${n}]`)?.value ?? '';
@@ -1825,6 +1835,7 @@ function settingsSheet(S) {
         ? `<div class="hint center">已绑定 Google 账号 ${esc(sale.ownerEmail)}，换设备登录就能管理</div>`
         : `<div class="login-card"><div class="small">用 Google 登录，清单跟着账号走</div><div class="gbtn"></div></div>`) : ''}
       <button class="btn block" data-act="link">把管理入口发给自己（换手机、换浏览器用）</button>
+      <button class="btn block" data-act="feedback">反馈问题 / 提建议</button>
       ${sale.status === 'active'
         ? `<button class="btn danger block" data-act="end">结束清单（对买家隐藏）</button>`
         : `<button class="btn block" data-act="reopen">重新公开</button>`}
@@ -1837,6 +1848,10 @@ function settingsSheet(S) {
     if (act === 'aiauto') {
       store.set('aiAuto', el.checked);
       return toast(el.checked ? '上架时会自动识别照片' : '已关闭 AI 自动识别');
+    }
+    if (act === 'feedback') {
+      s.close();
+      return feedbackSheet();
     }
     if (act === 'link') {
       s.close();
@@ -2400,15 +2415,106 @@ async function nudge(el) {
   }
 }
 
+// Feedback goes into our own table: mailto does nothing inside WeChat. The page path and role ride along
+// so a report like "this button doesn't work" can be traced.
+const FEEDBACK_MAX_SHOTS = 3;
+
+function feedbackSheet() {
+  const path = location.pathname;
+  const role = path.startsWith('/manage/') ? 'seller' : path.startsWith('/s/') || path === '/my' ? 'buyer' : '';
+  const shots = []; // { url } object URLs of picked screenshots
+  let text = '';
+  let contact = store.get('buyerWechat', '');
+  // Typed text lives here: refresh() re-renders the sheet when screenshots change.
+  const sync = (s) => {
+    text = s.el.querySelector('[name=fb]').value;
+    contact = s.el.querySelector('[name=fbc]').value;
+  };
+  const sh = openSheet(() => `<h2>反馈问题 / 提建议</h2>
+    <div class="group">
+      <label class="field"><span>想说什么</span><textarea class="inp" name="fb" rows="4" maxlength="1000" placeholder="哪里不好用、出了什么错、想要什么功能，都可以说">${esc(text)}</textarea></label>
+      <div class="field"><span>截图（选填，最多 ${FEEDBACK_MAX_SHOTS} 张）</span>
+        <div class="photo-strip" style="margin-top:6px">
+          ${shots.map((p, j) => `<div class="t"><img src="${p.url}" alt=""><button class="x" data-act="rm" data-j="${j}">✕</button></div>`).join('')}
+          ${shots.length < FEEDBACK_MAX_SHOTS ? `<button class="addph" data-act="add">＋</button>` : ''}
+        </div>
+      </div>
+      <label class="field"><span>你的微信号（选填）</span><input class="inp" type="text" name="fbc" maxlength="60" value="${esc(contact)}"></label>
+    </div>
+    <div class="hint" style="padding-top:0">一张截图比一段话说得清楚。留微信号，开发者需要细问时能找到你。会自动附上你在哪个页面、用的什么手机。</div>
+    <div class="actions"><button class="btn primary big block" data-act="send">发送</button></div>`, async (act, el, s) => {
+    sync(s);
+    if (act === 'add') {
+      const fs = await pickFiles({ multiple: true });
+      for (const f of fs.slice(0, FEEDBACK_MAX_SHOTS - shots.length)) shots.push({ url: URL.createObjectURL(f) });
+      return s.refresh();
+    }
+    if (act === 'rm') {
+      URL.revokeObjectURL(shots.splice(Number(el.dataset.j), 1)[0].url);
+      return s.refresh();
+    }
+    if (act !== 'send') return;
+    if (!text.trim() && !shots.length) return toast('写一句或者传张截图吧');
+    buyerToken(true);
+    el.disabled = true;
+    try {
+      const form = new FormData();
+      Object.entries({ text: text.trim(), contact: contact.trim(), page: path, role, width: innerWidth }).forEach(([k, v]) => form.append(k, v));
+      // Screenshots are mostly text: a larger long edge than item photos keeps them readable.
+      for (const p of shots) form.append('shot', await resize(await loadImage(p.url), 1600, 0.8), 'shot.jpg');
+      await api('/feedback', { method: 'POST', form });
+      toast('收到了，谢谢！');
+      s.close();
+    } catch (err) {
+      toast(err.message);
+      el.disabled = false;
+    }
+  }, { onClose: () => shots.forEach((p) => URL.revokeObjectURL(p.url)) });
+  setTimeout(() => sh.el.querySelector('[name=fb]')?.focus(), 250);
+}
+
+// WeChat 赞赏码. We can't see payments, so "我打赏了" is taken on trust (the server grants the bonus once per device).
+const TIP_QR = '/tip-qr.png';
+
+async function tipSheet(onRegain) {
+  buyerToken(true);
+  let q = { tipped: false };
+  try {
+    q = await api('/ai/quota');
+  } catch {}
+  openSheet(() => `<h2>打赏开发者</h2>
+    <div class="hint center" style="padding-top:0">AI 识别是开发者自掏腰包付的。你打赏，他充 AI，大家接着薅。</div>
+    <img class="tip-qr" src="${TIP_QR}" alt="微信赞赏码">
+    <div class="hint center">${isWeChat ? '长按二维码，选「识别图中二维码」' : '截图，在微信「扫一扫」里从相册选这张图'}</div>
+    <div class="actions"><button class="btn primary big block" data-act="tipped">${q.tipped ? '我打赏了' : '我打赏了，送我 100 次 AI 识别'}</button></div>`, async (act, el, s) => {
+    if (act !== 'tipped') return;
+    el.disabled = true;
+    try {
+      const r = await api('/ai/tip', { method: 'POST', body: {} });
+      toast(r.granted ? `谢谢打赏！送你 ${r.bonus} 次 AI 识别` : '谢谢打赏！');
+      s.close();
+      if (r.granted) onRegain?.();
+    } catch (err) {
+      toast(err.message);
+      el.disabled = false;
+    }
+  });
+}
+
 // Global cap reached (or the free model allowance is used up).
 function aiBusySheet() {
   openSheet(() => `<h2>今天的 AI 额度被薅完了</h2>
     <div class="hint" style="padding-top:0">AI 识别是开发者自掏腰包付的，今天的额度已经被大家用光了，明天会恢复。自己填名字也很快。<br>想让开发者赶紧加钱？点下面催一下，催的人越多，他越不好意思不充。</div>
     <div class="actions">
       <button class="btn primary big block" data-act="nudge">催开发者充钱</button>
+      <button class="btn big block" data-act="tip">打赏开发者，帮他充钱</button>
     </div>
     <div style="margin-top:12px">${inviteRowHtml()}</div>`, (act, el, s) => {
     if (act === 'nudge') nudge(el);
+    if (act === 'tip') {
+      s.close();
+      tipSheet();
+    }
     if (act === 'invite') useInvite(s);
   });
 }
@@ -2422,9 +2528,16 @@ async function aiLimitSheet(onRegain) {
   if (!q.surveyDone) return surveySheet(onRegain);
   openSheet(() => `<h2>你的免费次数薅完了</h2>
     <div class="hint" style="padding-top:0">AI 识别是开发者自掏腰包付的，每人先送这么多次。自己填名字也很快。<br>还想接着用？催开发者加预算吧，催的人多了他就会加。</div>
-    <div class="actions"><button class="btn primary big block" data-act="nudge">催开发者加预算</button></div>
+    <div class="actions">
+      ${q.tipped ? '' : `<button class="btn primary big block" data-act="tip">打赏开发者，送你 100 次</button>`}
+      <button class="btn ${q.tipped ? 'primary ' : ''}big block" data-act="nudge">催开发者加预算</button>
+    </div>
     <div style="margin-top:12px">${inviteRowHtml()}</div>`, (act, el, s) => {
     if (act === 'nudge') nudge(el);
+    if (act === 'tip') {
+      s.close();
+      tipSheet(onRegain);
+    }
     if (act === 'invite') useInvite(s, onRegain);
   });
 }
@@ -2525,9 +2638,13 @@ async function aiRecognize(files, currency) {
 // ---------- 附近的二手 ----------
 
 // Placeholder for the feed at the bottom of a page; mountNearbyFeeds() fills it in after render.
-function nearbyEntryHtml() {
-  return `<div class="nearby-feed"></div>`;
+// Under a list, pass its id so the feed shows other people's things only.
+function nearbyEntryHtml(excludeSaleId = '') {
+  return `<div class="nearby-feed" data-exclude="${esc(excludeSaleId)}"></div>`;
 }
+
+// Feed responses by query, so pages that re-render (sorting, live refresh) don't refetch or flash.
+const nearbyCache = {};
 
 function kmText(km) {
   if (km == null) return '';
@@ -2542,14 +2659,20 @@ function mountNearbyFeed(root) {
   let scope = store.get('nearbyScope', 'city') === 'near' && loc ? 'near' : 'city';
   let data = null;
   const load = async () => {
-    data = null;
-    render();
     const q = scope === 'near' ? `?scope=near&lat=${loc.lat.toFixed(2)}&lng=${loc.lng.toFixed(2)}` : '?scope=city';
-    data = await api(`/nearby${q}`);
+    data = nearbyCache[q] || null;
+    render();
+    if (data) return;
+    data = nearbyCache[q] = await api(`/nearby${q}`);
     render();
   };
   const render = () => {
-    const items = data?.items || [];
+    const items = (data?.items || []).filter((it) => it.saleId !== root.dataset.exclude);
+    // Under a list, an empty feed is just noise.
+    if (root.dataset.exclude && data && !items.length && scope === 'city') {
+      root.innerHTML = '';
+      return;
+    }
     const cityName = data?.city || '';
     const empty = scope === 'near' ? '10 公里内还没有公开的东西。' : `${cityName ? esc(cityName) + ' ' : ''}还没有公开的东西。`;
     root.innerHTML = `

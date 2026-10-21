@@ -344,14 +344,13 @@ async function loadPublic(env, saleId, buyerToken) {
 // Seller WeChat ID + merged friend-request note, only for a buyer who is first in line somewhere.
 async function buyerContact(env, saleRow, buyerToken) {
   const { results } = await env.DB.prepare(
-    `SELECT i.no, i.name, q.nickname FROM queues q JOIN items i ON i.id = q.item_id
+    `SELECT i.no, i.name FROM queues q JOIN items i ON i.id = q.item_id
      WHERE q.sale_id = ? AND q.buyer_token = ? AND q.status = 'waiting'
        AND NOT EXISTS (SELECT 1 FROM queues q2 WHERE q2.item_id = q.item_id AND q2.status = 'waiting' AND q2.seq < q.seq)
      ORDER BY q.seq`,
   ).bind(saleRow.id, buyerToken).all();
   if (!results.length) return null;
-  const nickname = results[results.length - 1].nickname;
-  return { wechat: saleRow.wechat_id, note: contactNote(results, nickname), nos: results.map((r) => r.no) };
+  return { wechat: saleRow.wechat_id, note: contactNote(results), nos: results.map((r) => r.no) };
 }
 
 // ---------- API ----------
@@ -473,6 +472,8 @@ async function api(req, env, url) {
   if (p === '/ai/batch' && M === 'POST') return aiBatch(env, req);
   if (p === '/ai/survey' && M === 'POST') return aiSurvey(env, req);
   if (p === '/ai/invite' && M === 'POST') return aiInvite(env, req);
+  if (p === '/ai/tip' && M === 'POST') return aiTip(env, req);
+  if (p === '/feedback' && M === 'POST') return sendFeedback(env, req);
   if (p === '/ai/nudge' && M === 'POST') return aiNudge(env, req);
   if (p === '/auth/google' && M === 'POST') return googleLogin(env, await body(req));
   if (p === '/auth/logout' && M === 'POST') return logout(req, env);
@@ -593,11 +594,11 @@ async function manageData(env, sale) {
   const t = now();
   const [itemsRes, queuesRes] = await env.DB.batch([
     env.DB.prepare("SELECT * FROM items WHERE sale_id = ? AND status != 'removed' ORDER BY no").bind(sale.id),
-    env.DB.prepare("SELECT seq, item_id, nickname, note, added_by, created_at FROM queues WHERE sale_id = ? AND status = 'waiting' ORDER BY seq").bind(sale.id),
+    env.DB.prepare("SELECT seq, item_id, nickname, buyer_wechat, added_by, created_at FROM queues WHERE sale_id = ? AND status = 'waiting' ORDER BY seq").bind(sale.id),
   ]);
   const queues = {};
   for (const q of queuesRes.results) {
-    (queues[q.item_id] ||= []).push({ seq: q.seq, nickname: q.nickname, note: q.note, addedBy: q.added_by, createdAt: q.created_at });
+    (queues[q.item_id] ||= []).push({ seq: q.seq, nickname: q.nickname, wechat: q.buyer_wechat, addedBy: q.added_by, createdAt: q.created_at });
   }
   const soldCents = itemsRes.results.filter((r) => r.status === 'sold').reduce((s, r) => s + r.price_cents, 0);
   return ok({
@@ -777,8 +778,8 @@ async function joinQueue(env, req, item, b) {
   if (sale.status !== 'active') fail('CONFLICT', '这份清单已结束');
   if (item.status !== 'available' && item.status !== 'reserved') fail('CONFLICT', '这件已经出了');
   if (await isSeller(req, env, sale.id)) fail('CONFLICT', '这是你自己的清单，不能预订自己的东西');
-  const nickname = str(b.nickname, { max: 20, min: 1, name: '称呼' });
-  const note = str(b.note, { max: 30, name: '备注' });
+  // The WeChat ID doubles as the buyer's name in the seller's list; older clients only send a nickname.
+  const wechat = str(b.wechat ?? b.nickname, { max: 30, min: 1, name: '微信号' });
   const db = env.DB;
   const mine = await db.prepare("SELECT item_id FROM queues WHERE sale_id = ? AND buyer_token = ? AND status = 'waiting'").bind(sale.id, token).all();
   if (mine.results.some((r) => r.item_id === item.id)) fail('CONFLICT', '你已经在这件的队里了');
@@ -787,8 +788,8 @@ async function joinQueue(env, req, item, b) {
   try {
     await db.batch([
       db.prepare(
-        "INSERT INTO queues (sale_id, item_id, buyer_token, nickname, note, status, added_by, created_at) VALUES (?, ?, ?, ?, ?, 'waiting', 'buyer', ?)",
-      ).bind(sale.id, item.id, token, nickname, note, t),
+        "INSERT INTO queues (sale_id, item_id, buyer_token, nickname, buyer_wechat, status, added_by, created_at) VALUES (?, ?, ?, ?, ?, 'waiting', 'buyer', ?)",
+      ).bind(sale.id, item.id, token, wechat, wechat, t),
       db.prepare(
         "UPDATE items SET status = 'reserved', status_changed_at = ?1, status_checked_at = ?1, updated_at = ?1 WHERE id = ?2 AND status = 'available'",
       ).bind(t, item.id),
@@ -821,7 +822,7 @@ async function myQueues(env, req) {
   if (!token) return ok({ queues: [] });
   const since = now() - 14 * 24 * HOUR;
   const { results } = await env.DB.prepare(
-    `SELECT q.seq, q.status, q.nickname, q.sale_id, q.item_id, q.created_at,
+    `SELECT q.seq, q.status, q.sale_id, q.item_id, q.created_at,
        i.no, i.name, i.price_cents, i.photos, i.status AS item_status,
        s.title, s.currency, s.wechat_id,
        (SELECT COUNT(*) FROM queues q2 WHERE q2.item_id = q.item_id AND q2.status = 'waiting' AND q2.seq <= q.seq) AS position
@@ -831,7 +832,7 @@ async function myQueues(env, req) {
   ).bind(token, since).all();
   const notes = {};
   for (const r of results) {
-    if (r.status === 'waiting' && r.position === 1) (notes[r.sale_id] ||= { items: [], nickname: r.nickname }).items.push({ no: r.no, name: r.name });
+    if (r.status === 'waiting' && r.position === 1) (notes[r.sale_id] ||= []).push({ no: r.no, name: r.name });
   }
   const queues = results.map((r) => {
     const head = r.status === 'waiting' && r.position === 1;
@@ -847,7 +848,7 @@ async function myQueues(env, req) {
       photo: JSON.parse(r.photos || '[]')[0] || '',
       itemStatus: r.item_status,
       position: r.status === 'waiting' ? r.position : null,
-      contact: head ? { wechat: r.wechat_id, note: contactNote(notes[r.sale_id].items, notes[r.sale_id].nickname) } : null,
+      contact: head ? { wechat: r.wechat_id, note: contactNote(notes[r.sale_id]) } : null,
     };
   });
   return ok({ queues });
@@ -859,6 +860,8 @@ async function myQueues(env, req) {
 const AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const AI_FREE_USES = 3;
 const AI_SURVEY_BONUS = 10;
+// Honor system: we can't see WeChat payments, and the daily cap bounds what a free click can cost.
+const AI_TIP_BONUS = 100;
 // Our own cap, well inside the Workers AI free daily allocation (~10 neurons per call).
 const AI_DAILY_CAP = 400;
 const AI_MAX_IMAGE_BYTES = 400_000;
@@ -890,7 +893,7 @@ async function aiQuota(env, clientId) {
   const used = row?.used ?? 0;
   const bonus = row?.bonus ?? 0;
   const unlimited = !!row?.unlimited;
-  return { left: unlimited ? null : Math.max(0, AI_FREE_USES + bonus - used), unlimited, surveyDone: !!row?.survey_done };
+  return { left: unlimited ? null : Math.max(0, AI_FREE_USES + bonus - used), unlimited, surveyDone: !!row?.survey_done, tipped: !!row?.tipped };
 }
 
 // Two statements: make sure the row exists, then apply the change (works for new and existing rows).
@@ -1084,6 +1087,49 @@ async function aiSurvey(env, req) {
   if (!q.surveyDone) stmts.push(...upsertQuota(env, clientId, `bonus = bonus + ${AI_SURVEY_BONUS}, survey_done = 1`));
   await env.DB.batch(stmts);
   return ok(await aiQuota(env, clientId));
+}
+
+async function aiTip(env, req) {
+  const clientId = requireClient(req);
+  const q = await aiQuota(env, clientId);
+  if (!q.tipped) await env.DB.batch(upsertQuota(env, clientId, `bonus = bonus + ${AI_TIP_BONUS}, tipped = 1`));
+  return ok({ ...(await aiQuota(env, clientId)), granted: !q.tipped, bonus: AI_TIP_BONUS });
+}
+
+const FEEDBACK_PER_DAY = 10;
+const FEEDBACK_MAX_SHOTS = 3;
+
+// Multipart: text fields plus up to FEEDBACK_MAX_SHOTS screenshots named "shot".
+async function sendFeedback(env, req) {
+  const clientId = buyerTokenOf(req);
+  let form;
+  try {
+    form = await req.formData();
+  } catch {
+    fail('INVALID', '请求格式不对');
+  }
+  const b = Object.fromEntries([...form.entries()].filter(([, v]) => typeof v === 'string'));
+  const shots = form.getAll('shot').filter((f) => typeof f !== 'string').slice(0, FEEDBACK_MAX_SHOTS);
+  if (shots.some((f) => f.size > MAX_PHOTO_BYTES)) fail('INVALID', '截图太大了');
+  const text = str(b.text, { max: 1000, name: '反馈' });
+  if (!text && !shots.length) fail('INVALID', '写一句或者传张截图吧');
+  const contact = str(b.contact, { max: 60, name: '联系方式' });
+  // Path only: a manage URL's query holds the admin key.
+  const page = String(b.page ?? '').split(/[?#]/)[0].slice(0, 100);
+  const role = ['seller', 'buyer'].includes(b.role) ? b.role : '';
+  const ua = `${(req.headers.get('user-agent') || '').slice(0, 300)} · ${Number(b.width) || 0}px`;
+  const t = now();
+  if (clientId) {
+    const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM feedback WHERE client_id = ? AND created_at > ?').bind(clientId, t - 24 * HOUR).first();
+    if (n.n >= FEEDBACK_PER_DAY) fail('LIMIT', '今天已经收到你好多条反馈了，明天再发吧');
+  }
+  const ids = shots.map(() => rid(16));
+  const stmts = await Promise.all(shots.map(async (f, i) =>
+    env.DB.prepare("INSERT INTO photos (id, sale_id, full, thumb, created_at) VALUES (?, '', ?, NULL, ?)").bind(ids[i], await f.arrayBuffer(), t)));
+  stmts.push(env.DB.prepare('INSERT INTO feedback (client_id, text, contact, page, role, ua, photos, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(clientId, text, contact, page, role, ua, JSON.stringify(ids), t));
+  await env.DB.batch(stmts);
+  return ok({});
 }
 
 async function aiNudge(env, req) {

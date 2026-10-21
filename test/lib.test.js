@@ -87,10 +87,10 @@ test('shareText keeps full names and truncates long lists', () => {
   assert.equal(text.split('\n').filter((l) => l.endsWith('€1')).length, 30);
 });
 
-test('contactNote lists numbers and names with the buyer nickname', () => {
+test('contactNote lists numbers and names in order', () => {
   assert.equal(
-    contactNote([{ no: 3, name: '台灯' }, { no: 1, name: '笔记本支架' }], '小王'),
-    '小王 想要 1号 笔记本支架、3号 台灯',
+    contactNote([{ no: 3, name: '台灯' }, { no: 1, name: '笔记本支架' }]),
+    '我预订了 1号 笔记本支架、3号 台灯',
   );
-  assert.equal(contactNote([{ no: 2, name: '一二三四五六七八九十十一' }], 'A'), 'A 想要 2号 一二三四五六七八九十…');
+  assert.equal(contactNote([{ no: 2, name: '一二三四五六七八九十十一' }]), '我预订了 2号 一二三四五六七八九十…');
 });
