@@ -361,10 +361,7 @@ function boot() {
     recommendFriend({ earnedCents: Number(r.dataset.cents) || 0, currency: r.dataset.cur || '' });
   });
   // Any page that renders a .nearby-feed placeholder gets the live feed filled in.
-  new MutationObserver(() => {
-    mountNearbyFeeds();
-    document.querySelectorAll('.nearby-lists').forEach(mountNearbyLists);
-  }).observe($app, { childList: true, subtree: true });
+  new MutationObserver(mountNearbyFeeds).observe($app, { childList: true, subtree: true });
   const path = location.pathname;
   let m;
   if (BOOT.notFound) return notFound();
@@ -1133,7 +1130,6 @@ function buyerSale(saleId) {
         ${ended ? '' : `<button class="btn primary big" data-owner-share>分享到群</button>`}
       </div></div>` : ''}
       ${isOwner ? '' : brandCardHtml()}
-      <div class="nearby-lists" data-exclude="${esc(sale.id)}"></div>
       <div style="padding:28px 16px 8px;display:flex;gap:10px;justify-content:center">
         <a class="btn small" href="/my">我的排队</a>
         <button class="btn small" data-feedback>反馈问题</button>
@@ -3144,35 +3140,6 @@ function mountNearbyFeed(root) {
 
 function mountNearbyFeeds() {
   document.querySelectorAll('.nearby-feed').forEach(mountNearbyFeed);
-}
-
-// Other public lists in the same city, one card each, under a buyer's list. Fetched once per page,
-// since the list page re-renders on every reload.
-let nearbyListsReq = null;
-function mountNearbyLists(root) {
-  if (!root || root.dataset.mounted) return;
-  root.dataset.mounted = '1';
-  nearbyListsReq ||= api('/nearby?scope=city').catch(() => ({ items: [] }));
-  nearbyListsReq.then(({ items }) => {
-    const sales = new Map();
-    for (const it of items) {
-      if (it.saleId === root.dataset.exclude) continue;
-      if (!sales.has(it.saleId)) sales.set(it.saleId, { id: it.saleId, title: it.saleTitle, location: it.location, photos: [] });
-      sales.get(it.saleId).photos.push(it.photo);
-    }
-    const list = [...sales.values()].slice(0, 8);
-    if (!list.length) return;
-    root.innerHTML = `
-      <div class="feed-head"><b>附近还有 ${list.length} 份清单</b></div>
-      <div class="list-strip">${list.map((s) => `
-        <a class="list-card" href="/s/${esc(s.id)}">
-          <b class="ellipsis">${esc(s.title)}</b>
-          <div class="small muted ellipsis">📍 ${esc(s.location)}</div>
-          <div class="list-thumbs">${s.photos.slice(0, 4).map((p) => `<img src="${img(p)}" loading="lazy" alt="">`).join('')}</div>
-        </a>`).join('')}
-      </div>
-      <a class="link-btn small list-more" href="/nearby">看附近所有的东西 ›</a>`;
-  });
 }
 
 function nearbyPage() {

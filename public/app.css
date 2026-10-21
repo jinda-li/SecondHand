@@ -378,13 +378,6 @@ img { display: block; max-width: 100%; }
 .brand-card-head { background: var(--badge); color: #fff; padding: 10px 14px; font-weight: 800; }
 .brand-card-body { padding: 12px 14px 14px; font-size: 15px; line-height: 2; }
 .brand-card-note { background: #fff8cc; padding: 8px 10px; margin-top: 8px; font-size: 13px; line-height: 1.6; }
-.nearby-lists:not(:empty) { margin-top: 22px; padding-top: 14px; border-top: 8px solid #f5f5f5; }
-.list-strip { display: flex; gap: 10px; overflow-x: auto; padding: 0 12px 4px; scrollbar-width: none; }
-.list-strip::-webkit-scrollbar { display: none; }
-.list-card { flex: none; width: 176px; background: #f5f5f5; padding: 10px; color: var(--text); border-radius: var(--radius); display: flex; flex-direction: column; }
-.list-thumbs { display: flex; gap: 4px; margin-top: 8px; }
-.list-thumbs img { width: 36px; height: 36px; object-fit: cover; border-radius: 4px; background: #eee; }
-.list-more { display: block; margin: 8px auto 0; text-align: center; }
 .keep-bar {
   position: fixed; left: 10px; right: 10px; bottom: calc(14px + var(--safe-b)); z-index: 30; max-width: 620px; margin: 0 auto;
   display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 10px; background: #111; color: #fff;

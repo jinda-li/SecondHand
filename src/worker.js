@@ -1,6 +1,6 @@
 import { money, contactNote, CURRENCIES } from '../public/lib.js';
 
-const VERSION = '36';
+const VERSION = '37';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 const MAX_QUEUE_PER_SALE = 10;
@@ -300,14 +300,13 @@ async function nearby(env, req, url) {
   if (scope === 'near' && !hasLoc) fail('INVALID', '需要你的大概位置');
   const cityFilter = scope === 'city' && city ? 'AND s.city = ?' : '';
   const { results } = await env.DB.prepare(
-    `SELECT i.no, i.name, i.price_cents, i.orig_price_cents, i.photos, i.created_at, s.id AS sale_id, s.title AS sale_title, s.location, s.currency, s.lat, s.lng, s.city
+    `SELECT i.no, i.name, i.price_cents, i.orig_price_cents, i.photos, i.created_at, s.id AS sale_id, s.location, s.currency, s.lat, s.lng, s.city
      FROM items i JOIN sales s ON s.id = i.sale_id
      WHERE s.public_nearby = 1 AND s.status = 'active' AND i.status = 'available' ${cityFilter}
      ORDER BY i.created_at DESC LIMIT 400`,
   ).bind(...(cityFilter ? [city] : [])).all();
   const items = results.map((r) => ({
     saleId: r.sale_id,
-    saleTitle: r.sale_title,
     no: r.no,
     name: r.name,
     priceCents: r.price_cents,
