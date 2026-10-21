@@ -1,8 +1,11 @@
-import { money, contactNote, CURRENCIES } from '../public/lib.js';
+import { money, contactNote } from '../public/lib.js';
 
-const VERSION = '38';
+const VERSION = '39';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
+// An open list pauses this long after its last renewal: buyers can look but not queue,
+// and it leaves 附近的二手, until the seller renews it on the management page.
+const LIST_TTL_MS = 30 * 24 * HOUR;
 const MAX_QUEUE_PER_SALE = 10;
 const MAX_PHOTO_BYTES = 1_800_000;
 const MAX_THUMB_BYTES = 400_000;
@@ -94,7 +97,7 @@ async function route(req, env, ctx) {
     if (friend) {
       return page({
         title: `${friend.name || '朋友'}送你 ${KEEP_GIFT_USES} 次 AI 识图｜二手清单`,
-        desc: `${friend.earned ? `我用它出闲置，已经收回 ${friend.earned}。` : '我用它出过闲置，挺好用。'}拍照就上架，发到群里，群友点开自己排队。打开就到账，收藏起来搬家时用。`,
+        desc: `我用它出过闲置，挺好用。拍照就上架，发到群里，群友点开自己排队。打开就到账，收藏起来搬家时用。`,
         image: url.origin + '/keep-icon.png',
         url,
         robots: true,
@@ -207,7 +210,7 @@ async function salePage(env, url, saleId) {
   const { sale, items } = data;
   const avail = items.filter((i) => i.status === 'available');
   const ended = sale.status === 'ended';
-  const title = ended ? `${sale.title}｜已结束` : `${sale.title}｜在售 ${avail.length} 件`;
+  const title = ended ? `${sale.title}｜已结束` : sale.paused ? `${sale.title}｜暂停中` : `${sale.title}｜在售 ${avail.length} 件`;
   const sample = avail.slice(0, 3).map((i) => i.name).join(' · ');
   const desc = ended
     ? '这份清单已结束'
@@ -268,6 +271,8 @@ function mapSale(r) {
     nextNo: r.next_no,
     coverPhoto: r.cover_photo || '',
     sellerActiveAt: r.seller_active_at,
+    expiresAt: r.renewed_at + LIST_TTL_MS,
+    paused: r.status === 'active' && now() > r.renewed_at + LIST_TTL_MS,
     createdAt: r.created_at,
     publicNearby: !!r.public_nearby,
     hasLocation: r.lat != null,
@@ -302,9 +307,9 @@ async function nearby(env, req, url) {
   const { results } = await env.DB.prepare(
     `SELECT i.no, i.name, i.price_cents, i.orig_price_cents, i.photos, i.created_at, s.id AS sale_id, s.location, s.currency, s.lat, s.lng, s.city
      FROM items i JOIN sales s ON s.id = i.sale_id
-     WHERE s.public_nearby = 1 AND s.status = 'active' AND i.status = 'available' ${cityFilter}
+     WHERE s.public_nearby = 1 AND s.status = 'active' AND s.renewed_at > ? AND i.status = 'available' ${cityFilter}
      ORDER BY i.created_at DESC LIMIT 400`,
-  ).bind(...(cityFilter ? [city] : [])).all();
+  ).bind(now() - LIST_TTL_MS, ...(cityFilter ? [city] : [])).all();
   const items = results.map((r) => ({
     saleId: r.sale_id,
     no: r.no,
@@ -524,6 +529,7 @@ async function api(req, env, url) {
   if ((m = p.match(/^\/sale\/(\w+)\/manage$/)) && M === 'GET') return manageData(env, await requireSeller(req, env, m[1]));
   if ((m = p.match(/^\/sale\/(\w+)\/end$/)) && M === 'POST') return endSale(env, await requireSeller(req, env, m[1]));
   if ((m = p.match(/^\/sale\/(\w+)\/reopen$/)) && M === 'POST') return reopenSale(env, await requireSeller(req, env, m[1]));
+  if ((m = p.match(/^\/sale\/(\w+)\/renew$/)) && M === 'POST') return renewSale(env, await requireSeller(req, env, m[1]));
   if ((m = p.match(/^\/sale\/(\w+)\/photo$/)) && M === 'POST') return uploadPhoto(env, await requireSeller(req, env, m[1]), req, false);
   if ((m = p.match(/^\/sale\/(\w+)\/cover$/)) && M === 'POST') return uploadPhoto(env, await requireSeller(req, env, m[1]), req, true);
   if ((m = p.match(/^\/sale\/(\w+)\/items$/)) && M === 'POST') return createItem(env, await requireSeller(req, env, m[1]), await body(req));
@@ -577,9 +583,9 @@ async function createSale(env, b, user, city) {
   const id = rid(8);
   const key = rid(24);
   await env.DB.prepare(
-    `INSERT INTO sales (id, admin_key, title, wechat_id, location, currency, rules, leave_date, public_nearby, lat, lng, city, owner_sub, owner_email, seller_active_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(id, key, f.title, f.wechat_id, f.location, f.currency, f.rules, f.leave_date, f.public_nearby, f.lat ?? null, f.lng ?? null, city || null, user?.sub ?? null, user?.email ?? null, t, t, t).run();
+    `INSERT INTO sales (id, admin_key, title, wechat_id, location, currency, rules, leave_date, public_nearby, lat, lng, city, owner_sub, owner_email, seller_active_at, renewed_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(id, key, f.title, f.wechat_id, f.location, f.currency, f.rules, f.leave_date, f.public_nearby, f.lat ?? null, f.lng ?? null, city || null, user?.sub ?? null, user?.email ?? null, t, t, t, t).run();
   return ok({ id, key });
 }
 
@@ -597,8 +603,15 @@ async function updateSale(env, sale, b, city) {
 
 async function reopenSale(env, sale) {
   const t = now();
-  await env.DB.prepare("UPDATE sales SET status = 'active', seller_active_at = ?1, updated_at = ?1 WHERE id = ?2").bind(t, sale.id).run();
+  await env.DB.prepare("UPDATE sales SET status = 'active', renewed_at = ?1, seller_active_at = ?1, updated_at = ?1 WHERE id = ?2").bind(t, sale.id).run();
   return ok({});
+}
+
+async function renewSale(env, sale) {
+  if (sale.status !== 'active') fail('CONFLICT', '这份清单已结束');
+  const t = now();
+  await env.DB.prepare('UPDATE sales SET renewed_at = ?1, seller_active_at = ?1, updated_at = ?1 WHERE id = ?2').bind(t, sale.id).run();
+  return ok({ expiresAt: t + LIST_TTL_MS });
 }
 
 // Permanent: the list, its items, queue records and photos are all removed.
@@ -814,6 +827,7 @@ async function joinQueue(env, req, item, b) {
   if (!token) fail('INVALID', '缺少买家标识');
   const sale = await getSale(env, item.sale_id);
   if (sale.status !== 'active') fail('CONFLICT', '这份清单已结束');
+  if (mapSale(sale).paused) fail('CONFLICT', '卖家暂停了这份清单，暂时不能排队');
   if (item.status !== 'available' && item.status !== 'reserved') fail('CONFLICT', '这件已经出了');
   if (await isSeller(req, env, sale.id)) fail('CONFLICT', '这是你自己的清单，不能预订自己的东西');
   // The WeChat ID doubles as the buyer's name in the seller's list; older clients only send a nickname.
@@ -1190,7 +1204,7 @@ const KEEP_GIFTS_PER_IP_DAY = 20;
 const FRIEND_GIFTS_PER_DAY = 5;
 
 // Saving for yourself: one gift per device per day, asking again the same day returns the same code.
-// For a friend ({ friend: true, name, earnedCents, currency }): a new code each time.
+// For a friend ({ friend: true, name }): a new code each time.
 async function keepGiftCreate(env, req) {
   const clientId = requireClient(req);
   const b = await body(req);
@@ -1211,18 +1225,17 @@ async function keepGiftCreate(env, req) {
   }
   const code = rid(8);
   const name = friend ? String(b.name ?? '').replace(/[\s<>]+/g, ' ').trim().slice(0, 12) || null : null;
-  const cents = Number(b.earnedCents);
-  const earned = friend && Number.isInteger(cents) && cents > 0 && cents < 1e9 && CURRENCIES[b.currency] ? money(cents, b.currency) : null;
-  await env.DB.prepare('INSERT INTO keep_gifts (code, created_at, created_by, created_ip, kind, from_name, earned) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .bind(code, t, clientId, ip, friend ? 'friend' : 'keep', name, earned).run();
+  // The earned column stays empty: what a seller made is theirs alone, never on a card they send.
+  await env.DB.prepare('INSERT INTO keep_gifts (code, created_at, created_by, created_ip, kind, from_name) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(code, t, clientId, ip, friend ? 'friend' : 'keep', name).run();
   return ok({ code, uses: KEEP_GIFT_USES });
 }
 
-// The sender's name and earnings for a friend gift's card, or null for any other link.
+// The sender's name for a friend gift's card, or null for any other link.
 async function friendGift(env, code) {
   if (!code || !/^\w{1,32}$/.test(code)) return null;
-  const g = await env.DB.prepare("SELECT from_name, earned FROM keep_gifts WHERE code = ? AND kind = 'friend'").bind(code).first();
-  return g ? { name: g.from_name || '', earned: g.earned || '' } : null;
+  const g = await env.DB.prepare("SELECT from_name FROM keep_gifts WHERE code = ? AND kind = 'friend'").bind(code).first();
+  return g ? { name: g.from_name || '' } : null;
 }
 
 // Moves the gift onto this device. status: added | early | mine | taken | onePerDevice | invalid,

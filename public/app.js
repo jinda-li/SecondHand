@@ -26,6 +26,8 @@ function setCardSession(on) {
 if (OPENED_AS_CARD) setCardSession(true);
 const HOUR = 3600 * 1000;
 const CHECK_AFTER_MS = 12 * HOUR;
+// The management page starts warning this long before a list pauses (see LIST_TTL_MS in the worker).
+const RENEW_WARN_MS = 7 * 24 * HOUR;
 const MAX_PHOTOS = 3;
 // Title = "<name>" + one of these; the first is the default.
 const TITLE_SUFFIXES = ['的二手清单', '的搬家甩卖', '的毕业清仓', '回国前出闲置', '的闲置转让'];
@@ -472,7 +474,7 @@ function boot() {
     const r = e.target.closest('[data-recommend]');
     if (!r) return;
     e.preventDefault();
-    recommendFriend({ earnedCents: Number(r.dataset.cents) || 0, currency: r.dataset.cur || '' });
+    recommendFriend();
   });
   // Any page that renders a .nearby-feed placeholder gets the live feed filled in.
   new MutationObserver(mountNearbyFeeds).observe($app, { childList: true, subtree: true });
@@ -668,7 +670,7 @@ function intro() {
   $app.innerHTML = `
     <div class="appbar">${LOGO}</div>
     <div class="intro">
-      ${fg ? `<div class="friend-note">🎁 <b>${esc(fg.name || '朋友')}</b> 推荐你用${fg.earned ? `，TA 用它出闲置已经收回 <b>${esc(fg.earned)}</b>` : ''}</div>` : ''}
+      ${fg ? `<div class="friend-note">🎁 <b>${esc(fg.name || '朋友')}</b> 推荐你用</div>` : ''}
       <h1 class="intro-title">出二手，<br>不用一个个回消息</h1>
       <div class="intro-sub">拍照上架，发到群里，想要的人自己排队</div>
       <div class="intro-mock">${mock.map(([e, p, b]) => `
@@ -861,12 +863,12 @@ function recommendTagHtml() {
 
 // Makes a friend gift and opens its /keep page: that page is what ··· → 发送给朋友 sends,
 // titled with the sender's name. Never shared from the current page, which may carry a seller key.
-async function recommendFriend({ earnedCents = 0, currency = '' } = {}) {
+async function recommendFriend() {
   buyerToken(true);
   const stop = loading('正在准备卡片…');
   let gift;
   try {
-    gift = await api('/keep/gift', { method: 'POST', body: { friend: true, name: store.get('ownerName', '') || store.get('nickname', ''), earnedCents, currency } });
+    gift = await api('/keep/gift', { method: 'POST', body: { friend: true, name: store.get('ownerName', '') || store.get('nickname', '') } });
   } catch (e) {
     return toast(e.message);
   } finally {
@@ -956,7 +958,7 @@ function soldRecommendSheet(S) {
   openSheet(() => `<div class="sold-rec">
       <b>已经收回 ${esc(money(soldCents, sale.currency))} 了 🎉</b>
       <div class="small">好用的话，转给也要搬家的朋友，送 TA ${GIFT_USES} 次 AI 识图</div>
-      <button class="btn block" data-recommend data-cents="${soldCents}" data-cur="${esc(sale.currency)}">🎁 推荐给朋友</button>
+      <button class="btn block" data-recommend>🎁 推荐给朋友</button>
     </div>
     <div class="actions"><button class="btn block" data-act="close">下次再说</button></div>`,
   (act, el, s) => act === 'close' && s.close());
@@ -989,7 +991,7 @@ function earnedText(d) {
 function listRowHtml({ id, key, d }) {
   const n = (st) => d.items.filter((i) => i.status === st).length;
   return `<a class="list-row" href="/manage/${esc(id)}?k=${esc(key)}">
-    <div class="row"><b class="grow ellipsis">${esc(d.sale.title)}</b><span class="small muted">${d.sale.status === 'ended' ? '已结束' : '进行中'}</span><span class="muted">›</span></div>
+    <div class="row"><b class="grow ellipsis">${esc(d.sale.title)}</b><span class="small muted">${d.sale.status === 'ended' ? '已结束' : d.sale.paused ? '已暂停' : '进行中'}</span><span class="muted">›</span></div>
     <div class="list-row-stats"><span>在售 <b>${n('available')}</b></span><span>已预订 <b>${n('reserved')}</b></span><span>已出 <b>${n('sold')}</b></span><span>已收回 <b class="earned-tag">${esc(earnedText(d))}</b></span></div>
   </a>`;
 }
@@ -1047,7 +1049,7 @@ async function listsSheet(S) {
     <div class="group">${lists.map((l) => `
       <a class="cell" href="/manage/${esc(l.id)}?k=${esc(l.key)}">
         <div class="grow"><div class="ellipsis">${esc(l.d.sale.title)}${l.id === S.saleId ? ' <span class="small muted">（当前）</span>' : ''}</div>
-        <div class="small muted">在售 ${l.d.items.filter((i) => i.status === 'available').length} · 已收回 ${esc(earnedText(l.d))}${l.d.sale.status === 'ended' ? ' · 已结束' : ''}</div></div>
+        <div class="small muted">在售 ${l.d.items.filter((i) => i.status === 'available').length} · 已收回 ${esc(earnedText(l.d))}${l.d.sale.status === 'ended' ? ' · 已结束' : l.d.sale.paused ? ' · 已暂停' : ''}</div></div>
         <span class="muted">›</span>
       </a>`).join('')}
     </div>
@@ -1114,6 +1116,7 @@ function tileHtml(sale, it, mine) {
   let btn;
   if (my) btn = `<button class="btn small mine-btn" data-cancel-item="${it.id}"><b>第 ${my.position} 位</b><span class="s"> · 取消</span></button>`;
   else if (it.status === 'sold' || ended) btn = `<button class="btn small" disabled>${ended ? '已结束' : '已出'}</button>`;
+  else if (sale.paused) btn = `<button class="btn small" disabled>暂停中</button>`;
   else if (it.queueCount === 0) btn = `<button class="btn small primary" data-join="${it.id}">预订</button>`;
   else btn = `<button class="btn small primary ghost" data-join="${it.id}"><b>排候补</b><span class="s"> · 前面 ${it.queueCount} 人</span></button>`;
   const extra = [it.condition ? CONDITIONS[it.condition] : '', it.note].filter(Boolean).join(' · ');
@@ -1230,7 +1233,8 @@ function buyerSale(saleId) {
         ${sale.rules.length ? `<div class="tags">${sale.rules.map((r) => `<span class="tag">${esc(r)}</span>`).join('')}</div>` : ''}
       </div>
       ${ended ? `<div class="banner">这份清单已结束</div>` : ''}
-      ${isOwner ? ownerBanner(sale) : ''}${contact || ended ? '' : `<div class="how-line">点「预订」排队，排到第 1 位就能看到卖家微信。显示「预订」的都还在。</div>`}
+      ${sale.paused ? `<div class="banner">卖家暂停了这份清单，暂时不能排队</div>` : ''}
+      ${isOwner ? ownerBanner(sale) : ''}${contact || ended || sale.paused ? '' : `<div class="how-line">点「预订」排队，排到第 1 位就能看到卖家微信。显示「预订」的都还在。</div>`}
       ${contact ? contactHtml(contact) : ''}
       <div class="list-bar"><div class="hint">在售 ${avail.length} · 已预订 ${reserved.length} · 已出 ${sold.length}</div>
         ${list.length > 1 ? sortSegHtml(sort) : ''}</div>
@@ -1241,7 +1245,7 @@ function buyerSale(saleId) {
         : `<button class="link-btn fold" data-sold>已出 ${sold.length} 件（展开）</button>`) : ''}
       ${isOwner ? `<div class="bottom-bar"><div class="inner">
         <a class="btn big" href="/manage/${sale.id}">回到管理</a>
-        ${ended ? '' : `<button class="btn primary big" data-owner-share>分享到群</button>`}
+        ${ended || sale.paused ? '' : `<button class="btn primary big" data-owner-share>分享到群</button>`}
       </div></div>` : ''}
       ${isOwner ? '' : brandCardHtml()}
       <div style="padding:28px 16px 8px;display:flex;gap:10px;justify-content:center">
@@ -1324,6 +1328,7 @@ function buyerItem(saleId, no) {
     let btn;
     if (my) btn = `<button class="btn big" data-act="cancel">你排在第 ${my.position} 位 · 取消</button>`;
     else if (closed) btn = `<button class="btn big" disabled>${ended ? '清单已结束' : '已出'}</button>`;
+    else if (sale.paused) btn = `<button class="btn big" disabled>卖家暂停了这份清单</button>`;
     else if (it.queueCount === 0) btn = `<button class="btn primary big" data-act="join">预订（排第 1 位）</button>`;
     else btn = `<button class="btn primary big" data-act="join">排候补（前面 ${it.queueCount} 人）</button>`;
 
@@ -1550,9 +1555,10 @@ function manage(saleId) {
     const ended = sale.status === 'ended';
     document.title = `管理｜${sale.title}`;
     $app.innerHTML = `
-      <div class="topbar"><button class="btn" data-act="lists">我的清单 (${store.get('mySales', []).length}) ▾</button><a class="btn" href="/s/${sale.id}">买家视角</a><button class="btn" data-act="settings" aria-label="设置">⚙</button><button class="btn rec-btn" data-recommend data-cents="${soldCents}" data-cur="${esc(sale.currency)}">🎁 推荐朋友</button></div>
+      <div class="topbar"><button class="btn" data-act="lists">我的清单 (${store.get('mySales', []).length}) ▾</button><a class="btn" href="/s/${sale.id}">买家视角</a><button class="btn" data-act="settings" aria-label="设置">⚙</button><button class="btn rec-btn" data-recommend>🎁 推荐朋友</button></div>
       <div class="head" style="padding-top:8px"><h1>${esc(sale.title)}</h1><div class="meta">📍 ${esc(sale.location)}</div></div>
       ${ended ? `<div class="banner">这份清单已结束：买家打开链接会看到「清单已经不见了」。<br><button class="btn small primary" style="margin-top:8px" data-act="reopen">重新公开</button></div>` : ''}
+      ${ended ? '' : renewBannerHtml(sale, data.now)}
       ${linkSaved(saleId) ? '' : `<div class="banner">还没把管理入口发给自己：换手机或在微信里打开时，没有它就管理不了这份清单。<br><button class="btn small primary" style="margin-top:8px" data-act="savelink">发给自己</button></div>`}
       <div class="stats">
         <div><b>${count('available')}</b><span>在售</span></div>
@@ -1597,9 +1603,13 @@ function manage(saleId) {
     if (!a) return;
     if (a.dataset.act === 'compose') composer(S);
     if (a.dataset.act === 'reopen') reopenSale(S);
+    if (a.dataset.act === 'renew') renewSale(S);
     if (a.dataset.act === 'savelink') sendSelfSheet(S, { onDone: render });
     // Sharing starts from the buyer page: forwarding this page would send the 管理入口 card, key included.
-    if (a.dataset.act === 'share') maybeCheck(S, true, () => (location.href = `/s/${saleId}`));
+    if (a.dataset.act === 'share') {
+      if (data.sale.paused) return toast('清单已暂停，先点上面的「重新上架」');
+      maybeCheck(S, true, () => (location.href = `/s/${saleId}`));
+    }
     if (a.dataset.act === 'settings') settingsSheet(S);
     if (a.dataset.act === 'lists') listsSheet(S);
   });
@@ -1638,6 +1648,26 @@ function manage(saleId) {
     if (e.code === 'FORBIDDEN') return noAccess(saleId);
     $app.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   });
+}
+
+// Shown from 7 days before the list pauses; once paused, buyers can't queue until the seller renews.
+function renewBannerHtml(sale, now) {
+  const left = sale.expiresAt - now;
+  if (left > RENEW_WARN_MS) return '';
+  const text = sale.paused
+    ? '清单已暂停：买家还能打开，但不能排队，也不会出现在「附近的二手」。'
+    : `清单还有 ${Math.max(1, Math.ceil(left / (24 * HOUR)))} 天自动暂停：到时买家不能排队。还在卖的话点一下续期。`;
+  return `<div class="banner">${text}<br><button class="btn small primary" style="margin-top:8px" data-act="renew">${sale.paused ? '重新上架（续 30 天）' : '续 30 天'}</button></div>`;
+}
+
+async function renewSale(S) {
+  try {
+    await api(`/sale/${S.saleId}/renew`, { method: 'POST', key: S.key, body: {} });
+    toast('已续期 30 天');
+    S.reload();
+  } catch (err) {
+    toast(err.message);
+  }
 }
 
 async function reopenSale(S) {
