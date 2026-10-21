@@ -271,6 +271,120 @@ async function uploadPhoto(saleId, key, file) {
   }
 }
 
+// ---------- 打码: smear a mosaic over parts of a photo, on the phone, before upload ----------
+
+// Resolves to the edited JPEG file, or null when cancelled or nothing was painted.
+async function mosaicEditor(file) {
+  const url = URL.createObjectURL(file);
+  let im;
+  try {
+    im = await loadImage(url);
+  } catch {
+    toast('这张照片打不开');
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  // Work at upload size: big enough to keep, small enough to repaint on every finger move.
+  const s = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight));
+  const W = Math.round(im.naturalWidth * s);
+  const H = Math.round(im.naturalHeight * s);
+  const layer = () => Object.assign(document.createElement('canvas'), { width: W, height: H });
+  const base = layer();
+  base.getContext('2d').drawImage(im, 0, 0, W, H);
+  // Coarse blocks, so text and faces underneath can't be read back.
+  const block = Math.max(10, Math.round(Math.max(W, H) / 36));
+  const small = Object.assign(document.createElement('canvas'), { width: Math.ceil(W / block), height: Math.ceil(H / block) });
+  small.getContext('2d').drawImage(base, 0, 0, small.width, small.height);
+  const mosaic = layer();
+  const mg = mosaic.getContext('2d');
+  mg.imageSmoothingEnabled = false;
+  mg.drawImage(small, 0, 0, small.width * block, small.height * block);
+  const mask = layer();
+  const kg = mask.getContext('2d');
+  const tmp = layer();
+  const tg = tmp.getContext('2d');
+
+  const el = document.createElement('div');
+  el.className = 'mosaic-ed';
+  el.innerHTML = `
+    <div class="mosaic-tip">用手指涂抹要遮住的地方</div>
+    <div class="mosaic-stage"><canvas width="${W}" height="${H}"></canvas></div>
+    <div class="mosaic-bar">
+      <button class="pill" data-m="cancel">取消</button>
+      <button class="pill" data-m="undo" disabled>撤销</button>
+      <button class="pill dark" data-m="done">完成</button>
+    </div>`;
+  document.body.appendChild(el);
+  const view = el.querySelector('canvas');
+  const vg = view.getContext('2d');
+  const undoBtn = el.querySelector('[data-m=undo]');
+  const strokes = [];
+  let cur = null;
+
+  const paint = () => {
+    tg.globalCompositeOperation = 'source-over';
+    tg.clearRect(0, 0, W, H);
+    tg.drawImage(mosaic, 0, 0);
+    tg.globalCompositeOperation = 'destination-in';
+    tg.drawImage(mask, 0, 0);
+    vg.drawImage(base, 0, 0);
+    vg.drawImage(tmp, 0, 0);
+  };
+  const line = (st, from) => {
+    kg.lineCap = kg.lineJoin = 'round';
+    kg.lineWidth = st.r * 2;
+    kg.beginPath();
+    const p = st.pts;
+    kg.moveTo(...p[Math.max(0, from - 1)]);
+    for (let i = from; i < p.length; i++) kg.lineTo(...p[i]);
+    kg.stroke();
+  };
+  const at = (e) => {
+    const r = view.getBoundingClientRect();
+    return [(e.clientX - r.left) * (W / r.width), (e.clientY - r.top) * (H / r.height)];
+  };
+  view.addEventListener('pointerdown', (e) => {
+    view.setPointerCapture(e.pointerId);
+    // Brush about 44 screen pixels wide, whatever the photo's size.
+    const r = 22 * (W / view.getBoundingClientRect().width);
+    const p = at(e);
+    cur = { r, pts: [p, [p[0] + 0.1, p[1]]] };
+    strokes.push(cur);
+    line(cur, 1);
+    paint();
+    undoBtn.disabled = false;
+  });
+  view.addEventListener('pointermove', (e) => {
+    if (!cur) return;
+    cur.pts.push(at(e));
+    line(cur, cur.pts.length - 1);
+    paint();
+  });
+  const end = () => (cur = null);
+  view.addEventListener('pointerup', end);
+  view.addEventListener('pointercancel', end);
+  paint();
+
+  return new Promise((resolve) => {
+    el.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-m]');
+      if (!b) return;
+      if (b.dataset.m === 'undo') {
+        strokes.pop();
+        kg.clearRect(0, 0, W, H);
+        strokes.forEach((st) => line(st, 1));
+        undoBtn.disabled = !strokes.length;
+        return paint();
+      }
+      const done = b.dataset.m === 'done' && strokes.length;
+      const blob = done ? await canvasBlob(view, 0.9) : null;
+      el.remove();
+      resolve(blob && new File([blob], 'photo.jpg', { type: 'image/jpeg' }));
+    });
+  });
+}
+
 // ---------- Google sign-in (sales follow the account) ----------
 
 const CFG = window.__CFG__ || {};
@@ -1764,7 +1878,7 @@ function composer(S) {
     <div class="ccard ${c.error || (c.touched && !valid(c)) ? 'bad' : ''}" data-idx="${idx}">
       <div class="crow">
         <div class="thumbs">
-          ${c.files.map((f, j) => `<div class="t"><img src="${f.url}" alt="" ${c.files.length > 1 ? `data-act="photo" data-j="${j}"` : ''}>${c.files.length > 1 ? `<button class="x" data-act="rmph" data-j="${j}">✕</button>` : ''}</div>`).join('')}
+          ${c.files.map((f, j) => `<div class="t"><img src="${f.url}" alt="" data-act="photo" data-j="${j}">${c.files.length > 1 ? `<button class="x" data-act="rmph" data-j="${j}">✕</button>` : ''}</div>`).join('')}
           ${c.files.length < MAX_PHOTOS ? `<button class="addph" data-act="addph" title="给这件东西再加图">＋</button>` : ''}
         </div>
         <div class="cside">
@@ -1904,15 +2018,26 @@ function composer(S) {
     else if (sheet === 'busy') aiBusySheet();
   };
 
-  // Tapping a photo on a card with several: move it to its own card, or drop it.
+  // Tapping a photo: mosaic part of it; on a card with several, also move it to its own card or drop it.
   const photoSheet = (c, j) => openSheet(() => `
     <div class="actions">
-      <button class="btn block" data-act="split">拆成单独一件</button>
-      <button class="btn danger block" data-act="rm">删掉这张</button>
+      <button class="btn block" data-act="mosaic">打码（遮住门牌、快递单、人脸）</button>
+      ${c.files.length > 1 ? `<button class="btn block" data-act="split">拆成单独一件</button>
+      <button class="btn danger block" data-act="rm">删掉这张</button>` : ''}
       <button class="btn block" data-act="cancel">取消</button>
-    </div>`, (act, _el, s) => {
+    </div>`, async (act, _el, s) => {
     s.close();
     if (!cards.includes(c) || !c.files[j]) return;
+    if (act === 'mosaic') {
+      const old = c.files[j];
+      const file = await mosaicEditor(old.file);
+      if (!file || c.files[j] !== old) return;
+      URL.revokeObjectURL(old.url);
+      c.files[j] = { file, url: URL.createObjectURL(file) };
+      // A failed earlier submit may have uploaded the original already: upload again from here.
+      if (c.photoIds) c.photoIds.length = Math.min(c.photoIds.length, j);
+      return render();
+    }
     if (act === 'rm') {
       URL.revokeObjectURL(c.files[j].url);
       c.files.splice(j, 1);

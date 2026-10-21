@@ -426,3 +426,14 @@ img { display: block; max-width: 100%; }
 .sold-rec b { display: block; font-size: 19px; margin-bottom: 2px; }
 .sold-rec .small { opacity: .85; }
 .sold-rec .btn { margin-top: 12px; background: #ffdb00; color: #111; }
+
+/* ---------- 打码 editor ---------- */
+.mosaic-ed { position: fixed; inset: 0; z-index: 100; background: #000; display: flex; flex-direction: column; }
+.mosaic-tip { color: #fff; text-align: center; font-size: 14px; padding: 14px 16px 10px; }
+.mosaic-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 0 8px; }
+.mosaic-stage canvas { max-width: 100%; max-height: 100%; touch-action: none; display: block; }
+.mosaic-bar { display: flex; gap: 10px; justify-content: center; padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); }
+.mosaic-bar .pill { min-width: 80px; }
+.mosaic-ed .pill:not(.dark) { background: #333; color: #fff; border-color: #333; }
+.mosaic-ed .pill.dark { background: #ffdb00; color: #111; border-color: #ffdb00; }
+.mosaic-ed .pill:disabled { opacity: .4; }
