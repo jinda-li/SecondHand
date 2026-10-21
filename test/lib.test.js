@@ -94,3 +94,72 @@ test('contactNote lists numbers and names in order', () => {
   );
   assert.equal(contactNote([{ no: 2, name: '一二三四五六七八九十十一' }]), '我预订了 2号 一二三四五六七八九十…');
 });
+
+import { normTelegram, looksLikeTelegram, itemText, saleText, defaultIntro, listMark, conditionText } from '../public/lib.js';
+
+test('parseLine: English free and the "20e" price style', () => {
+  assert.deepEqual(parseLine('Old hangers free'), { name: 'Old hangers', priceCents: 0 });
+  assert.deepEqual(parseLine('IKEA desk lamp 20e'), { name: 'IKEA desk lamp', priceCents: 2000 });
+  assert.deepEqual(parseLine('Kettle, giveaway'), { name: 'Kettle', priceCents: 0 });
+});
+
+test('money and conditions in English', () => {
+  assert.equal(money(0, 'EUR', 'en'), 'Free');
+  assert.equal(money(1250, 'EUR', 'en'), '€12.50');
+  assert.equal(conditionText('like_new', 'en'), 'Like new');
+  assert.equal(conditionText('like_new'), '九成新');
+});
+
+test('normTelegram accepts the usual ways people write a username', () => {
+  assert.equal(normTelegram('@jinda_li'), 'jinda_li');
+  assert.equal(normTelegram('jinda_li'), 'jinda_li');
+  assert.equal(normTelegram('https://t.me/jinda_li'), 'jinda_li');
+  assert.equal(normTelegram('t.me/jinda_li/'), 'jinda_li');
+  assert.equal(normTelegram(' telegram.me/Jinda '), 'Jinda');
+  assert.equal(normTelegram('12345'), null);
+  assert.equal(normTelegram('ab'), null);
+  assert.equal(normTelegram('微信号'), null);
+  assert.ok(looksLikeTelegram('@abc'));
+  assert.ok(looksLikeTelegram('https://t.me/abc'));
+  assert.ok(!looksLikeTelegram('wxid_abc'));
+});
+
+test('itemText shows the translation only when the original is in the other language', () => {
+  const zh = { name: '宜家台灯', note: '三档亮度', nameAlt: 'IKEA desk lamp', noteAlt: '3 brightness levels' };
+  assert.deepEqual(itemText(zh, 'en'), { name: 'IKEA desk lamp', note: '3 brightness levels' });
+  assert.deepEqual(itemText(zh, 'zh'), { name: '宜家台灯', note: '三档亮度' });
+  const en = { name: 'Desk lamp', note: '', nameAlt: '台灯', noteAlt: '' };
+  assert.deepEqual(itemText(en, 'zh'), { name: '台灯', note: '' });
+  assert.deepEqual(itemText({ name: '台灯', note: '' }, 'en'), { name: '台灯', note: '' });
+});
+
+test('saleText translates default rules by table and the rest from alt', () => {
+  const sale = { title: '小王的二手清单', location: '地铁站', rules: ['先到先得', '周末取'], alt: { title: "Wang's secondhand list", location: 'Metro station', rules: ['First come', 'Weekend pick-up'] } };
+  assert.deepEqual(saleText(sale, 'en'), { title: "Wang's secondhand list", location: 'Metro station', rules: ['First come, first served', 'Weekend pick-up'] });
+  assert.deepEqual(saleText(sale, 'zh'), { title: '小王的二手清单', location: '地铁站', rules: ['先到先得', '周末取'] });
+});
+
+test('shareText for Telegram carries the link and English names', () => {
+  const sale = { title: 'Moving sale', location: 'Otaniemi', currency: 'EUR', rules: [] };
+  const items = [{ no: 1, name: '台灯', nameAlt: 'Desk lamp', priceCents: 500, status: 'available' }, { no: 2, name: 'Kettle', priceCents: 0, status: 'available' }];
+  const link = 'https://x.dev/s/abc?src=tg';
+  assert.equal(
+    shareText(sale, items, { lang: 'en', target: 'telegram', link, prices: true }),
+    [defaultIntro(sale, { lang: 'en', target: 'telegram' }), link, '', listMark('en'), 'Desk lamp €5', 'Kettle Free'].join('\n'),
+  );
+});
+
+test('contactNote in English', () => {
+  assert.equal(contactNote([{ no: 3, name: 'Desk lamp' }, { no: 1, name: 'Laptop stand' }], 'en'), 'Hi! I reserved #1 Laptop stand, #3 Desk lamp from your list');
+});
+
+test('itemText and saleText pick each field by its own language', () => {
+  const mixed = { name: 'Desk lamp', note: '三档亮度', nameAlt: '台灯', noteAlt: '3 brightness levels' };
+  assert.deepEqual(itemText(mixed, 'en'), { name: 'Desk lamp', note: '3 brightness levels' });
+  assert.deepEqual(itemText(mixed, 'zh'), { name: '台灯', note: '三档亮度' });
+  const sale = { title: "Alex's moving sale", location: '地铁站自提', rules: [], alt: { title: 'Alex 的搬家甩卖', location: 'Pick-up at the metro station' } };
+  assert.equal(saleText(sale, 'en').location, 'Pick-up at the metro station');
+  assert.equal(saleText(sale, 'en').title, "Alex's moving sale");
+  assert.equal(normTelegram('abcd'), null);
+  assert.equal(normTelegram('abcde'), 'abcde');
+});

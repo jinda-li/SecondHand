@@ -1,10 +1,10 @@
-import { money, shareText, defaultIntro, stripLinks, LIST_MARK, CONDITIONS, CURRENCIES } from './lib.js';
+import { money as moneyIn, shareText, defaultIntro, stripLinks, listMark, conditionText, CURRENCIES, RULES, itemText, saleText, textLang, contactNote, normTelegram, looksLikeTelegram } from './lib.js';
+import { LANG, tr, isWeChat, isTelegram, setLang } from './i18n.js';
 
 const $app = document.getElementById('app');
 const UI = new URLSearchParams(location.search).get('ui');
 if (UI) document.documentElement.dataset.ui = UI;
 const BOOT = window.__DATA__ || {};
-const isWeChat = /MicroMessenger/i.test(navigator.userAgent);
 // c=1 is set on our QR links; WeChat adds from= to links opened from a forwarded card.
 const OPENED_AS_CARD = ['c', 'from'].some((k) => new URLSearchParams(location.search).has(k));
 // A WeChat page opened from a QR code or a card keeps forwarding as a card after tapping links
@@ -30,9 +30,20 @@ const CHECK_AFTER_MS = 12 * HOUR;
 const RENEW_WARN_MS = 7 * 24 * HOUR;
 const MAX_PHOTOS = 3;
 // Title = "<name>" + one of these; the first is the default.
-const TITLE_SUFFIXES = ['的二手清单', '的搬家甩卖', '的毕业清仓', '回国前出闲置', '的闲置转让'];
-const TITLE_PICKS = ['我的二手清单'];
-const DEFAULT_RULES = ['价格固定不议价', '先到先得', '多件打包可优惠'];
+const TITLE_SUFFIXES = tr(['的二手清单', '的搬家甩卖', '的毕业清仓', '回国前出闲置', '的闲置转让'], ["'s secondhand list", "'s moving sale", "'s graduation sale", "'s leaving sale", "'s stuff for sale"]);
+const TITLE_PICKS = [tr('我的二手清单', 'My secondhand list')];
+const DEFAULT_RULES = RULES[LANG];
+const APP_NAME = tr('二手清单', 'Secondhand List');
+
+// Money, item and list texts in the UI language (see lib.js).
+const money = (cents, cur) => moneyIn(cents, cur, LANG);
+const itemT = (it) => itemText(it, LANG);
+const saleT = (sale) => saleText(sale, LANG);
+
+// Telegram's own share page: pick a chat (or Saved Messages) and the link and text go there.
+const tgShareUrl = (url, text = '') => `https://t.me/share/url?url=${encodeURIComponent(url)}${text ? `&text=${encodeURIComponent(text)}` : ''}`;
+// A chat with a Telegram user; text is pre-filled where Telegram supports it.
+const tgChatUrl = (username, text = '') => `https://t.me/${encodeURIComponent(username)}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
 
 // ---------- small utilities ----------
 
@@ -73,6 +84,7 @@ async function api(path, { method = 'GET', body, key, form } = {}) {
   if (key) headers['X-Key'] = key;
   const tok = buyerToken(false);
   if (tok) headers['X-Buyer'] = tok;
+  headers['X-Lang'] = LANG;
   let payload;
   if (form) payload = form;
   else if (body !== undefined) {
@@ -83,13 +95,13 @@ async function api(path, { method = 'GET', body, key, form } = {}) {
   try {
     res = await fetch('/api' + path, { method, headers, body: payload });
   } catch {
-    throw { code: 'NETWORK', message: '没保存成功，网络恢复后再点一次' };
+    throw { code: 'NETWORK', message: tr('没保存成功，网络恢复后再点一次', 'Not saved. Tap again once you are back online') };
   }
   let j;
   try {
     j = await res.json();
   } catch {
-    throw { code: 'NETWORK', message: '网络出错了，再点一次' };
+    throw { code: 'NETWORK', message: tr('网络出错了，再点一次', 'Network error, tap again') };
   }
   if (!j.ok) throw j;
   return j.data;
@@ -103,7 +115,7 @@ function toast(msg, ms = 1800) {
   setTimeout(() => el.remove(), ms);
 }
 
-function loading(msg = '请稍候…') {
+function loading(msg = tr('请稍候…', 'One moment…')) {
   const el = document.createElement('div');
   el.className = 'loading';
   el.innerHTML = `<div>${esc(msg)}</div>`;
@@ -140,7 +152,7 @@ function openSheet(render, onAct, { onClose, locked = false } = {}) {
 
 // In-page confirm dialog. Native confirm()/prompt() show the site address or "JavaScript"
 // as their title (especially inside WeChat), so every confirmation goes through this.
-function ask({ title, text = '', ok = '确定', danger = false, word = '' }) {
+function ask({ title, text = '', ok = tr('确定', 'OK'), danger = false, word = '' }) {
   return new Promise((resolve) => {
     let done = false;
     const finish = (v, s) => {
@@ -151,20 +163,20 @@ function ask({ title, text = '', ok = '确定', danger = false, word = '' }) {
     };
     openSheet(() => `<h2>${esc(title)}</h2>
       ${text ? `<div class="hint center" style="padding-top:0">${esc(text).replace(/\n/g, '<br>')}</div>` : ''}
-      ${word ? `<div class="group"><div class="cell"><input class="inp grow" name="askword" placeholder="输入「${esc(word)}」确认" autocomplete="off"></div></div>` : ''}
+      ${word ? `<div class="group"><div class="cell"><input class="inp grow" name="askword" placeholder="${esc(tr(`输入「${word}」确认`, `Type "${word}" to confirm`))}" autocomplete="off"></div></div>` : ''}
       <div class="actions">
         <button class="btn ${danger ? 'danger-solid' : 'primary'} big block" data-act="ok">${esc(ok)}</button>
-        <button class="btn block" data-act="cancel">取消</button>
+        <button class="btn block" data-act="cancel">${tr('取消', 'Cancel')}</button>
       </div>`, (act, el, s) => {
       if (act === 'cancel') return finish(false, s);
       if (act !== 'ok') return;
-      if (word && s.el.querySelector('[name=askword]').value.trim() !== word) return toast(`请输入「${word}」`);
+      if (word && s.el.querySelector('[name=askword]').value.trim() !== word) return toast(tr(`请输入「${word}」`, `Type "${word}"`));
       finish(true, s);
     }, { onClose: () => finish(false) });
   });
 }
 
-async function copy(text, okMsg = '已复制') {
+async function copy(text, okMsg = tr('已复制', 'Copied')) {
   try {
     await navigator.clipboard.writeText(text);
   } catch {
@@ -201,19 +213,25 @@ function parsePrice(v) {
 
 function agoText(ts, now) {
   const m = Math.max(0, Math.round((now - ts) / 60000));
-  if (m < 60) return m <= 1 ? '刚刚' : `${m} 分钟前`;
+  if (m < 60) return m <= 1 ? tr('刚刚', 'just now') : tr(`${m} 分钟前`, `${m} min ago`);
   const h = Math.round(m / 60);
-  if (h < 48) return `${h} 小时前`;
-  return `${Math.round(h / 24)} 天前`;
+  if (h < 48) return tr(`${h} 小时前`, `${h} h ago`);
+  return tr(`${Math.round(h / 24)} 天前`, `${Math.round(h / 24)} days ago`);
 }
 
-function dateText(d) {
+function dateText(d, lang = LANG) {
   if (!d) return '';
   const [, mm, dd] = d.split('-').map(Number);
-  return `${mm}月${dd}日`;
+  return lang === 'en' ? `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][mm - 1]} ${dd}` : `${mm}月${dd}日`;
 }
 
-const statusText = { available: '在售', reserved: '已预订', sold: '已出', removed: '已下架' };
+// "10月21日前出完" / "until Oct 21"
+const untilText = (d) => (d ? tr(`${dateText(d)}前出完`, `until ${dateText(d)}`) : '');
+
+const statusText = tr(
+  { available: '在售', reserved: '已预订', sold: '已出', removed: '已下架' },
+  { available: 'For sale', reserved: 'Reserved', sold: 'Sold', removed: 'Removed' },
+);
 
 function pickFiles({ multiple = true } = {}) {
   return new Promise((resolve) => {
@@ -282,7 +300,7 @@ async function mosaicEditor(file) {
   try {
     im = await loadImage(url);
   } catch {
-    toast('这张照片打不开');
+    toast(tr('这张照片打不开', "Can't open this photo"));
     return null;
   } finally {
     URL.revokeObjectURL(url);
@@ -310,12 +328,12 @@ async function mosaicEditor(file) {
   const el = document.createElement('div');
   el.className = 'mosaic-ed';
   el.innerHTML = `
-    <div class="mosaic-tip">用手指涂抹要遮住的地方</div>
+    <div class="mosaic-tip">${tr('用手指涂抹要遮住的地方', 'Rub over what you want to hide')}</div>
     <div class="mosaic-stage"><canvas width="${W}" height="${H}"></canvas></div>
     <div class="mosaic-bar">
-      <button class="pill" data-m="cancel">取消</button>
-      <button class="pill" data-m="undo" disabled>撤销</button>
-      <button class="pill dark" data-m="done">完成</button>
+      <button class="pill" data-m="cancel">${tr('取消', 'Cancel')}</button>
+      <button class="pill" data-m="undo" disabled>${tr('撤销', 'Undo')}</button>
+      <button class="pill dark" data-m="done">${tr('完成', 'Done')}</button>
     </div>`;
   document.body.appendChild(el);
   const view = el.querySelector('canvas');
@@ -435,13 +453,13 @@ async function fetchMe() {
 async function googleButton(el, onDone) {
   if (!el) return;
   if (isWeChat) {
-    el.innerHTML = `<div class="small muted">微信里不能用 Google 登录：点右上角 ··· 选「在浏览器打开」再登录。</div>`;
+    el.innerHTML = `<div class="small muted">${tr('微信里不能用 Google 登录：点右上角 ··· 选「在浏览器打开」再登录。', "Google sign-in doesn't work inside WeChat: tap ··· at the top right, open in the browser, then sign in.")}</div>`;
     return;
   }
   try {
     await loadGis();
   } catch {
-    el.innerHTML = `<div class="small muted">Google 登录加载失败，检查一下网络</div>`;
+    el.innerHTML = `<div class="small muted">${tr('Google 登录加载失败，检查一下网络', "Google sign-in didn't load, check your connection")}</div>`;
     return;
   }
   google.accounts.id.initialize({
@@ -452,14 +470,14 @@ async function googleButton(el, onDone) {
         const d = await api('/auth/google', { method: 'POST', body: { credential: r.credential, claims } });
         mergeSales(d.sales);
         store.set('signedIn', true);
-        toast(`已登录 ${d.user.email || ''}`);
+        toast(tr(`已登录 ${d.user.email || ''}`, `Signed in ${d.user.email || ''}`));
         onDone?.(d);
       } catch (e) {
         toast(e.message);
       }
     },
   });
-  google.accounts.id.renderButton(el, { theme: 'outline', size: 'large', shape: 'pill', text: 'continue_with', locale: 'zh-CN', width: Math.min(320, el.clientWidth || 300) });
+  google.accounts.id.renderButton(el, { theme: 'outline', size: 'large', shape: 'pill', text: 'continue_with', locale: tr('zh-CN', 'en'), width: Math.min(320, el.clientWidth || 300) });
 }
 
 function loginCardHtml(text) {
@@ -476,8 +494,14 @@ function boot() {
     e.preventDefault();
     recommendFriend();
   });
+  // 中文 / English, wherever langSwitchHtml() is rendered.
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-lang-switch]')) setLang(LANG === 'en' ? 'zh' : 'en');
+  });
   // Any page that renders a .nearby-feed placeholder gets the live feed filled in.
   new MutationObserver(mountNearbyFeeds).observe($app, { childList: true, subtree: true });
+  // The server titles pages for the share card (Chinese for WeChat); pages that don't set their own follow the UI.
+  if (LANG === 'en' && textLang(document.title) === 'zh') document.title = APP_NAME;
   const path = location.pathname;
   let m;
   if (BOOT.notFound) return notFound();
@@ -498,13 +522,18 @@ function localKey(saleId) {
 }
 
 
+// The other language, as a small link; switching reloads the page.
+function langSwitchHtml() {
+  return `<button class="link-btn small" data-lang-switch>${LANG === 'en' ? '中文' : 'English'}</button>`;
+}
+
 function ownerBanner(sale) {
-  return `<div class="banner">这是买家看到的样子。你是卖家，不能预订自己的东西。</div>`;
+  return `<div class="banner">${tr('这是买家看到的样子。你是卖家，不能预订自己的东西。', 'This is what buyers see. You are the seller, so you can\'t reserve your own things.')}</div>`;
 }
 
 // Seller previewing their own list sees buyer buttons; tapping one points them to the management page.
 async function ownerTap(sale) {
-  if (await ask({ title: '这是你自己的东西', text: '买家点这里会排队预订。\n要改价格、标已出，去管理页。', ok: '去管理' })) location.href = `/manage/${sale.id}`;
+  if (await ask({ title: tr('这是你自己的东西', 'This is your own item'), text: tr('买家点这里会排队预订。\n要改价格、标已出，去管理页。', 'Buyers tap here to reserve.\nTo change prices or mark things sold, go to the management page.'), ok: tr('去管理', 'Manage') })) location.href = `/manage/${sale.id}`;
 }
 
 // Ended and deleted lists look the same to buyers.
@@ -512,11 +541,11 @@ function notFound() {
   const item = BOOT.item;
   const ended = BOOT.endedTitle;
   $app.innerHTML = `<div class="empty">
-    <div style="font-size:20px;font-weight:800;color:var(--text)">${item ? '这件东西已经不见了' : ended ? `「${esc(ended)}」已经结束了` : '这份清单已经不见了'}</div>
-    <div style="margin-top:8px">${item ? '可能已经被卖家下架。' : ended ? '卖家已经收摊了，下面是附近还在卖的。' : '卖家已经结束或删除了这份清单。'}</div>
-    <div style="margin-top:20px;display:flex;gap:10px;justify-content:center"><a class="btn small" href="/my">我的排队</a><a class="btn small" href="/">回首页</a></div>
+    <div style="font-size:20px;font-weight:800;color:var(--text)">${item ? tr('这件东西已经不见了', 'This item is gone') : ended ? tr(`「${esc(ended)}」已经结束了`, `"${esc(ended)}" has ended`) : tr('这份清单已经不见了', 'This list is gone')}</div>
+    <div style="margin-top:8px">${item ? tr('可能已经被卖家下架。', 'The seller probably took it down.') : ended ? tr('卖家已经收摊了，下面是附近还在卖的。', 'The seller has packed up. Here is what is still for sale nearby.') : tr('卖家已经结束或删除了这份清单。', 'The seller ended or deleted this list.')}</div>
+    <div style="margin-top:20px;display:flex;gap:10px;justify-content:center"><a class="btn small" href="/my">${tr('我的排队', 'My reservations')}</a><a class="btn small" href="/">${tr('回首页', 'Home')}</a></div>
   </div>
-  ${keepWanted() ? keepBlockHtml('你以后要出闲置，也能这样发', '拍照、填价格就上架，群友点开自己排队。') : ''}
+  ${keepWanted() ? keepBlockHtml(tr('你以后要出闲置，也能这样发', 'Selling your own stuff some day? Do it like this'), tr('拍照、填价格就上架，群友点开自己排队。', 'Snap a photo, add a price, and people get in line themselves.')) : ''}
   ${nearbyEntryHtml()}`;
 }
 
@@ -527,22 +556,23 @@ async function home() {
   const mine = store.get('mySales', []);
   $app.innerHTML = `
     <div class="appbar">${LOGO}</div>
-    <div class="head has-keep-tag">${recommendTagHtml()}<h1>我的二手</h1><div class="meta">拍照就上架，别人点开就能排队</div></div>
+    <div class="head has-keep-tag">${recommendTagHtml()}<h1>${tr('我的二手', 'My stuff')}</h1><div class="meta">${tr('拍照就上架，别人点开就能排队', 'Snap a photo to list it; people tap the link and get in line')}</div></div>
     ${!googleOn() ? '' : meData.user
-      ? `<div class="hint">已登录 ${esc(meData.user.email)} · 清单跟着账号走 · <button class="link-btn small" id="logout">退出</button></div>`
-      : loginCardHtml('用 Google 登录，清单跟着账号走，换手机也能管理')}
-    ${mine.length ? `<div class="hint" style="padding-bottom:4px">我的清单（${mine.length}） · <a href="/lists">全部清单和收藏入口 ›</a></div><div class="section">${mine.map((s) => `
-      <a class="cell" href="/manage/${esc(s.id)}"><div class="grow"><div>${esc(s.title)}</div><div class="muted small">管理我的清单</div></div><span class="muted">›</span></a>`).join('')}
+      ? `<div class="hint">${tr(`已登录 ${esc(meData.user.email)} · 清单跟着账号走`, `Signed in as ${esc(meData.user.email)} · lists follow your account`)} · <button class="link-btn small" id="logout">${tr('退出', 'Sign out')}</button></div>`
+      : loginCardHtml(tr('用 Google 登录，清单跟着账号走，换手机也能管理', 'Sign in with Google so your lists follow you to a new phone'))}
+    ${mine.length ? `<div class="hint" style="padding-bottom:4px">${tr(`我的清单（${mine.length}）`, `My lists (${mine.length})`)} · <a href="/lists">${tr('全部清单和收藏入口 ›', 'All lists and the saved entry ›')}</a></div><div class="section">${mine.map((s) => `
+      <a class="cell" href="/manage/${esc(s.id)}"><div class="grow"><div>${esc(s.title)}</div><div class="muted small">${tr('管理我的清单', 'Manage this list')}</div></div><span class="muted">›</span></a>`).join('')}
     </div>` : ''}
     <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
-      <a class="btn primary big block" href="${mine.length ? '/new?go=1' : '/new'}">${mine.length ? '再发一份新清单' : '发布我的二手清单'}</a>
-      <a class="btn big block" href="/my">我的排队</a>
-      <button class="btn big block rec-btn" data-recommend>🎁 推荐给要搬家的朋友</button>
+      <a class="btn primary big block" href="${mine.length ? '/new?go=1' : '/new'}">${mine.length ? tr('再发一份新清单', 'Start another list') : tr('发布我的二手清单', 'Post my secondhand list')}</a>
+      <a class="btn big block" href="/my">${tr('我的排队', 'My reservations')}</a>
+      <button class="btn big block rec-btn" data-recommend>🎁 ${tr('推荐给要搬家的朋友', 'Recommend to a friend who is moving')}</button>
     </div>
     ${nearbyEntryHtml()}
-    <div class="hint center"><a href="/privacy">隐私政策</a> · <a href="/terms">服务条款</a> · <button class="link-btn small" id="feedback">反馈</button> · <button class="link-btn small" id="tip">打赏开发者</button></div>`;
+    <div class="hint center"><a href="/privacy${tr('', '#en')}">${tr('隐私政策', 'Privacy')}</a> · <a href="/terms${tr('', '#en')}">${tr('服务条款', 'Terms')}</a> · <button class="link-btn small" id="feedback">${tr('反馈', 'Feedback')}</button>${tipOn() ? ` · <button class="link-btn small" id="tip">${tr('打赏开发者', 'Tip the developer')}</button>` : ''} · ${langSwitchHtml()}</div>`;
   googleButton($app.querySelector('.gbtn'), () => home());
-  $app.querySelector('#tip').onclick = () => tipSheet();
+  const tipBtn = $app.querySelector('#tip');
+  if (tipBtn) tipBtn.onclick = () => tipSheet();
   $app.querySelector('#feedback').onclick = feedbackSheet;
   const lo = $app.querySelector('#logout');
   if (lo) {
@@ -559,7 +589,7 @@ async function home() {
 function rulesEditor(rules) {
   const all = [...rules, ...DEFAULT_RULES.filter((r) => !rules.includes(r))].slice(0, 5);
   return all.map((r) => `
-    <div class="rule-row"><input type="checkbox" ${rules.includes(r) ? 'checked' : ''}><input class="inp" type="text" maxlength="20" value="${esc(r)}"></div>`).join('');
+    <div class="rule-row"><input type="checkbox" ${rules.includes(r) ? 'checked' : ''}><input class="inp" type="text" maxlength="40" value="${esc(r)}"></div>`).join('');
 }
 
 function readRules(root) {
@@ -580,21 +610,27 @@ function guessCurrency() {
 // create: the title is built from the seller's name + a suffix chip; settings: plain editable title.
 function saleFormHtml(s, { create = false } = {}) {
   const titleHtml = create
-    ? `<label class="field"><span>你的名字 <b class="req">*</b></span><input type="text" name="owner" maxlength="12" value="${esc(s.owner)}" placeholder="别人怎么称呼你" autocomplete="nickname"></label>
+    ? `<label class="field"><span>${tr('你的名字', 'Your name')} <b class="req">*</b></span><input type="text" name="owner" maxlength="12" value="${esc(s.owner)}" placeholder="${tr('别人怎么称呼你', 'What people call you')}" autocomplete="nickname"></label>
       <div class="field">
-        <span>清单标题</span>
-        <div class="seg">${TITLE_SUFFIXES.map((t, i) => `<button type="button" class="${i === 0 ? 'on' : ''}" data-suffix="${esc(t)}">${esc(t)}</button>`).join('')}</div>
-        <div class="help">标题：<b class="title-preview"></b></div>
+        <span>${tr('清单标题', 'List title')}</span>
+        <div class="seg">${TITLE_SUFFIXES.map((t, i) => `<button type="button" class="${i === 0 ? 'on' : ''}" data-suffix="${esc(t)}">${esc(t.replace(/^'s /, ''))}</button>`).join('')}</div>
+        <div class="help">${tr('标题：', 'Title: ')}<b class="title-preview"></b></div>
         <input type="hidden" name="title">
       </div>`
-    : `<label class="field"><span>标题</span><input type="text" name="title" maxlength="30" value="${esc(s.title)}"></label>`;
-  const contact = `<label class="field"><span>联系方式 <b class="req">*</b>${create ? '' : '（只给排第 1 位的人看）'}</span><input type="text" name="wechatId" maxlength="60" value="${esc(s.wechatId)}" placeholder="微信号、手机号都行" autocomplete="off">${create ? '<div class="help">只给排第 1 位的人看</div>' : ''}</label>
-      <label class="field"><span>取货地点 <b class="req">*</b></span><input type="text" name="location" maxlength="40" value="${esc(s.location)}" placeholder="例：地铁站附近自提"></label>`;
-  const more = `<label class="field"><span>货币</span><select name="currency">${Object.keys(CURRENCIES).map((c) => `<option value="${c}" ${c === s.currency ? 'selected' : ''}>${c} ${CURRENCIES[c].trim()}</option>`).join('')}</select></label>
-      <div class="field"><span>规则</span><div class="rules">${rulesEditor(s.rules)}</div></div>
-      <label class="field"><span>截止日期（选填）</span><input type="date" name="leaveDate" value="${esc(s.leaveDate)}"></label>`;
+    : `<label class="field"><span>${tr('标题', 'Title')}</span><input type="text" name="title" maxlength="60" value="${esc(s.title)}"></label>`;
+  // Two boxes, each named for its app, so nobody puts a WeChat ID where a Telegram username goes.
+  // The one this person more likely uses comes first.
+  const tgField = `<label class="field"><span>${tr('Telegram 用户名', 'Telegram username')}</span><input type="text" name="telegram" maxlength="64" value="${esc(s.telegram ? `@${s.telegram}` : '')}" placeholder="@username" autocomplete="off" autocapitalize="off" spellcheck="false"></label>`;
+  const wxField = `<label class="field"><span>${tr('微信号', 'WeChat ID')}</span><input type="text" name="wechatId" maxlength="60" value="${esc(s.wechatId)}" placeholder="${tr('你的微信号', 'Your WeChat ID')}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>`;
+  const contact = `<div class="field"><span>${tr('联系方式', 'How buyers reach you')} <b class="req">*</b></span>
+        <div class="help">${tr('至少填一个，只给排第 1 位的人看。用微信的买家看到你的微信，用 Telegram 的看到你的 Telegram。', 'Fill in at least one. Only the first in line sees it: Telegram buyers get your Telegram, WeChat buyers your WeChat.')}</div></div>
+      ${LANG === 'en' || isTelegram ? tgField + wxField : wxField + tgField}
+      <label class="field"><span>${tr('取货地点', 'Pick-up place')} <b class="req">*</b></span><input type="text" name="location" maxlength="60" value="${esc(s.location)}" placeholder="${tr('例：地铁站附近自提', 'e.g. near the metro station')}"></label>`;
+  const more = `<label class="field"><span>${tr('货币', 'Currency')}</span><select name="currency">${Object.keys(CURRENCIES).map((c) => `<option value="${c}" ${c === s.currency ? 'selected' : ''}>${c} ${CURRENCIES[c].trim()}</option>`).join('')}</select></label>
+      <div class="field"><span>${tr('规则', 'Rules')}</span><div class="rules">${rulesEditor(s.rules)}</div></div>
+      <label class="field"><span>${tr('截止日期（选填）', 'Last day (optional)')}</span><input type="date" name="leaveDate" value="${esc(s.leaveDate)}"></label>`;
   const nearby = `<label class="field nearby-row"><input type="checkbox" name="nearby" ${s.publicNearby === false ? '' : 'checked'}>
-        <span style="margin:0;color:var(--text)">公开到「附近的二手」：你的东西会出现在附近别人的清单下面，卖得更快<br><span class="small muted">会用到你的大概位置（约 1 公里范围），不会显示具体地址</span></span></label>`;
+        <span style="margin:0;color:var(--text)">${tr('公开到「附近的二手」：你的东西会出现在附近别人的清单下面，卖得更快', 'Show in "Nearby": your things appear under other lists nearby and sell faster')}<br><span class="small muted">${tr('会用到你的大概位置（约 1 公里范围），不会显示具体地址', 'Uses your rough location (about 1 km), never your address')}</span></span></label>`;
   // Creating: the three required fields up front, the rest folded away with their defaults.
   if (create) {
     return `
@@ -602,7 +638,7 @@ function saleFormHtml(s, { create = false } = {}) {
       ${titleHtml}
       ${contact}
       <details class="ik-more">
-        <summary><span><b>更多设置</b><span class="help">货币 ${esc(s.currency)} · 规则 · 截止日期，都有默认值</span></span></summary>
+        <summary><span><b>${tr('更多设置', 'More settings')}</b><span class="help">${tr(`货币 ${esc(s.currency)} · 规则 · 截止日期，都有默认值`, `Currency ${esc(s.currency)} · rules · last day, all have defaults`)}</span></span></summary>
         ${more}
       </details>
       ${nearby}
@@ -621,7 +657,8 @@ function saleFormHtml(s, { create = false } = {}) {
 function syncTitle(form) {
   const name = form.querySelector('[name=owner]').value.trim();
   const suffix = form.querySelector('[data-suffix].on')?.dataset.suffix || TITLE_SUFFIXES[0];
-  const title = (name || '我') + suffix;
+  // "Jinda's moving sale"; without a name, "My moving sale".
+  const title = LANG === 'en' && !name ? `My ${suffix.replace(/^'s /, '')}` : (name || '我') + suffix;
   form.querySelector('[name=title]').value = title;
   form.querySelector('.title-preview').textContent = title;
 }
@@ -631,12 +668,21 @@ function readSaleForm(root) {
   return {
     title: v('title'),
     wechatId: v('wechatId'),
+    telegram: v('telegram'),
     location: v('location'),
     currency: v('currency'),
     leaveDate: v('leaveDate'),
     rules: readRules(root),
     nearby: root.querySelector('[name=nearby]').checked,
   };
+}
+
+// The contact boxes, checked before sending: at least one, each in its own box. Returns an error or ''.
+function contactError(f) {
+  if (!f.wechatId && !f.telegram) return tr('微信号和 Telegram 用户名至少填一个', 'Add a Telegram username or a WeChat ID');
+  if (looksLikeTelegram(f.wechatId)) return tr('微信号那一栏填的像是 Telegram 用户名，请填到 Telegram 那一栏', 'That looks like a Telegram username: put it in the Telegram box');
+  if (f.telegram && !normTelegram(f.telegram)) return tr('Telegram 用户名不对：5 到 32 位字母、数字或下划线，例如 @jinda_li', 'Not a Telegram username: 5–32 letters, digits or underscores, like @jinda_li');
+  return '';
 }
 
 // Approximate position for "附近的二手"; null when unavailable or refused. The server rounds it to ~1 km.
@@ -655,45 +701,51 @@ function getLocation() {
 function intro() {
   // A tiny picture of the product: what buyers see in the group link.
   const mock = [
-    ['🪑', '€20', '预订'],
-    ['💡', '€5', '已预订'],
-    ['🍳', '€6', '预订'],
-    ['🚲', '€80', '预订'],
+    ['🪑', '€20', false],
+    ['💡', '€5', true],
+    ['🍳', '€6', false],
+    ['🚲', '€80', false],
   ];
-  const steps = [
+  const steps = tr([
     ['📷', '拍照，填个价格', 'AI 自动认出是什么，名字不用打'],
     ['💬', '一个链接，发几个群都行', '群友点开就能看图、预订'],
     ['🙋', '自动排队，不撞单', '第 1 位才看到你的联系方式'],
     ['📍', '附近的人也能刷到', '也会出现在附近别人的清单下面，卖得更快'],
-  ];
+  ], [
+    ['📷', 'Snap a photo, add a price', 'The AI names the item, no typing'],
+    ['💬', 'One link, as many groups as you like', 'People tap it to see photos and reserve'],
+    ['🙋', 'A queue, no double-selling', 'Only the first in line sees your contact'],
+    ['📍', 'People nearby see it too', 'Your things also show under lists nearby'],
+  ]);
   const fg = BOOT.friendGift;
   $app.innerHTML = `
     <div class="appbar">${LOGO}</div>
     <div class="intro">
-      ${fg ? `<div class="friend-note">🎁 <b>${esc(fg.name || '朋友')}</b> 推荐你用</div>` : ''}
-      <h1 class="intro-title">出二手，<br>不用一个个回消息</h1>
-      <div class="intro-sub">拍照上架，发到群里，想要的人自己排队</div>
-      <div class="intro-mock">${mock.map(([e, p, b]) => `
+      ${fg ? `<div class="friend-note">🎁 ${tr(`<b>${esc(fg.name || '朋友')}</b> 推荐你用`, `<b>${esc(fg.name || 'A friend')}</b> recommends this`)}</div>` : ''}
+      <h1 class="intro-title">${tr('出二手，<br>不用一个个回消息', 'Sell your stuff<br>without answering every message')}</h1>
+      <div class="intro-sub">${tr('拍照上架，发到群里，想要的人自己排队', 'List with photos, post to your groups, buyers line up themselves')}</div>
+      <div class="intro-mock">${mock.map(([e, p, reserved]) => `
         <div class="mock-tile">
-          <div class="mock-ph">${e}${b === '已预订' ? '<span class="mock-stamp">已预订</span>' : ''}</div>
+          <div class="mock-ph">${e}${reserved ? `<span class="mock-stamp">${tr('已预订', 'Reserved')}</span>` : ''}</div>
           <span class="mock-price">${p}</span>
-          <span class="mock-btn ${b === '已预订' ? 'off' : ''}">${b === '已预订' ? '排候补' : b}</span>
+          <span class="mock-btn ${reserved ? 'off' : ''}">${reserved ? tr('排候补', 'Waitlist') : tr('预订', 'Reserve')}</span>
         </div>`).join('')}
       </div>
       <div class="intro-steps2">${steps.map(([i, t, d]) => `
         <div class="intro-step2"><span class="intro-icon">${i}</span><div><b>${t}</b><div class="small muted">${d}</div></div></div>`).join('')}
       </div>
-      <div class="intro-free">免费 · 不用注册 · 不用下载</div>
+      <div class="intro-free">${tr('免费 · 不用注册 · 不用下载', 'Free · no sign-up · no app')}</div>
+      <div class="center" style="margin-top:8px">${langSwitchHtml()}</div>
     </div>
     <div class="save-entry" id="save">
-      <div class="save-t">${ICON_STAR}收藏这个页面</div>
-      <div class="save-s">现在不发也没关系，以后想出二手，从${isWeChat ? '微信收藏' : '书签'}里打开就能用。</div>
+      <div class="save-t">${ICON_STAR}${tr('收藏这个页面', 'Keep this page')}</div>
+      <div class="save-s">${tr(`现在不发也没关系，以后想出二手，从${isWeChat ? '微信收藏' : '书签'}里打开就能用。`, `Not selling today? Keep it ${isTelegram ? 'in Saved Messages' : 'as a bookmark'} and open it when you move out.`)}</div>
       <div class="save-btns">
-        <button class="pill dark" data-save="fav">${ICON_STAR}去收藏</button>
-        <button class="pill" data-save="send">分享给朋友</button>
+        <button class="pill dark" data-save="fav">${ICON_STAR}${tr('去收藏', 'Keep it')}</button>
+        <button class="pill" data-save="send">${tr('分享给朋友', 'Share with a friend')}</button>
       </div>
     </div>
-    <div class="bottom-bar"><div class="inner"><a class="btn primary big" href="/new?go=1">开始发布</a></div></div>`;
+    <div class="bottom-bar"><div class="inner"><a class="btn primary big" href="/new?go=1">${tr('开始发布', 'Get started')}</a></div></div>`;
   // 收藏 on a buyer page's strip lands here; the card is rendered after load, so scroll by hand.
   if (location.hash === '#save') $app.querySelector('#save').scrollIntoView({ block: 'center' });
   $app.addEventListener('click', async (e) => {
@@ -702,14 +754,18 @@ function intro() {
     const fav = b.dataset.save === 'fav';
     if (isWeChat) return menuGuide(fav ? '收藏' : '发送给朋友');
     const url = `${location.origin}/new`;
+    if (isTelegram) {
+      location.href = tgShareUrl(url, fav ? '' : tr('出二手不用一个个回消息，拍照上架、群友自己排队', 'Sell your stuff without answering every message: photos in, buyers line up themselves'));
+      return;
+    }
     if (!fav && navigator.share) {
       try {
-        await navigator.share({ title: '二手清单｜出二手，不用一个个回消息', url });
+        await navigator.share({ title: document.title, url });
       } catch {}
       return;
     }
-    if (fav) return toast(/Mobi/i.test(navigator.userAgent) ? '在浏览器菜单里选「添加书签」或「添加到主屏幕」' : '按 Ctrl+D（Mac 上 ⌘+D）加到书签');
-    copy(url, '链接已复制，发给朋友吧');
+    if (fav) return toast(/Mobi/i.test(navigator.userAgent) ? tr('在浏览器菜单里选「添加书签」或「添加到主屏幕」', 'Use "Add bookmark" or "Add to Home Screen" in the browser menu') : tr('按 Ctrl+D（Mac 上 ⌘+D）加到书签', 'Press Ctrl+D (⌘+D on a Mac) to bookmark'));
+    copy(url, tr('链接已复制，发给朋友吧', 'Link copied, send it to a friend'));
   });
 }
 
@@ -722,11 +778,11 @@ function menuGuide(item) {
   el.innerHTML = `
     <svg class="mg-arrow" viewBox="0 0 120 120" aria-hidden="true"><path d="M20 110 C 30 60, 60 30, 100 18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 12"/><path d="M84 10 L104 16 L94 34" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
     <div class="mg-steps">
-      <div class="mg-step"><span class="mg-no">1</span>点右上角 <b class="mg-dots">···</b></div>
-      <div class="mg-step"><span class="mg-no">2</span>选「<b>${esc(item)}</b>」</div>
-      ${item === '收藏' ? `<div class="mg-tip">以后在微信「我 → 收藏」里就能找到</div>` : ''}
+      <div class="mg-step"><span class="mg-no">1</span>${tr('点右上角', 'Tap')} <b class="mg-dots">···</b>${tr('', ' at the top right')}</div>
+      <div class="mg-step"><span class="mg-no">2</span>${tr(`选「<b>${esc(item)}</b>」`, `Choose <b>${esc({ 收藏: 'Favorite', 发送给朋友: 'Send to Chat' }[item] || item)}</b>`)}</div>
+      ${item === '收藏' ? `<div class="mg-tip">${tr('以后在微信「我 → 收藏」里就能找到', 'Find it later in WeChat under Me → Favorites')}</div>` : ''}
     </div>
-    <button class="pill mg-ok">知道了</button>`;
+    <button class="pill mg-ok">${tr('知道了', 'Got it')}</button>`;
   el.addEventListener('click', () => el.remove());
   document.body.appendChild(el);
 }
@@ -743,13 +799,27 @@ function keepWanted() {
 const GIFT_USES = CFG.keepGiftUses || 10;
 
 function keepButtonsHtml() {
-  return `<div class="keep-btns"><a class="btn primary big" href="/keep?save=1">☆ 收藏备用</a><a class="btn big" href="/new">现在就发</a></div>
-    <div class="small muted center">送你 ${GIFT_USES} 次 AI 识图，存在${isWeChat ? '收藏' : '书签'}的页面里，以后打开就到账</div>`;
+  return `<div class="keep-btns"><a class="btn primary big" href="/keep?save=1">☆ ${tr('收藏备用', 'Keep for later')}</a><a class="btn big" href="/new">${tr('现在就发', 'Post now')}</a></div>
+    <div class="small muted center">${tr(`送你 ${GIFT_USES} 次 AI 识图，存在${isWeChat ? '收藏' : '书签'}的页面里，以后打开就到账`, `${GIFT_USES} free AI photo tries live in the saved page, yours when you open it later`)}</div>`;
 }
+
+// Where people keep a page in the app they are in: WeChat 收藏, Telegram Saved Messages, or a bookmark.
+const keepWhere = () => (isWeChat ? tr('收藏', 'Favorites') : isTelegram ? 'Saved Messages' : tr('书签', 'bookmarks'));
+const keepVerb = () => (isWeChat ? tr('收藏', 'Add to Favorites') : isTelegram ? tr('存到 Saved Messages', 'Send to Saved Messages') : tr('存成书签', 'Bookmark it'));
+
+// Steps for keeping the current page. extra: what the saved page gives back later.
+function keepStepsHtml(extra = tr('就能找到', 'to find it again')) {
+  if (isWeChat) return tr(`1. 点右上角 <b>···</b><br>2. 选「<b>收藏</b>」<br>3. 以后在「<b>我 → 收藏</b>」里，或者搜「<b>二手</b>」${extra}`, `1. Tap <b>···</b> at the top right<br>2. Choose <b>Favorite</b><br>3. Look under <b>Me → Favorites</b> ${extra}`);
+  if (isTelegram) return tr(`1. 点下面的「存到 Saved Messages」<br>2. 选「<b>Saved Messages</b>」，发送<br>3. 以后在 Telegram 的 Saved Messages 里点开${extra}`, `1. Tap "Send to Saved Messages" below<br>2. Choose <b>Saved Messages</b> and send<br>3. Open it from Saved Messages later ${extra}`);
+  return tr('用浏览器的「<b>添加书签</b>」或「<b>添加到主屏幕</b>」，以后点开就是这个页面。', 'Use <b>Add bookmark</b> or <b>Add to Home Screen</b> in your browser; it opens straight to this page.');
+}
+
+// In Telegram, the button that sends this page to Saved Messages.
+const keepTgBtnHtml = () => (isTelegram ? `<a class="btn primary big block" href="${esc(tgShareUrl(location.href))}" data-act="tgkeep">${tr('存到 Saved Messages', 'Send to Saved Messages')}</a>` : '');
 
 function keepBlockHtml(title, text) {
   return `<div class="highlight keep-block">
-    <b>${title}</b>${text}
+    <b>${title}</b> ${text}
     ${keepButtonsHtml()}
   </div>`;
 }
@@ -757,12 +827,12 @@ function keepBlockHtml(title, text) {
 // Bottom of a buyer's list page: what made this list, and how to get one.
 function brandCardHtml() {
   return `<div class="brand-card">
-    <div class="brand-card-head">这份清单是用「二手清单」做的</div>
+    <div class="brand-card-head">${tr('这份清单是用「二手清单」做的', 'This list was made with Secondhand List')}</div>
     <div class="brand-card-body">
-      📷 拍照，填个价格就上架<br>💬 一个链接，发几个群都行<br>🙋 群友自己排队，不撞单
+      ${tr('📷 拍照，填个价格就上架<br>💬 一个链接，发几个群都行<br>🙋 群友自己排队，不撞单', '📷 Snap a photo, add a price<br>💬 One link for all your groups<br>🙋 Buyers line up themselves, no double-selling')}
       ${keepWanted()
-        ? `<div class="brand-card-note">现在用不上也没关系。收藏起来，搬家、毕业、回国那天再打开。</div>${keepButtonsHtml()}`
-        : `<a class="btn primary big block" href="/new" style="margin-top:12px">我也发一份</a>`}
+        ? `<div class="brand-card-note">${tr('现在用不上也没关系。收藏起来，搬家、毕业、回国那天再打开。', 'No use for it today? Keep it for the day you move out.')}</div>${keepButtonsHtml()}`
+        : `<a class="btn primary big block" href="/new" style="margin-top:12px">${tr('我也发一份', 'Make my own list')}</a>`}
     </div>
   </div>`;
 }
@@ -773,9 +843,9 @@ function keepBar() {
   const bar = document.createElement('div');
   bar.className = 'keep-bar';
   bar.innerHTML = `<span class="keep-star">☆</span>
-    <div class="grow"><b>以后搬家用得上</b><div>收藏起来，送你 ${GIFT_USES} 次 AI 识图</div></div>
-    <a class="btn small" href="/keep?save=1">收藏</a>
-    <button class="keep-x" aria-label="关闭">×</button>`;
+    <div class="grow"><b>${tr('以后搬家用得上', 'Handy when you move out')}</b><div>${tr(`收藏起来，送你 ${GIFT_USES} 次 AI 识图`, `Keep it and get ${GIFT_USES} free AI photo tries`)}</div></div>
+    <a class="btn small" href="/keep?save=1">${tr('收藏', 'Keep')}</a>
+    <button class="keep-x" aria-label="${tr('关闭', 'Close')}">×</button>`;
   const onScroll = () => {
     const nearEnd = window.scrollY + window.innerHeight > document.documentElement.scrollHeight - 500;
     bar.classList.toggle('on', window.scrollY > window.innerHeight * 0.8 && !nearEnd);
@@ -805,24 +875,20 @@ async function keepPage() {
   } catch {}
   history.replaceState(null, '', gift ? `/keep?gift=${encodeURIComponent(gift.code)}` : '/keep?from=fav');
   // The server titled this page for a gift; without one, fall back to the plain title.
-  if (!gift) document.title = '二手清单｜搬家、毕业、回国出闲置';
-  const where = isWeChat ? '收藏' : '存成书签';
+  if (!gift) document.title = tr('二手清单｜搬家、毕业、回国出闲置', 'Secondhand List | Sell your stuff when you move out');
   const removeArrow = isWeChat ? wxMenuArrow() : () => {};
-  openSheet(() => `<h2>${gift ? `送你 ${gift.uses} 次 AI 识图` : `${where}，用的时候再打开`}</h2>
-    ${gift ? `<div class="hint center" style="padding-top:0">发清单时拍张照，AI 就认出是什么，不用打字。<br>次数存在这个页面里：${where}，以后打开就到账。</div>` : ''}
-    <div class="group"><div class="cell small" style="display:block;line-height:2">
-      ${isWeChat
-        ? '1. 点右上角 <b>···</b><br>2. 选「<b>收藏</b>」<br>3. 以后在「<b>我 → 收藏</b>」里，或者搜「<b>二手</b>」就能找到'
-        : '用浏览器的「<b>添加书签</b>」或「<b>添加到主屏幕</b>」，以后点开就是这个页面。'}
-    </div></div>
+  openSheet(() => `<h2>${gift ? tr(`送你 ${gift.uses} 次 AI 识图`, `${gift.uses} free AI photo tries for you`) : tr(`${keepVerb()}，用的时候再打开`, `${keepVerb()}, open it when you need it`)}</h2>
+    ${gift ? `<div class="hint center" style="padding-top:0">${tr(`发清单时拍张照，AI 就认出是什么，不用打字。<br>次数存在这个页面里：${keepVerb()}，以后打开就到账。`, `Snap a photo when you list something and the AI knows what it is, no typing.<br>The tries live in this page: keep it, and they are yours when you open it later.`)}</div>` : ''}
+    <div class="group"><div class="cell small" style="display:block;line-height:2">${keepStepsHtml()}</div></div>
     <div class="actions">
-      <button class="btn primary big block" data-act="done">${isWeChat ? '收藏好了' : '存好了'}</button>
-      <a class="link-btn small" href="/new?go=1" style="margin:4px auto 0">现在就发一份</a>
+      ${keepTgBtnHtml()}
+      <button class="btn ${isTelegram ? '' : 'primary big'} block" data-act="done">${isWeChat ? tr('收藏好了', 'Saved it') : tr('存好了', 'Done')}</button>
+      <a class="link-btn small" href="/new?go=1" style="margin:4px auto 0">${tr('现在就发一份', 'Post a list now')}</a>
     </div>`, (act, el, s) => {
     if (act !== 'done') return;
     store.set('kept', true);
     s.close();
-    toast(gift ? '存好了，搬家时打开就到账' : '好，要用的时候见');
+    toast(gift ? tr('存好了，搬家时打开就到账', 'Saved. Open it when you move out') : tr('好，要用的时候见', 'See you when you need it'));
   }, { onClose: removeArrow });
 }
 
@@ -839,33 +905,38 @@ async function redeemKeepGift(code) {
   if (r.status === 'own') return friendSendSheet(code);
   if (r.status === 'added' && r.friend) return friendWelcomeSheet(r.uses);
   if (r.status === 'added') {
-    openSheet(() => `<h2>欢迎回来</h2>
-      <div class="quota-out">${r.uses} 次 AI 识图已到账</div>
-      <div class="hint center" style="padding-top:0">上架时拍张照，AI 就认出是什么，不用打字。</div>
-      <div class="actions"><a class="btn primary big block" href="/new?go=1">开始发布</a><button class="btn block" data-act="close">先看看</button></div>`,
+    openSheet(() => `<h2>${tr('欢迎回来', 'Welcome back')}</h2>
+      <div class="quota-out">${tr(`${r.uses} 次 AI 识图已到账`, `${r.uses} AI photo tries added`)}</div>
+      <div class="hint center" style="padding-top:0">${tr('上架时拍张照，AI 就认出是什么，不用打字。', 'Snap a photo when you list something and the AI knows what it is, no typing.')}</div>
+      <div class="actions"><a class="btn primary big block" href="/new?go=1">${tr('开始发布', 'Get started')}</a><button class="btn block" data-act="close">${tr('先看看', 'Just looking')}</button></div>`,
     (act, el, s) => act === 'close' && s.close());
     return;
   }
-  const msg = {
+  const msg = tr({
     early: '次数存在这个页面里，以后再打开就到账',
     mine: '这份礼物你已经领过了',
     taken: '这份礼物已经被领走了，页面照样能用',
     onePerDevice: '这台手机已经领过一份礼物了',
-  }[r.status];
+  }, {
+    early: 'The tries live in this page, yours when you open it later',
+    mine: 'You already claimed this gift',
+    taken: 'Someone already claimed this gift; the page still works',
+    onePerDevice: 'This phone already claimed a gift',
+  })[r.status];
   if (msg) toast(msg, 2600);
 }
 
 // ---------- 推荐朋友: send the tool, with AI tries inside, to a friend who is moving ----------
 
 function recommendTagHtml() {
-  return `<a class="keep-tag" href="#" data-recommend>🎁 推荐给朋友<small>送 TA ${GIFT_USES} 次 AI 识图</small></a>`;
+  return `<a class="keep-tag" href="#" data-recommend>🎁 ${tr('推荐给朋友', 'Tell a friend')}<small>${tr(`送 TA ${GIFT_USES} 次 AI 识图`, `${GIFT_USES} AI tries for them`)}</small></a>`;
 }
 
 // Makes a friend gift and opens its /keep page: that page is what ··· → 发送给朋友 sends,
 // titled with the sender's name. Never shared from the current page, which may carry a seller key.
 async function recommendFriend() {
   buyerToken(true);
-  const stop = loading('正在准备卡片…');
+  const stop = loading(tr('正在准备卡片…', 'Preparing the card…'));
   let gift;
   try {
     gift = await api('/keep/gift', { method: 'POST', body: { friend: true, name: store.get('ownerName', '') || store.get('nickname', '') } });
@@ -881,24 +952,25 @@ async function recommendFriend() {
 function friendSendSheet(code) {
   const url = `${location.origin}/keep?gift=${encodeURIComponent(code)}`;
   const desc = document.querySelector('meta[name=description]')?.content || '';
-  const canShare = !isWeChat && !!navigator.share;
+  const canShare = !isWeChat && !isTelegram && !!navigator.share;
   const removeArrow = isWeChat ? wxMenuArrow() : () => {};
-  openSheet(() => `<h2>推荐给要搬家的朋友</h2>
-    <div class="wx-chat"><div class="small muted center">朋友会收到这样一张卡片</div>
+  openSheet(() => `<h2>${tr('推荐给要搬家的朋友', 'Recommend to a friend who is moving')}</h2>
+    <div class="wx-chat"><div class="small muted center">${tr('朋友会收到这样一张卡片', 'Your friend gets a card like this')}</div>
       <div class="wx-card"><div class="grow"><div class="t">${esc(document.title)}</div><div class="d">${esc(desc)}</div></div><img src="/keep-icon.png" alt=""></div>
     </div>
     <div class="group"><div class="cell small" style="display:block;line-height:2">
       ${isWeChat
-        ? '1. 点右上角 <b>···</b><br>2. 选「<b>发送给朋友</b>」，挑一个要搬家的人<br>3. TA 打开就到账，收藏起来以后用'
-        : '把链接发给要搬家的朋友，TA 打开就到账。'}
+        ? tr('1. 点右上角 <b>···</b><br>2. 选「<b>发送给朋友</b>」，挑一个要搬家的人<br>3. TA 打开就到账，收藏起来以后用', '1. Tap <b>···</b> at the top right<br>2. Choose <b>Send to Chat</b> and pick a friend who is moving<br>3. The tries are theirs when they open it')
+        : tr('把链接发给要搬家的朋友，TA 打开就到账。', 'Send the link to a friend who is moving; the tries are theirs when they open it.')}
     </div></div>
-    <div class="small muted center" style="margin:-4px 0 12px">一张卡片只能一个人领。还想送别人，回来再点一次「推荐给朋友」。</div>
+    <div class="small muted center" style="margin:-4px 0 12px">${tr('一张卡片只能一个人领。还想送别人，回来再点一次「推荐给朋友」。', 'One card, one friend. For someone else, tap "Tell a friend" again.')}</div>
     <div class="actions">
-      ${isWeChat ? '' : `${canShare ? '<button class="btn primary big block" data-act="share">发给朋友</button>' : ''}<button class="btn ${canShare ? '' : 'primary big'} block" data-act="copy">复制链接</button>`}
-      <button class="btn ${isWeChat ? 'primary big' : ''} block" data-act="done">${isWeChat ? '发好了' : '好了'}</button>
-      ${isWeChat ? '<button class="link-btn small" data-act="qr" style="margin:4px auto 0">发出去只是一串网址？用二维码</button>' : ''}
+      ${isTelegram ? `<a class="btn primary big block" href="${esc(tgShareUrl(url, desc))}">${tr('在 Telegram 发给朋友', 'Send on Telegram')}</a>` : ''}
+      ${isWeChat ? '' : `${canShare ? `<button class="btn primary big block" data-act="share">${tr('发给朋友', 'Send to a friend')}</button>` : ''}<button class="btn ${canShare || isTelegram ? '' : 'primary big'} block" data-act="copy">${tr('复制链接', 'Copy link')}</button>`}
+      <button class="btn ${isWeChat ? 'primary big' : ''} block" data-act="done">${isWeChat ? tr('发好了', 'Sent it') : tr('好了', 'Done')}</button>
+      ${isWeChat ? `<button class="link-btn small" data-act="qr" style="margin:4px auto 0">${tr('发出去只是一串网址？用二维码', 'Only a bare link got sent? Use the QR code')}</button>` : ''}
     </div>`, async (act, el, s) => {
-    if (act === 'copy') copy(url, '已复制，发给朋友吧');
+    if (act === 'copy') copy(url, tr('已复制，发给朋友吧', 'Copied, send it to a friend'));
     if (act === 'share') {
       try {
         await navigator.share({ title: document.title, text: desc, url });
@@ -906,7 +978,7 @@ function friendSendSheet(code) {
     }
     if (act === 'qr') {
       s.close();
-      sendCard(url, '送朋友的卡片');
+      sendCard(url, tr('送朋友的卡片', 'Gift card for a friend'));
     }
     if (act === 'done') {
       s.close();
@@ -919,31 +991,27 @@ function friendSendSheet(code) {
 // The friend opens the card: the tries are in, and the page is worth keeping for moving day.
 function friendWelcomeSheet(uses) {
   const fg = BOOT.friendGift || {};
-  openSheet(() => `<h2>${esc(fg.name || '朋友')}送你 ${uses} 次 AI 识图</h2>
-    <div class="quota-out">${uses} 次已到账</div>
-    <div class="hint center" style="padding-top:0">出闲置时拍张照，AI 就认出是什么，不用打字。<br>现在用不上？${isWeChat ? '收藏' : '存成书签'}这一页，搬家时再打开。</div>
+  openSheet(() => `<h2>${tr(`${esc(fg.name || '朋友')}送你 ${uses} 次 AI 识图`, `${esc(fg.name || 'A friend')} sent you ${uses} AI photo tries`)}</h2>
+    <div class="quota-out">${tr(`${uses} 次已到账`, `${uses} tries added`)}</div>
+    <div class="hint center" style="padding-top:0">${tr(`出闲置时拍张照，AI 就认出是什么，不用打字。<br>现在用不上？${keepVerb()}这一页，搬家时再打开。`, `Snap a photo when you sell something and the AI knows what it is, no typing.<br>No use for it today? ${keepVerb()} and open it when you move out.`)}</div>
     <div class="actions">
-      <a class="btn primary big block" href="/new?go=1">开始发布</a>
-      <button class="btn block" data-act="keep">☆ ${isWeChat ? '收藏备用' : '存成书签'}</button>
+      <a class="btn primary big block" href="/new?go=1">${tr('开始发布', 'Get started')}</a>
+      <button class="btn block" data-act="keep">☆ ${isWeChat ? tr('收藏备用', 'Keep for later') : keepVerb()}</button>
     </div>`, (act, el, s) => {
     if (act !== 'keep') return;
     s.close();
     // The tries already sit on this phone; what gets saved is the plain page.
     history.replaceState(null, '', '/keep?from=fav');
-    document.title = '二手清单｜搬家、毕业、回国出闲置';
+    document.title = tr('二手清单｜搬家、毕业、回国出闲置', 'Secondhand List | Sell your stuff when you move out');
     const removeArrow = isWeChat ? wxMenuArrow() : () => {};
-    openSheet(() => `<h2>${isWeChat ? '收藏到微信' : '存成书签'}</h2>
-      <div class="group"><div class="cell small" style="display:block;line-height:2">
-        ${isWeChat
-          ? '1. 点右上角 <b>···</b><br>2. 选「<b>收藏</b>」<br>3. 以后在「<b>我 → 收藏</b>」里，或者搜「<b>二手</b>」就能找到'
-          : '用浏览器的「<b>添加书签</b>」或「<b>添加到主屏幕</b>」，以后点开就是这个页面。'}
-      </div></div>
-      <div class="actions"><button class="btn primary big block" data-act="done">${isWeChat ? '收藏好了' : '存好了'}</button></div>`,
+    openSheet(() => `<h2>${isWeChat ? tr('收藏到微信', 'Add to WeChat Favorites') : keepVerb()}</h2>
+      <div class="group"><div class="cell small" style="display:block;line-height:2">${keepStepsHtml()}</div></div>
+      <div class="actions">${keepTgBtnHtml()}<button class="btn ${isTelegram ? '' : 'primary big'} block" data-act="done">${isWeChat ? tr('收藏好了', 'Saved it') : tr('存好了', 'Done')}</button></div>`,
     (a, b, s2) => {
       if (a !== 'done') return;
       store.set('kept', true);
       s2.close();
-      toast('好，搬家时见');
+      toast(tr('好，搬家时见', 'See you on moving day'));
     }, { onClose: removeArrow });
   });
 }
@@ -956,11 +1024,11 @@ function soldRecommendSheet(S) {
   if (asked.includes(S.saleId)) return;
   store.set('recAsked', [...asked, S.saleId].slice(-50));
   openSheet(() => `<div class="sold-rec">
-      <b>已经收回 ${esc(money(soldCents, sale.currency))} 了 🎉</b>
-      <div class="small">好用的话，转给也要搬家的朋友，送 TA ${GIFT_USES} 次 AI 识图</div>
-      <button class="btn block" data-recommend>🎁 推荐给朋友</button>
+      <b>${tr(`已经收回 ${esc(money(soldCents, sale.currency))} 了 🎉`, `${esc(money(soldCents, sale.currency))} back in your pocket 🎉`)}</b>
+      <div class="small">${tr(`好用的话，转给也要搬家的朋友，送 TA ${GIFT_USES} 次 AI 识图`, `If it helped, pass it to a friend who is moving: they get ${GIFT_USES} AI photo tries`)}</div>
+      <button class="btn block" data-recommend>🎁 ${tr('推荐给朋友', 'Tell a friend')}</button>
     </div>
-    <div class="actions"><button class="btn block" data-act="close">下次再说</button></div>`,
+    <div class="actions"><button class="btn block" data-act="close">${tr('下次再说', 'Maybe later')}</button></div>`,
   (act, el, s) => act === 'close' && s.close());
 }
 
@@ -991,8 +1059,8 @@ function earnedText(d) {
 function listRowHtml({ id, key, d }) {
   const n = (st) => d.items.filter((i) => i.status === st).length;
   return `<a class="list-row" href="/manage/${esc(id)}?k=${esc(key)}">
-    <div class="row"><b class="grow ellipsis">${esc(d.sale.title)}</b><span class="small muted">${d.sale.status === 'ended' ? '已结束' : d.sale.paused ? '已暂停' : '进行中'}</span><span class="muted">›</span></div>
-    <div class="list-row-stats"><span>在售 <b>${n('available')}</b></span><span>已预订 <b>${n('reserved')}</b></span><span>已出 <b>${n('sold')}</b></span><span>已收回 <b class="earned-tag">${esc(earnedText(d))}</b></span></div>
+    <div class="row"><b class="grow ellipsis">${esc(d.sale.title)}</b><span class="small muted">${d.sale.status === 'ended' ? tr('已结束', 'Ended') : d.sale.paused ? tr('已暂停', 'Paused') : tr('进行中', 'Open')}</span><span class="muted">›</span></div>
+    <div class="list-row-stats"><span>${statusText.available} <b>${n('available')}</b></span><span>${statusText.reserved} <b>${n('reserved')}</b></span><span>${statusText.sold} <b>${n('sold')}</b></span><span>${tr('已收回', 'Earned')} <b class="earned-tag">${esc(earnedText(d))}</b></span></div>
   </a>`;
 }
 
@@ -1004,22 +1072,22 @@ async function listsPage() {
     if (id && key && !mine.some((m) => m.id === id)) mine.push({ id, key, title: '' });
   }
   store.set('mySales', mine);
-  $app.innerHTML = `<div class="empty">加载中…</div>`;
+  $app.innerHTML = `<div class="empty">${tr('加载中…', 'Loading…')}</div>`;
   const lists = await loadMyLists();
   // Keep the address complete, so whatever gets saved opens every list.
   history.replaceState(null, '', lists.length ? listsLink(lists) : '/lists');
   const currencies = new Set(lists.map((l) => l.d.sale.currency));
   const total = lists.reduce((a, l) => a + l.d.soldCents, 0);
   $app.innerHTML = `
-    <div class="head"><h1>我的清单</h1><div class="meta">${lists.length} 份${currencies.size === 1 && total ? ` · 共收回 ${esc(money(total, [...currencies][0]))}` : ''}</div></div>
+    <div class="head"><h1>${tr('我的清单', 'My lists')}</h1><div class="meta">${tr(`${lists.length} 份`, `${lists.length} ${lists.length === 1 ? 'list' : 'lists'}`)}${currencies.size === 1 && total ? tr(` · 共收回 ${esc(money(total, [...currencies][0]))}`, ` · ${esc(money(total, [...currencies][0]))} earned`) : ''}</div></div>
     ${lists.length && !store.get('listsKept', false) ? `<div class="highlight lists-keep">
-      <b>☆ 把这一页${isWeChat ? '收藏到微信' : '存成书签'}</b>所有清单一个入口，换手机、清了浏览器也能管理。
-      <div class="small muted">只收藏，别发到群里：拿到链接的人能改你的清单。</div>
-      <div class="keep-btns"><button class="btn primary" data-act="howto">怎么收藏</button><button class="btn" data-act="kept">收藏好了</button></div>
+      <b>☆ ${tr(`把这一页${isWeChat ? '收藏到微信' : isTelegram ? '存到 Saved Messages' : '存成书签'}`, `Keep this page in ${keepWhere()}`)}</b> ${tr('所有清单一个入口，换手机、清了浏览器也能管理。', 'One entry for all your lists, even on a new phone or after clearing the browser.')}
+      <div class="small muted">${tr('只收藏，别发到群里：拿到链接的人能改你的清单。', 'Keep it to yourself, never post it in a group: anyone with the link can change your lists.')}</div>
+      <div class="keep-btns"><button class="btn primary" data-act="howto">${tr('怎么收藏', 'How?')}</button><button class="btn" data-act="kept">${tr('收藏好了', 'Saved it')}</button></div>
     </div>` : ''}
     ${lists.length ? lists.map(listRowHtml).join('')
-      : `<div class="empty">这台手机上还没有清单。<br>换过手机的话，从收藏或聊天记录里打开以前存的管理入口。</div>`}
-    <div class="bottom-bar"><div class="inner"><a class="btn primary big" href="/new?go=1">＋ 新建一份清单</a></div></div>`;
+      : `<div class="empty">${tr('这台手机上还没有清单。<br>换过手机的话，从收藏或聊天记录里打开以前存的管理入口。', 'No lists on this phone yet.<br>New phone? Open the management link you saved earlier.')}</div>`}
+    <div class="bottom-bar"><div class="inner"><a class="btn primary big" href="/new?go=1">${tr('＋ 新建一份清单', '+ New list')}</a></div></div>`;
   $app.onclick = (e) => {
     const a = e.target.closest('[data-act]');
     if (a?.dataset.act === 'kept') {
@@ -1028,14 +1096,10 @@ async function listsPage() {
     }
     if (a?.dataset.act === 'howto') {
       const removeArrow = isWeChat ? wxMenuArrow() : () => {};
-      openSheet(() => `<h2>${isWeChat ? '收藏到微信' : '存成书签'}</h2>
-        <div class="group"><div class="cell small" style="display:block;line-height:2">
-          ${isWeChat
-            ? '1. 点右上角 <b>···</b><br>2. 选「<b>收藏</b>」<br>3. 以后在「<b>我 → 收藏</b>」里点开，所有清单都在'
-            : '用浏览器的「<b>添加书签</b>」或「<b>添加到主屏幕</b>」，以后点开就是这一页。'}
-        </div></div>
-        <div class="hint" style="padding-top:0">只收藏，别发到群里：拿到链接的人能改你的清单。</div>
-        <div class="actions"><button class="btn primary block" data-act="close">知道了</button></div>`,
+      openSheet(() => `<h2>${isWeChat ? tr('收藏到微信', 'Add to WeChat Favorites') : keepVerb()}</h2>
+        <div class="group"><div class="cell small" style="display:block;line-height:2">${keepStepsHtml(tr('点开，所有清单都在', 'and all your lists are there'))}</div></div>
+        <div class="hint" style="padding-top:0">${tr('只收藏，别发到群里：拿到链接的人能改你的清单。', 'Keep it to yourself, never post it in a group: anyone with the link can change your lists.')}</div>
+        <div class="actions">${keepTgBtnHtml()}<button class="btn ${isTelegram ? '' : 'primary'} block" data-act="close">${tr('知道了', 'Got it')}</button></div>`,
       (act, el, s) => act === 'close' && s.close(), { onClose: removeArrow });
     }
   };
@@ -1043,29 +1107,29 @@ async function listsPage() {
 
 // Manage page: switch between lists without going back to the home page.
 async function listsSheet(S) {
-  const sh = openSheet(() => `<h2>我的清单</h2><div class="empty" style="padding:24px">加载中…</div>`, () => {});
+  const sh = openSheet(() => `<h2>${tr('我的清单', 'My lists')}</h2><div class="empty" style="padding:24px">${tr('加载中…', 'Loading…')}</div>`, () => {});
   const lists = await loadMyLists();
-  sh.el.innerHTML = `<h2>我的清单</h2>
+  sh.el.innerHTML = `<h2>${tr('我的清单', 'My lists')}</h2>
     <div class="group">${lists.map((l) => `
       <a class="cell" href="/manage/${esc(l.id)}?k=${esc(l.key)}">
-        <div class="grow"><div class="ellipsis">${esc(l.d.sale.title)}${l.id === S.saleId ? ' <span class="small muted">（当前）</span>' : ''}</div>
-        <div class="small muted">在售 ${l.d.items.filter((i) => i.status === 'available').length} · 已收回 ${esc(earnedText(l.d))}${l.d.sale.status === 'ended' ? ' · 已结束' : l.d.sale.paused ? ' · 已暂停' : ''}</div></div>
+        <div class="grow"><div class="ellipsis">${esc(l.d.sale.title)}${l.id === S.saleId ? ` <span class="small muted">${tr('（当前）', '(this one)')}</span>` : ''}</div>
+        <div class="small muted">${statusText.available} ${l.d.items.filter((i) => i.status === 'available').length} · ${tr('已收回', 'Earned')} ${esc(earnedText(l.d))}${l.d.sale.status === 'ended' ? ` · ${tr('已结束', 'Ended')}` : l.d.sale.paused ? ` · ${tr('已暂停', 'Paused')}` : ''}</div></div>
         <span class="muted">›</span>
       </a>`).join('')}
     </div>
     <div class="actions">
-      <a class="btn primary block" href="/new?go=1">＋ 新建一份清单</a>
-      <a class="btn block" href="${esc(listsLink(lists))}">☆ 收藏「我的清单」入口</a>
+      <a class="btn primary block" href="/new?go=1">${tr('＋ 新建一份清单', '+ New list')}</a>
+      <a class="btn block" href="${esc(listsLink(lists))}">☆ ${tr('收藏「我的清单」入口', 'Keep the "My lists" page')}</a>
     </div>`;
 }
 
 async function createSale() {
   const meData = await fetchMe();
   $app.innerHTML = `
-    <div class="ik-head">${LOGO}<h1>发布二手清单</h1><div class="ik-sub">填 3 项就能开始上架，其他都有默认值。</div></div>
-    ${googleOn() && !meData.user ? loginCardHtml('可以先用 Google 登录（可跳过）：清单跟着账号走，换手机也能管理') : ''}
-    ${saleFormHtml({ owner: store.get('ownerName', '') || meData.user?.name || '', wechatId: '', location: '', currency: guessCurrency(), rules: DEFAULT_RULES, leaveDate: '' }, { create: true })}
-    <div class="bottom-bar"><div class="inner"><button class="btn primary big" id="go">开始上架</button></div></div>`;
+    <div class="ik-head">${LOGO}<h1>${tr('发布二手清单', 'New secondhand list')}</h1><div class="ik-sub">${tr('填 3 项就能开始上架，其他都有默认值。', 'Three fields and you can start listing; everything else has defaults.')}</div></div>
+    ${googleOn() && !meData.user ? loginCardHtml(tr('可以先用 Google 登录（可跳过）：清单跟着账号走，换手机也能管理', 'Optional: sign in with Google so your lists follow you to a new phone')) : ''}
+    ${saleFormHtml({ owner: store.get('ownerName', '') || meData.user?.name || '', wechatId: store.get('sellerWechat', ''), telegram: store.get('sellerTelegram', ''), location: '', currency: guessCurrency(), rules: DEFAULT_RULES, leaveDate: '' }, { create: true })}
+    <div class="bottom-bar"><div class="inner"><button class="btn primary big" id="go">${tr('开始上架', 'Start listing')}</button></div></div>`;
   const form = $app.querySelector('.form');
   syncTitle(form);
   form.addEventListener('input', () => syncTitle(form));
@@ -1078,18 +1142,21 @@ async function createSale() {
   googleButton($app.querySelector('.gbtn'), () => $app.querySelector('.login-card')?.remove());
   $app.querySelector('#go').onclick = async (e) => {
     const owner = $app.querySelector('[name=owner]').value.trim();
-    if (!owner) return toast('填一下你的名字');
+    if (!owner) return toast(tr('填一下你的名字', 'Add your name'));
     const f = readSaleForm($app);
-    if (!f.wechatId) return toast('填一下联系方式');
-    if (!f.location) return toast('填一下取货地点');
+    const bad = contactError(f);
+    if (bad) return toast(bad, 2600);
+    if (!f.location) return toast(tr('填一下取货地点', 'Add a pick-up place'));
     store.set('ownerName', owner);
+    store.set('sellerWechat', f.wechatId);
+    store.set('sellerTelegram', normTelegram(f.telegram) || '');
     e.target.disabled = true;
     if (f.nearby) {
-      e.target.textContent = '正在获取大概位置…';
+      e.target.textContent = tr('正在获取大概位置…', 'Getting your rough location…');
       const loc = await getLocation();
       if (loc) Object.assign(f, loc);
-      else toast('没拿到位置，清单还是会出现在「附近的二手」的最新列表里');
-      e.target.textContent = '开始上架';
+      else toast(tr('没拿到位置，清单还是会出现在「附近的二手」的最新列表里', 'No location, but the list still shows in the newest "Nearby" items'));
+      e.target.textContent = tr('开始上架', 'Start listing');
     }
     try {
       const { id, key } = await api('/sale', { method: 'POST', body: f });
@@ -1111,15 +1178,16 @@ function tileHtml(sale, it, mine) {
   const my = mine?.[it.id];
   const ended = sale.status === 'ended';
   let stamp = '';
-  if (it.status === 'reserved') stamp = `<div class="stamp reserved">${it.maybeSold ? '可能已出' : '已预订'}</div>`;
-  else if (it.status === 'sold') stamp = `<div class="stamp sold">已出</div>`;
+  if (it.status === 'reserved') stamp = `<div class="stamp reserved">${it.maybeSold ? tr('可能已出', 'Maybe sold') : statusText.reserved}</div>`;
+  else if (it.status === 'sold') stamp = `<div class="stamp sold">${statusText.sold}</div>`;
   let btn;
-  if (my) btn = `<button class="btn small mine-btn" data-cancel-item="${it.id}"><b>第 ${my.position} 位</b><span class="s"> · 取消</span></button>`;
-  else if (it.status === 'sold' || ended) btn = `<button class="btn small" disabled>${ended ? '已结束' : '已出'}</button>`;
-  else if (sale.paused) btn = `<button class="btn small" disabled>暂停中</button>`;
-  else if (it.queueCount === 0) btn = `<button class="btn small primary" data-join="${it.id}">预订</button>`;
-  else btn = `<button class="btn small primary ghost" data-join="${it.id}"><b>排候补</b><span class="s"> · 前面 ${it.queueCount} 人</span></button>`;
-  const extra = [it.condition ? CONDITIONS[it.condition] : '', it.note].filter(Boolean).join(' · ');
+  if (my) btn = `<button class="btn small mine-btn" data-cancel-item="${it.id}"><b>${tr(`第 ${my.position} 位`, `#${my.position} in line`)}</b><span class="s"> · ${tr('取消', 'cancel')}</span></button>`;
+  else if (it.status === 'sold' || ended) btn = `<button class="btn small" disabled>${ended ? tr('已结束', 'Ended') : statusText.sold}</button>`;
+  else if (sale.paused) btn = `<button class="btn small" disabled>${tr('暂停中', 'Paused')}</button>`;
+  else if (it.queueCount === 0) btn = `<button class="btn small primary" data-join="${it.id}">${tr('预订', 'Reserve')}</button>`;
+  else btn = `<button class="btn small primary ghost" data-join="${it.id}"><b>${tr('排候补', 'Waitlist')}</b><span class="s"> · ${tr(`前面 ${it.queueCount} 人`, `${it.queueCount} ahead`)}</span></button>`;
+  const t = itemT(it);
+  const extra = [conditionText(it.condition, LANG), t.note].filter(Boolean).join(' · ');
   return `
     <div class="tile ${it.status}">
       <div class="ph">
@@ -1129,8 +1197,8 @@ function tileHtml(sale, it, mine) {
         ${stamp}
       </div>
       <div class="info">
-        <div class="sub">${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)}${it.status === 'reserved' && it.queueCount > 1 ? `<span class="muted">${it.queueCount - 1} 人候补</span>` : ''}</div>
-        <a class="name" href="/s/${sale.id}/i/${it.no}">${esc(it.name)}</a>
+        <div class="sub">${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)}${it.status === 'reserved' && it.queueCount > 1 ? `<span class="muted">${tr(`${it.queueCount - 1} 人候补`, `${it.queueCount - 1} waiting`)}</span>` : ''}</div>
+        <a class="name" href="/s/${sale.id}/i/${it.no}">${esc(t.name)}</a>
         ${extra ? `<div class="extra">${esc(extra)}</div>` : ''}
         ${btn}
       </div>
@@ -1148,18 +1216,39 @@ function bindTrackDots(root) {
   }, { capture: true, passive: true });
 }
 
+// The seller's contact for a buyer who is first in line: a Telegram chat button, or the WeChat ID to
+// add. The opening line names what they reserved, in the buyer's language.
 function contactHtml(c) {
+  const note = c.items ? contactNote(c.items.map((i) => ({ no: i.no, name: itemT(i).name })), LANG) : c.note;
+  const safety = `<div class="small muted contact-safe">${tr('见面验货再付钱。别先付定金，别点陌生人发的付款链接。', 'Pay when you meet and see the item. No deposits up front, no payment links from strangers.')}</div>`;
+  if (c.kind === 'telegram') {
+    return `
+    <div class="contact">
+      <div class="contact-title">${tr('你排第 1 位，去 Telegram 找卖家吧', "You're first in line: message the seller on Telegram")}</div>
+      <a class="btn primary block" href="${esc(tgChatUrl(c.value, note))}" target="_blank" rel="noopener">${tr(`在 Telegram 给 @${esc(c.value)} 发消息`, `Message @${esc(c.value)} on Telegram`)}</a>
+      <div class="row"><div class="grow"><div class="k">${tr('卖家的 Telegram', "Seller's Telegram")}</div><div class="v">@${esc(c.value)}</div></div><button class="btn small" data-copy="@${esc(c.value)}">${tr('复制', 'Copy')}</button></div>
+      <div class="row"><div class="grow"><div class="k">${tr('发这句', 'Send this')}</div><div class="v">${esc(note)}</div></div><button class="btn small" data-copy="${esc(note)}">${tr('复制', 'Copy')}</button></div>
+      <ol class="contact-steps">
+        <li>${tr('点上面的按钮，打开和卖家的对话', 'Tap the button to open a chat with the seller')}</li>
+        <li>${tr('把这句发过去（没自动填上就粘贴），卖家一看就知道你要哪件', "Send the line above (paste it if it isn't filled in) so the seller knows what you want")}</li>
+        <li>${tr('时间地点和卖家直接约', 'Agree on a time and place with the seller')}</li>
+      </ol>
+      ${safety}
+    </div>`;
+  }
+  const wechat = c.value ?? c.wechat;
   return `
     <div class="contact">
-      <div class="contact-title">你排第 1 位，去微信加卖家吧</div>
-      <div class="row"><div class="grow"><div class="k">卖家联系方式</div><div class="v">${esc(c.wechat)}</div></div><button class="btn small primary" data-copy="${esc(c.wechat)}">复制</button></div>
-      <div class="row"><div class="grow"><div class="k">好友申请里写这句</div><div class="v">${esc(c.note)}</div></div><button class="btn small primary" data-copy="${esc(c.note)}">复制</button></div>
+      <div class="contact-title">${tr('你排第 1 位，去微信加卖家吧', "You're first in line: add the seller on WeChat")}</div>
+      <div class="row"><div class="grow"><div class="k">${tr('卖家微信号', "Seller's WeChat ID")}</div><div class="v">${esc(wechat)}</div></div><button class="btn small primary" data-copy="${esc(wechat)}">${tr('复制', 'Copy')}</button></div>
+      <div class="row"><div class="grow"><div class="k">${tr('好友申请里写这句', 'Put this in the friend request')}</div><div class="v">${esc(note)}</div></div><button class="btn small primary" data-copy="${esc(note)}">${tr('复制', 'Copy')}</button></div>
       <ol class="contact-steps">
-        <li>复制卖家联系方式</li>
-        <li>回到微信 → 右上角「＋」→「添加朋友」→ 粘贴搜索</li>
-        <li>好友申请里粘贴上面那句，卖家一看就知道你是谁、要哪件</li>
-        <li>加上后，时间地点和卖家直接约</li>
+        <li>${tr('复制卖家微信号', "Copy the seller's WeChat ID")}</li>
+        <li>${tr('回到微信 → 右上角「＋」→「添加朋友」→ 粘贴搜索', 'In WeChat: ＋ at the top right → Add Contacts → paste and search')}</li>
+        <li>${tr('好友申请里粘贴上面那句，卖家一看就知道你是谁、要哪件', 'Paste the line above into the request so the seller knows who you are and what you want')}</li>
+        <li>${tr('加上后，时间地点和卖家直接约', 'Then agree on a time and place')}</li>
       </ol>
+      ${safety}
     </div>`;
 }
 
@@ -1171,7 +1260,7 @@ function bindCopy(root) {
 }
 
 // Display order only: item numbers stay with their items. Items without a price go last.
-const SORTS = [['no', '默认'], ['asc', '价格↑'], ['desc', '价格↓']];
+const SORTS = [['no', tr('默认', 'Default')], ['asc', tr('价格↑', 'Price ↑')], ['desc', tr('价格↓', 'Price ↓')]];
 function sortItems(items, sort) {
   if (sort !== 'asc' && sort !== 'desc') return items;
   const dir = sort === 'asc' ? 1 : -1;
@@ -1179,7 +1268,7 @@ function sortItems(items, sort) {
 }
 
 // Brand mark: the tag icon with the name, so people remember (and can search for) 二手清单.
-const LOGO = `<a class="logo" href="/"><img src="/icon.svg" alt="" width="34" height="34"><span class="logo-txt"><b>二手清单</b><small>AI识别 · 多群同步</small></span></a>`;
+const LOGO = `<a class="logo" href="/"><img src="/icon.svg" alt="" width="34" height="34"><span class="logo-txt"><b>${APP_NAME}</b><small>${tr('AI识别 · 多群同步', 'AI photos · one link, many groups')}</small></span></a>`;
 
 // Buyers arrive from a group card without knowing what this is: a slim dismissible strip
 // (like a store's "get the app" bar) above a bar with the name and 我的二手.
@@ -1187,14 +1276,14 @@ function appBarHtml(isOwner) {
   const promo = !isOwner && !store.get('promoHidden', false);
   return `
     ${promo ? `<div class="promo">
-      <button class="promo-x" data-promo-x aria-label="关闭">✕</button>
-      <div class="promo-txt"><b>我也有二手要出</b><span>免登录·免安装·多群同步·免费</span></div>
-      <a class="promo-fav" href="/new#save">收藏</a>
-      <a class="promo-cta" href="/new">去发布</a>
+      <button class="promo-x" data-promo-x aria-label="${tr('关闭', 'Close')}">✕</button>
+      <div class="promo-txt"><b>${tr('我也有二手要出', 'Selling stuff too?')}</b><span>${tr('免登录·免安装·多群同步·免费', 'No sign-up · no app · free')}</span></div>
+      <a class="promo-fav" href="/new#save">${tr('收藏', 'Keep')}</a>
+      <a class="promo-cta" href="/new">${tr('去发布', 'Post')}</a>
     </div>` : ''}
     <div class="appbar">
       ${LOGO}
-      <a class="appbar-my" href="/">我的二手 ›</a>
+      <a class="appbar-my" href="/">${tr('我的二手 ›', 'My stuff ›')}</a>
     </div>`;
 }
 
@@ -1210,47 +1299,49 @@ function buyerSale(saleId) {
 
   const render = () => {
     if (!data) {
-      $app.innerHTML = `<div class="empty">加载中…</div>`;
+      $app.innerHTML = `<div class="empty">${tr('加载中…', 'Loading…')}</div>`;
       return;
     }
     const { sale, items, now, mine, contact, isOwner } = data;
+    const st = saleT(sale);
     const avail = items.filter((i) => i.status === 'available');
     const reserved = items.filter((i) => i.status === 'reserved');
     const sold = items.filter((i) => i.status === 'sold');
     const ended = sale.status === 'ended';
     const list = [...sortItems(avail, sort), ...sortItems(reserved, sort)];
-    document.title = `${sale.title}｜在售 ${avail.length} 件`;
+    document.title = tr(`${st.title}｜在售 ${avail.length} 件`, `${st.title} | ${avail.length} for sale`);
     // Corner: newcomers are asked to save the tool; people already using it, to pass it on.
     const keepTag = !isOwner && !ended && keepWanted();
     const recTag = !isOwner && !ended && !keepTag;
     $app.innerHTML = `
       ${appBarHtml(isOwner)}
       <div class="head${keepTag || recTag ? ' has-keep-tag' : ''}">
-        ${keepTag ? `<a class="keep-tag" href="/keep?save=1">☆ 收藏<small>送 ${GIFT_USES} 次 AI 识图</small></a>` : ''}
+        ${keepTag ? `<a class="keep-tag" href="/keep?save=1">☆ ${tr('收藏', 'Keep')}<small>${tr(`送 ${GIFT_USES} 次 AI 识图`, `${GIFT_USES} free AI tries`)}</small></a>` : ''}
         ${recTag ? recommendTagHtml() : ''}
-        <h1>${esc(sale.title)}</h1>
-        <div class="meta">📍 ${esc(sale.location)}${sale.leaveDate ? ` · ${dateText(sale.leaveDate)}前出完` : ''} · 卖家 ${agoText(sale.sellerActiveAt, now)}在线</div>
-        ${sale.rules.length ? `<div class="tags">${sale.rules.map((r) => `<span class="tag">${esc(r)}</span>`).join('')}</div>` : ''}
+        <h1>${esc(st.title)}</h1>
+        <div class="meta">📍 ${esc(st.location)}${sale.leaveDate ? ` · ${untilText(sale.leaveDate)}` : ''} · ${tr(`卖家 ${agoText(sale.sellerActiveAt, now)}在线`, `seller active ${agoText(sale.sellerActiveAt, now)}`)}</div>
+        ${st.rules.length ? `<div class="tags">${st.rules.map((r) => `<span class="tag">${esc(r)}</span>`).join('')}</div>` : ''}
       </div>
-      ${ended ? `<div class="banner">这份清单已结束</div>` : ''}
-      ${sale.paused ? `<div class="banner">卖家暂停了这份清单，暂时不能排队</div>` : ''}
-      ${isOwner ? ownerBanner(sale) : ''}${contact || ended || sale.paused ? '' : `<div class="how-line">点「预订」排队，排到第 1 位就能看到卖家微信。显示「预订」的都还在。</div>`}
+      ${ended ? `<div class="banner">${tr('这份清单已结束', 'This list has ended')}</div>` : ''}
+      ${sale.paused ? `<div class="banner">${tr('卖家暂停了这份清单，暂时不能排队', 'The seller paused this list; reservations are closed for now')}</div>` : ''}
+      ${isOwner ? ownerBanner(sale) : ''}${contact || ended || sale.paused ? '' : `<div class="how-line">${tr('点「预订」排队，排到第 1 位就能看到卖家联系方式。显示「预订」的都还在。', "Tap Reserve to get in line; when you're first, you'll see how to reach the seller. Anything showing Reserve is still available.")}</div>`}
       ${contact ? contactHtml(contact) : ''}
-      <div class="list-bar"><div class="hint">在售 ${avail.length} · 已预订 ${reserved.length} · 已出 ${sold.length}</div>
+      <div class="list-bar"><div class="hint">${statusText.available} ${avail.length} · ${statusText.reserved} ${reserved.length} · ${statusText.sold} ${sold.length}</div>
         ${list.length > 1 ? sortSegHtml(sort) : ''}</div>
       ${list.length ? `<div class="grid">${list.map((it) => tileHtml(sale, it, mine)).join('')}</div>`
-        : `<div class="empty">${items.length ? '都卖完了' : '卖家还没上架东西'}</div>`}
+        : `<div class="empty">${items.length ? tr('都卖完了', 'All sold') : tr('卖家还没上架东西', 'Nothing listed yet')}</div>`}
       ${sold.length ? (showSold
-        ? `<div class="hint">已出 ${sold.length} 件</div><div class="grid">${sold.map((it) => tileHtml(sale, it, mine)).join('')}</div>`
-        : `<button class="link-btn fold" data-sold>已出 ${sold.length} 件（展开）</button>`) : ''}
+        ? `<div class="hint">${tr(`已出 ${sold.length} 件`, `${sold.length} sold`)}</div><div class="grid">${sold.map((it) => tileHtml(sale, it, mine)).join('')}</div>`
+        : `<button class="link-btn fold" data-sold>${tr(`已出 ${sold.length} 件（展开）`, `${sold.length} sold (show)`)}</button>`) : ''}
       ${isOwner ? `<div class="bottom-bar"><div class="inner">
-        <a class="btn big" href="/manage/${sale.id}">回到管理</a>
-        ${ended || sale.paused ? '' : `<button class="btn primary big" data-owner-share>分享到群</button>`}
+        <a class="btn big" href="/manage/${sale.id}">${tr('回到管理', 'Back to manage')}</a>
+        ${ended || sale.paused ? '' : `<button class="btn primary big" data-owner-share>${tr('分享到群', 'Share to groups')}</button>`}
       </div></div>` : ''}
       ${isOwner ? '' : brandCardHtml()}
-      <div style="padding:28px 16px 8px;display:flex;gap:10px;justify-content:center">
-        <a class="btn small" href="/my">我的排队</a>
-        <button class="btn small" data-feedback>反馈问题</button>
+      <div style="padding:28px 16px 8px;display:flex;gap:10px;justify-content:center;align-items:center">
+        <a class="btn small" href="/my">${tr('我的排队', 'My reservations')}</a>
+        <button class="btn small" data-feedback>${tr('反馈问题', 'Feedback')}</button>
+        ${langSwitchHtml()}
       </div>
       ${nearbyEntryHtml(sale.id)}`;
   };
@@ -1289,11 +1380,11 @@ function buyerSale(saleId) {
   });
 
   async function cancelMine(seq, btn) {
-    if (!(await ask({ title: '确定取消排队？', text: '取消后你的位置会让给后面的人。', ok: '取消排队', danger: true }))) return;
+    if (!(await askCancelQueue())) return;
     btn.disabled = true;
     try {
       await api(`/queue/${seq}/cancel`, { method: 'POST', body: {} });
-      toast('已取消');
+      toast(tr('已取消', 'Cancelled'));
       await reload();
     } catch (err) {
       toast(err.message);
@@ -1308,6 +1399,13 @@ function buyerSale(saleId) {
   }).catch((e) => (e.code === 'NOT_FOUND' ? notFound() : toast(e.message)));
 }
 
+const askCancelQueue = () => ask({
+  title: tr('确定取消排队？', 'Leave the line?'),
+  text: tr('取消后你的位置会让给后面的人。', 'Your place goes to the next person.'),
+  ok: tr('取消排队', 'Leave the line'),
+  danger: true,
+});
+
 // ---------- 7.3 buyer item page ----------
 
 function buyerItem(saleId, no) {
@@ -1316,27 +1414,29 @@ function buyerItem(saleId, no) {
 
   const render = () => {
     if (!data) {
-      $app.innerHTML = `<div class="empty">加载中…</div>`;
+      $app.innerHTML = `<div class="empty">${tr('加载中…', 'Loading…')}</div>`;
       return;
     }
     const { sale, items, mine, contact } = data;
     const it = items.find((i) => i.no === no);
     if (!it) return notFound();
+    const t = itemT(it);
+    const st = saleT(sale);
     const my = mine?.[it.id];
     const ended = sale.status === 'ended';
     const closed = it.status === 'sold' || ended;
     let btn;
-    if (my) btn = `<button class="btn big" data-act="cancel">你排在第 ${my.position} 位 · 取消</button>`;
-    else if (closed) btn = `<button class="btn big" disabled>${ended ? '清单已结束' : '已出'}</button>`;
-    else if (sale.paused) btn = `<button class="btn big" disabled>卖家暂停了这份清单</button>`;
-    else if (it.queueCount === 0) btn = `<button class="btn primary big" data-act="join">预订（排第 1 位）</button>`;
-    else btn = `<button class="btn primary big" data-act="join">排候补（前面 ${it.queueCount} 人）</button>`;
+    if (my) btn = `<button class="btn big" data-act="cancel">${tr(`你排在第 ${my.position} 位 · 取消`, `You're #${my.position} in line · cancel`)}</button>`;
+    else if (closed) btn = `<button class="btn big" disabled>${ended ? tr('清单已结束', 'List ended') : statusText.sold}</button>`;
+    else if (sale.paused) btn = `<button class="btn big" disabled>${tr('卖家暂停了这份清单', 'The seller paused this list')}</button>`;
+    else if (it.queueCount === 0) btn = `<button class="btn primary big" data-act="join">${tr('预订（排第 1 位）', 'Reserve (be first in line)')}</button>`;
+    else btn = `<button class="btn primary big" data-act="join">${tr(`排候补（前面 ${it.queueCount} 人）`, `Join the waitlist (${it.queueCount} ahead)`)}</button>`;
 
-    const stamp = it.status === 'sold' ? `<div class="stamp sold">已出</div>`
-      : it.status === 'reserved' ? `<div class="stamp reserved">${it.maybeSold ? '可能已出' : '已预订'}</div>` : '';
-    document.title = `${it.name} ${money(it.priceCents, sale.currency)}`;
+    const stamp = it.status === 'sold' ? `<div class="stamp sold">${statusText.sold}</div>`
+      : it.status === 'reserved' ? `<div class="stamp reserved">${it.maybeSold ? tr('可能已出', 'Maybe sold') : statusText.reserved}</div>` : '';
+    document.title = `${t.name} ${money(it.priceCents, sale.currency)}`;
     $app.innerHTML = `
-      <a class="back" href="/s/${sale.id}">‹ ${esc(sale.title)}（全部物品）</a>
+      <a class="back" href="/s/${sale.id}">‹ ${esc(st.title)}${tr('（全部物品）', ' (all items)')}</a>
       <div class="gallery">
         <div class="track">${it.photos.map((p) => `<img src="${img(p, false)}" alt="">`).join('')}</div>
         ${it.photos.length > 1 ? `<span class="count">1/${it.photos.length}</span>` : ''}
@@ -1344,15 +1444,16 @@ function buyerItem(saleId, no) {
       </div>
       <div class="item-info">
         <div class="row">${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)}</div>
-        <h1>${esc(it.name)}</h1>
-        ${it.condition ? `<div class="meta">${esc(CONDITIONS[it.condition])}</div>` : ''}
-        ${it.note ? `<div style="margin-top:6px;white-space:pre-line">${esc(it.note)}</div>` : ''}
+        <h1>${esc(t.name)}</h1>
+        ${it.condition ? `<div class="meta">${esc(conditionText(it.condition, LANG))}</div>` : ''}
+        ${t.note ? `<div style="margin-top:6px;white-space:pre-line">${esc(t.note)}</div>` : ''}
+        ${t.name !== it.name ? `<details class="orig-text small muted"><summary>${tr('看原文', 'Original')}</summary>${esc(it.name)}${it.note ? `<br>${esc(it.note)}` : ''}</details>` : ''}
         <div class="meta" style="margin-top:10px">${it.status === 'reserved'
-          ? it.maybeSold ? '预订中，可能已出' : `已预订 · ${it.queueCount} 人在排`
-          : statusText[it.status]} · 📍 ${esc(sale.location)}</div>
+          ? it.maybeSold ? tr('预订中，可能已出', 'Reserved, maybe sold') : tr(`已预订 · ${it.queueCount} 人在排`, `Reserved · ${it.queueCount} in line`)
+          : statusText[it.status]} · 📍 ${esc(st.location)}</div>
       </div>
-      ${!my && !closed ? `<div class="how-to" style="margin-top:10px">点「预订」排队，排到第 1 位这里会显示卖家联系方式，再去微信加卖家。页面是实时的，能预订就是还在。</div>` : ''}
-      ${my && my.position > 1 ? `<div class="hint">前面的人不要了，你会自动升到第 1 位，到时回来这里看卖家联系方式。</div>` : ''}
+      ${!my && !closed ? `<div class="how-to" style="margin-top:10px">${tr('点「预订」排队，排到第 1 位这里会显示卖家联系方式。页面是实时的，能预订就是还在。', "Tap Reserve to get in line. When you're first, the seller's contact shows up here. The page is live: if you can reserve, it's still available.")}</div>` : ''}
+      ${my && my.position > 1 ? `<div class="hint">${tr('前面的人不要了，你会自动升到第 1 位，到时回来这里看卖家联系方式。', "If the people ahead drop out you move up to first; come back here then for the seller's contact.")}</div>` : ''}
       ${my && my.position === 1 && contact ? contactHtml(contact) : ''}
       ${nearbyEntryHtml(sale.id)}
       <div class="bottom-bar"><div class="inner">${btn}</div></div>`;
@@ -1376,10 +1477,10 @@ function buyerItem(saleId, no) {
     const it = data.items.find((i) => i.no === no);
     if (a.dataset.act === 'join') data.isOwner ? ownerTap(data.sale) : joinSheet(data.sale, it, reload);
     if (a.dataset.act === 'cancel') {
-      if (!(await ask({ title: '确定取消排队？', text: '取消后你的位置会让给后面的人。', ok: '取消排队', danger: true }))) return;
+      if (!(await askCancelQueue())) return;
       try {
         await api(`/queue/${data.mine[it.id].seq}/cancel`, { method: 'POST', body: {} });
-        toast('已取消');
+        toast(tr('已取消', 'Cancelled'));
         await reload();
       } catch (err) {
         toast(err.message);
@@ -1393,35 +1494,65 @@ function buyerItem(saleId, no) {
   reload().catch((e) => (e.code === 'NOT_FOUND' ? notFound() : toast(e.message)));
 }
 
+// Joining a queue asks for one contact, in a box that says which app it is for. Only the apps the
+// seller uses are offered; the buyer's last choice, or the app they are in, comes first.
 function joinSheet(sale, it, reload) {
   let result = null;
+  const kinds = [sale.hasTelegram && 'telegram', sale.hasWechat !== false && 'wechat'].filter(Boolean);
+  if (!kinds.length) kinds.push('wechat');
+  const preferred = store.get('buyerKind', '') || (isTelegram || (LANG === 'en' && !isWeChat) ? 'telegram' : 'wechat');
+  let kind = kinds.includes(preferred) ? preferred : kinds[0];
+  const values = { wechat: store.get('buyerWechat', ''), telegram: store.get('buyerTelegram', '') };
   const sh = openSheet(() => {
     if (result) {
-      const keep = keepWanted() ? keepBlockHtml('以后你要出闲置，也能这样发', '拍照、填价格就上架。发到群里，大家点开自己排队。') : '';
+      const keep = keepWanted() ? keepBlockHtml(tr('以后你要出闲置，也能这样发', 'Selling your own stuff some day? Do it like this'), tr('拍照、填价格就上架。发到群里，大家点开自己排队。', 'Snap a photo, add a price, post the link; people get in line themselves.')) : '';
       if (result.position === 1) {
-        return `<h2>预订成功</h2>${contactHtml(result.contact)}${keep}
-          <div class="actions"><button class="btn block" data-act="close">好的</button></div>`;
+        return `<h2>${tr('预订成功', 'Reserved!')}</h2>${contactHtml(result.contact)}${keep}
+          <div class="actions"><button class="btn block" data-act="close">${tr('好的', 'OK')}</button></div>`;
       }
-      return `<h2>排上了，你排第 ${result.position} 位</h2>
-        <div class="hint center">前面的人不要了，你会自动升到第 1 位。<br>到时回来这里或「我的排队」看卖家联系方式，现在不用联系卖家。</div>${keep}
-        <div class="actions"><button class="btn block" data-act="close">好的</button></div>`;
+      return `<h2>${tr(`排上了，你排第 ${result.position} 位`, `You're in line: #${result.position}`)}</h2>
+        <div class="hint center">${tr('前面的人不要了，你会自动升到第 1 位。<br>到时回来这里或「我的排队」看卖家联系方式，现在不用联系卖家。', "If the people ahead drop out, you move up to first.<br>Then come back here or to My reservations for the seller's contact. No need to message the seller now.")}</div>${keep}
+        <div class="actions"><button class="btn block" data-act="close">${tr('好的', 'OK')}</button></div>`;
     }
-    return `<h2>${esc(it.name)}</h2>
+    const tg = kind === 'telegram';
+    return `<h2>${esc(itemT(it).name)}</h2>
+      ${kinds.length > 1 ? `<div class="seg kind-seg">${kinds.map((k) => `<button class="${k === kind ? 'on' : ''}" data-act="kind" data-kind="${k}">${k === 'telegram' ? 'Telegram' : tr('微信', 'WeChat')}</button>`).join('')}</div>`
+        : `<div class="hint center" style="padding-top:0">${tg ? tr('卖家用 Telegram 联系', 'The seller uses Telegram') : tr('卖家用微信联系', 'The seller uses WeChat')}</div>`}
       <div class="group">
-        <label class="field"><span>你的微信号 <b class="req">*</b></span><input class="inp" type="text" name="wechat" maxlength="30" autocomplete="off" value="${esc(store.get('buyerWechat', ''))}"></label>
+        <label class="field"><span>${tg ? tr('你的 Telegram 用户名', 'Your Telegram username') : tr('你的微信号', 'Your WeChat ID')} <b class="req">*</b></span><input class="inp" type="text" name="contact" maxlength="${tg ? 64 : 30}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${tg ? '@username' : tr('微信号', 'WeChat ID')}" value="${esc(tg && values.telegram ? `@${values.telegram}` : values[kind])}"></label>
       </div>
-      <div class="hint" style="padding-top:0">填真实的微信号。排到你时，由你去微信加卖家；万一你忘了，卖家也能联系到你。</div>
-      <div class="actions"><button class="btn primary big block" data-act="go">排上</button></div>`;
+      <div class="hint" style="padding-top:0">${tg
+        ? tr('在 Telegram 的「设置」里能看到你的用户名（@ 开头）。排到你时，点一下就能给卖家发消息；卖家也能找到你。', "Find your username (it starts with @) in Telegram's Settings. When you're first, one tap opens a chat with the seller, and the seller can find you too.")
+        : tr('填真实的微信号。排到你时，由你去微信加卖家；万一你忘了，卖家也能联系到你。', "Use your real WeChat ID. When you're first, you add the seller on WeChat; if you forget, the seller can still reach you.")}</div>
+      <div class="actions"><button class="btn primary big block" data-act="go">${tr('排上', 'Get in line')}</button></div>`;
   }, async (act, el, s) => {
     if (act === 'close') return s.close();
+    const box = s.el.querySelector('[name=contact]');
+    if (box) values[kind] = kind === 'telegram' ? box.value.trim().replace(/^@/, '') : box.value.trim();
+    if (act === 'kind') {
+      kind = el.dataset.kind;
+      s.refresh();
+      return s.el.querySelector('[name=contact]')?.focus();
+    }
     if (act !== 'go') return;
-    const wechat = s.el.querySelector('[name=wechat]').value.trim();
-    if (!wechat) return toast('填一下你的微信号');
-    store.set('buyerWechat', wechat);
+    const v = box.value.trim();
+    if (!v) return toast(kind === 'telegram' ? tr('填一下你的 Telegram 用户名', 'Add your Telegram username') : tr('填一下你的微信号', 'Add your WeChat ID'));
+    if (kind === 'wechat' && looksLikeTelegram(v)) {
+      if (!kinds.includes('telegram')) return toast(tr('这是 Telegram 用户名。卖家只用微信，请填微信号', 'That is a Telegram username, but the seller uses WeChat: add your WeChat ID'), 2600);
+      kind = 'telegram';
+      values.telegram = normTelegram(v) || v.replace(/^@/, '');
+      s.refresh();
+      return toast(tr('这是 Telegram 用户名，已经切到 Telegram', 'That is a Telegram username, switched to Telegram'));
+    }
+    const username = kind === 'telegram' ? normTelegram(v) : null;
+    if (kind === 'telegram' && !username) return toast(tr('Telegram 用户名不对：5 到 32 位字母、数字或下划线，例如 @jinda_li', 'Not a Telegram username: 5–32 letters, digits or underscores, like @jinda_li'), 2600);
+    store.set('buyerKind', kind);
+    if (username) store.set('buyerTelegram', username);
+    else store.set('buyerWechat', v);
     buyerToken(true);
     el.disabled = true;
     try {
-      result = await api(`/item/${it.id}/join`, { method: 'POST', body: { wechat } });
+      result = await api(`/item/${it.id}/join`, { method: 'POST', body: username ? { telegram: username } : { wechat: v } });
       s.refresh();
       reload();
     } catch (err) {
@@ -1430,13 +1561,13 @@ function joinSheet(sale, it, reload) {
     }
   });
   bindCopy(sh.el);
-  setTimeout(() => sh.el.querySelector('[name=wechat]')?.focus(), 250);
+  setTimeout(() => sh.el.querySelector('[name=contact]')?.focus(), 250);
 }
 
 // ---------- 7.4 my queues ----------
 
 async function myQueues() {
-  $app.innerHTML = `<div class="head"><h1>我的排队</h1></div><div class="empty">加载中…</div>`;
+  $app.innerHTML = `<div class="head"><h1>${tr('我的排队', 'My reservations')}</h1></div><div class="empty">${tr('加载中…', 'Loading…')}</div>`;
   let data;
   try {
     data = await api('/my');
@@ -1444,35 +1575,38 @@ async function myQueues() {
     $app.querySelector('.empty').textContent = e.message;
     return;
   }
-  const label = { sold: '买到了', declined: '卖家标记你不要了', cancelled: '你取消了', removed: '已出或已下架' };
+  const label = tr(
+    { sold: '买到了', declined: '卖家标记你不要了', cancelled: '你取消了', removed: '已出或已下架' },
+    { sold: 'You got it', declined: 'The seller marked you as not taking it', cancelled: 'You cancelled', removed: 'Sold or taken down' },
+  );
   const render = () => {
     const qs = data.queues;
-    $app.innerHTML = `<div class="head"><h1>我的排队</h1><div class="meta">只记在这台手机的这个浏览器里</div></div>
+    $app.innerHTML = `<div class="head"><h1>${tr('我的排队', 'My reservations')}</h1><div class="meta">${tr('只记在这台手机的这个浏览器里', 'Kept only in this browser on this phone')}</div></div>
       ${qs.length ? qs.map((q) => `
         <div class="section">
           <a class="row-item" href="/s/${esc(q.saleId)}/i/${q.no}">
             ${q.photo ? `<img src="${img(q.photo)}" alt="">` : '<div class="noimg"></div>'}
             <div class="grow">
-              <div class="ellipsis"><span class="no">${q.no}</span> ${esc(q.name)}</div>
-              <div class="small muted ellipsis">${esc(q.saleTitle)} · ${esc(money(q.priceCents, q.currency))}</div>
-              <div class="small">${q.status === 'waiting' ? (q.position === 1 ? '<b style="color:var(--green)">轮到你了，第 1 位</b>' : `第 ${q.position} 位`) : esc(label[q.status] || q.status)}</div>
+              <div class="ellipsis"><span class="no">${q.no}</span> ${esc(itemT(q).name)}</div>
+              <div class="small muted ellipsis">${esc(q.saleTitleAlt && textLang(q.saleTitle) !== LANG ? q.saleTitleAlt : q.saleTitle)} · ${esc(money(q.priceCents, q.currency))}</div>
+              <div class="small">${q.status === 'waiting' ? (q.position === 1 ? `<b style="color:var(--green)">${tr('轮到你了，第 1 位', "It's your turn: first in line")}</b>` : tr(`第 ${q.position} 位`, `#${q.position} in line`)) : esc(label[q.status] || q.status)}</div>
             </div>
           </a>
           ${q.contact ? contactHtml(q.contact) : ''}
-          ${q.status === 'waiting' ? `<div style="padding:0 16px 12px;text-align:right"><button class="btn small" data-cancel="${q.seq}">取消排队</button></div>` : ''}
-        </div>`).join('') : `<div class="empty">还没有排队。<br>在清单页点「预订」就排上了。</div>`}
+          ${q.status === 'waiting' ? `<div style="padding:0 16px 12px;text-align:right"><button class="btn small" data-cancel="${q.seq}">${tr('取消排队', 'Leave the line')}</button></div>` : ''}
+        </div>`).join('') : `<div class="empty">${tr('还没有排队。<br>在清单页点「预订」就排上了。', 'No reservations yet.<br>Tap Reserve on a list to get in line.')}</div>`}
       ${nearbyEntryHtml()}`;
   };
   render();
   bindCopy($app);
   $app.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-cancel]');
-    if (!b || !(await ask({ title: '确定取消排队？', text: '取消后你的位置会让给后面的人。', ok: '取消排队', danger: true }))) return;
+    if (!b || !(await askCancelQueue())) return;
     try {
       await api(`/queue/${b.dataset.cancel}/cancel`, { method: 'POST', body: {} });
       data = await api('/my');
       render();
-      toast('已取消');
+      toast(tr('已取消', 'Cancelled'));
     } catch (err) {
       toast(err.message);
     }
@@ -1506,14 +1640,14 @@ function showManageLinkInUrl(saleId, key) {
 }
 
 function noAccess(saleId) {
-  $app.innerHTML = `<div class="head"><h1>需要管理权限</h1><div class="meta">这台手机的浏览器里没有这份清单的管理权限。</div></div>
-    ${googleOn() ? `<div style="padding:0 16px">${loginCardHtml('清单绑定过 Google 账号的话，登录就能管理')}</div>` : ''}
-    <div style="padding:16px"><div class="small muted" style="margin-bottom:6px">或者打开你保存的「管理链接」：</div><input class="inp boxed" id="lk" placeholder="粘贴管理链接"><br><br><button class="btn primary block" id="go">打开</button></div>`;
+  $app.innerHTML = `<div class="head"><h1>${tr('需要管理权限', 'Management access needed')}</h1><div class="meta">${tr('这台手机的浏览器里没有这份清单的管理权限。', "This browser doesn't hold the key to manage this list.")}</div></div>
+    ${googleOn() ? `<div style="padding:0 16px">${loginCardHtml(tr('清单绑定过 Google 账号的话，登录就能管理', 'If the list is linked to a Google account, sign in to manage it'))}</div>` : ''}
+    <div style="padding:16px"><div class="small muted" style="margin-bottom:6px">${tr('或者打开你保存的「管理链接」：', 'Or open the management link you saved:')}</div><input class="inp boxed" id="lk" placeholder="${tr('粘贴管理链接', 'Paste the management link')}"><br><br><button class="btn primary block" id="go">${tr('打开', 'Open')}</button></div>`;
   googleButton($app.querySelector('.gbtn'), () => location.reload());
   $app.querySelector('#go').onclick = () => {
       const v = $app.querySelector('#lk').value.trim();
       const m = v.match(/[#?&]k=([A-Za-z0-9]+)/);
-      if (!m) return toast('链接不对');
+      if (!m) return toast(tr('链接不对', "That link doesn't work"));
       location.href = `/manage/${saleId}?k=${m[1]}`;
   };
 }
@@ -1553,36 +1687,36 @@ function manage(saleId) {
     const count = (st) => items.filter((i) => i.status === st).length;
     const list = sortItems(tab === 'all' ? items : items.filter((i) => i.status === tab), sort);
     const ended = sale.status === 'ended';
-    document.title = `管理｜${sale.title}`;
+    document.title = tr(`管理｜${sale.title}`, `Manage | ${sale.title}`);
     $app.innerHTML = `
-      <div class="topbar"><button class="btn" data-act="lists">我的清单 (${store.get('mySales', []).length}) ▾</button><a class="btn" href="/s/${sale.id}">买家视角</a><button class="btn" data-act="settings" aria-label="设置">⚙</button><button class="btn rec-btn" data-recommend>🎁 推荐朋友</button></div>
+      <div class="topbar"><button class="btn" data-act="lists">${tr('我的清单', 'My lists')} (${store.get('mySales', []).length}) ▾</button><a class="btn" href="/s/${sale.id}">${tr('买家视角', 'Buyer view')}</a><button class="btn" data-act="settings" aria-label="${tr('设置', 'Settings')}">⚙</button><button class="btn rec-btn" data-recommend>🎁 ${tr('推荐朋友', 'Tell a friend')}</button></div>
       <div class="head" style="padding-top:8px"><h1>${esc(sale.title)}</h1><div class="meta">📍 ${esc(sale.location)}</div></div>
-      ${ended ? `<div class="banner">这份清单已结束：买家打开链接会看到「清单已经不见了」。<br><button class="btn small primary" style="margin-top:8px" data-act="reopen">重新公开</button></div>` : ''}
+      ${ended ? `<div class="banner">${tr('这份清单已结束：买家打开链接会看到「清单已经不见了」。', 'This list has ended: buyers opening the link see that it is gone.')}<br><button class="btn small primary" style="margin-top:8px" data-act="reopen">${tr('重新公开', 'Reopen')}</button></div>` : ''}
       ${ended ? '' : renewBannerHtml(sale, data.now)}
-      ${linkSaved(saleId) ? '' : `<div class="banner">还没把管理入口发给自己：换手机或在微信里打开时，没有它就管理不了这份清单。<br><button class="btn small primary" style="margin-top:8px" data-act="savelink">发给自己</button></div>`}
+      ${linkSaved(saleId) ? '' : `<div class="banner">${tr('还没把管理入口发给自己：换手机或在微信里打开时，没有它就管理不了这份清单。', "You haven't sent yourself the management link yet: on a new phone or another app, you can't manage this list without it.")}<br><button class="btn small primary" style="margin-top:8px" data-act="savelink">${tr('发给自己', 'Send it to myself')}</button></div>`}
       <div class="stats">
-        <div><b>${count('available')}</b><span>在售</span></div>
-        <div><b>${count('reserved')}</b><span>已预订</span></div>
-        <div><b>${count('sold')}</b><span>已出</span></div>
-        <div class="stat-earned"><b>${esc(soldCents ? money(soldCents, sale.currency) : CURRENCIES[sale.currency].trim() + '0')}</b><span>已收回</span></div>
+        <div><b>${count('available')}</b><span>${statusText.available}</span></div>
+        <div><b>${count('reserved')}</b><span>${statusText.reserved}</span></div>
+        <div><b>${count('sold')}</b><span>${statusText.sold}</span></div>
+        <div class="stat-earned"><b>${esc(soldCents ? money(soldCents, sale.currency) : CURRENCIES[sale.currency].trim() + '0')}</b><span>${tr('已收回', 'Earned')}</span></div>
       </div>
       <div class="chips">
-        ${[['all', '全部'], ['available', '在售'], ['reserved', '已预订'], ['sold', '已出']].map(([k, l]) => `<button class="chip ${tab === k ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('')}
+        ${[['all', tr('全部', 'All')], ['available', statusText.available], ['reserved', statusText.reserved], ['sold', statusText.sold]].map(([k, l]) => `<button class="chip ${tab === k ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('')}
       </div>
       ${list.length > 1 ? `<div class="list-bar end">${sortSegHtml(sort)}</div>` : ''}
-      ${items.length === 0 ? `<div class="empty">拍张照、填个价格，就上架了。<br><br><button class="btn primary" data-act="compose">选照片</button></div>`
-        : list.length === 0 ? `<div class="empty">这里没有东西</div>`
+      ${items.length === 0 ? `<div class="empty">${tr('拍张照、填个价格，就上架了。', 'Snap a photo, add a price, and it is listed.')}<br><br><button class="btn primary" data-act="compose">${tr('选照片', 'Choose photos')}</button></div>`
+        : list.length === 0 ? `<div class="empty">${tr('这里没有东西', 'Nothing here')}</div>`
         : `<div class="section">${list.map((it) => `
           <div class="row-item" data-item="${it.id}">
             <span class="no row-no">${it.no}</span>
             <img src="${img(it.photos[0])}" alt="" loading="lazy">
             <div class="grow">
               <div class="ellipsis">${esc(it.name)}</div>
-              <div class="small">${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)} · <span class="st ${it.status}">${statusText[it.status]}</span>${it.queueCount ? ` · ${it.queueCount} 人排队${it.queue[0] ? `（第 1 位：${esc(it.queue[0].nickname)}）` : ''}` : ''}</div>
+              <div class="small">${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)} · <span class="st ${it.status}">${statusText[it.status]}</span>${it.queueCount ? ` · ${tr(`${it.queueCount} 人排队`, `${it.queueCount} in line`)}${it.queue[0] ? tr(`（第 1 位：${esc(it.queue[0].nickname)}）`, ` (first: ${esc(it.queue[0].nickname)})`) : ''}` : ''}</div>
             </div>
             <span class="muted">›</span>
           </div>`).join('')}</div>`}
-      ${ended ? '' : `<div class="bottom-bar"><div class="inner"><button class="btn big" data-act="compose">上架</button><button class="btn primary big" data-act="share">预览并分享</button></div></div>`}`;
+      ${ended ? '' : `<div class="bottom-bar"><div class="inner"><button class="btn big" data-act="compose">${tr('上架', 'Add items')}</button><button class="btn primary big" data-act="share">${tr('预览并分享', 'Preview & share')}</button></div></div>`}`;
   };
 
   $app.addEventListener('click', (e) => {
@@ -1607,7 +1741,7 @@ function manage(saleId) {
     if (a.dataset.act === 'savelink') sendSelfSheet(S, { onDone: render });
     // Sharing starts from the buyer page: forwarding this page would send the 管理入口 card, key included.
     if (a.dataset.act === 'share') {
-      if (data.sale.paused) return toast('清单已暂停，先点上面的「重新上架」');
+      if (data.sale.paused) return toast(tr('清单已暂停，先点上面的「重新上架」', 'The list is paused: tap Reopen above first'));
       maybeCheck(S, true, () => (location.href = `/s/${saleId}`));
     }
     if (a.dataset.act === 'settings') settingsSheet(S);
@@ -1630,7 +1764,7 @@ function manage(saleId) {
     }
   });
 
-  $app.innerHTML = `<div class="empty">加载中…</div>`;
+  $app.innerHTML = `<div class="empty">${tr('加载中…', 'Loading…')}</div>`;
   reload().then(() => {
     if (params.get('new') === '1') {
       showManageLinkInUrl(saleId, key);
@@ -1638,7 +1772,7 @@ function manage(saleId) {
     } else if (params.get('saved') === '1' && !linkSaved(saleId)) {
       // Opened from the card in 文件传输助手: the entry is saved, carry on uploading.
       markLinkSaved(saleId);
-      toast('管理入口存好了');
+      toast(tr('管理入口存好了', 'Management link saved'));
       if (!data.items.length) composer(S);
     } else {
       checkedThisOpen = true;
@@ -1654,16 +1788,17 @@ function manage(saleId) {
 function renewBannerHtml(sale, now) {
   const left = sale.expiresAt - now;
   if (left > RENEW_WARN_MS) return '';
+  const days = Math.max(1, Math.ceil(left / (24 * HOUR)));
   const text = sale.paused
-    ? '清单已暂停：买家还能打开，但不能排队，也不会出现在「附近的二手」。'
-    : `清单还有 ${Math.max(1, Math.ceil(left / (24 * HOUR)))} 天自动暂停：到时买家不能排队。还在卖的话点一下续期。`;
-  return `<div class="banner">${text}<br><button class="btn small primary" style="margin-top:8px" data-act="renew">${sale.paused ? '重新上架（续 30 天）' : '续 30 天'}</button></div>`;
+    ? tr('清单已暂停：买家还能打开，但不能排队，也不会出现在「附近的二手」。', 'The list is paused: buyers can open it but not reserve, and it is out of "Nearby".')
+    : tr(`清单还有 ${days} 天自动暂停：到时买家不能排队。还在卖的话点一下续期。`, `The list pauses in ${days} ${days === 1 ? 'day' : 'days'}, then nobody can reserve. Still selling? Renew it.`);
+  return `<div class="banner">${text}<br><button class="btn small primary" style="margin-top:8px" data-act="renew">${sale.paused ? tr('重新上架（续 30 天）', 'Reopen for 30 days') : tr('续 30 天', 'Renew for 30 days')}</button></div>`;
 }
 
 async function renewSale(S) {
   try {
     await api(`/sale/${S.saleId}/renew`, { method: 'POST', key: S.key, body: {} });
-    toast('已续期 30 天');
+    toast(tr('已续期 30 天', 'Renewed for 30 days'));
     S.reload();
   } catch (err) {
     toast(err.message);
@@ -1673,7 +1808,7 @@ async function renewSale(S) {
 async function reopenSale(S) {
   try {
     await api(`/sale/${S.saleId}/reopen`, { method: 'POST', key: S.key, body: {} });
-    toast('已重新公开');
+    toast(tr('已重新公开', 'Reopened'));
     S.reload();
   } catch (err) {
     toast(err.message);
@@ -1697,10 +1832,10 @@ function loginPrompt(S) {
   if (n >= 2 || (n === 1 && d.items.length < 10)) return;
   asked[S.saleId] = n + 1;
   store.set('loginAsked', asked);
-  const sh = openSheet(() => `<h2>用 Google 登录？</h2>
-    <div class="hint center" style="padding-top:0">清单跟着账号走：换手机、换浏览器、清了缓存，登录就能继续管理</div>
+  const sh = openSheet(() => `<h2>${tr('用 Google 登录？', 'Sign in with Google?')}</h2>
+    <div class="hint center" style="padding-top:0">${tr('清单跟着账号走：换手机、换浏览器、清了缓存，登录就能继续管理', 'Your lists follow your account: new phone, new browser or cleared data, sign in and carry on')}</div>
     <div class="gbtn" style="display:flex;justify-content:center;margin:8px 0 14px"></div>
-    <div class="actions"><button class="btn block" data-act="later">先不用</button></div>`, (act, el, s) => s.close());
+    <div class="actions"><button class="btn block" data-act="later">${tr('先不用', 'Not now')}</button></div>`, (act, el, s) => s.close());
   googleButton(sh.el.querySelector('.gbtn'), () => {
     sh.close();
     S.reload();
@@ -1721,7 +1856,7 @@ function markLinkSaved(saleId) {
 function wxMenuArrow() {
   const el = document.createElement('div');
   el.className = 'wx-arrow';
-  el.innerHTML = `<span>⤴</span><b>点这里</b>`;
+  el.innerHTML = `<span>⤴</span><b>${tr('点这里', 'Tap here')}</b>`;
   document.body.appendChild(el);
   return () => el.remove();
 }
@@ -1730,14 +1865,14 @@ function wxMenuArrow() {
 // In WeChat: ··· → 发送给朋友 shares the current URL, which carries the key (plus saved=1, so opening
 // the card back from 文件传输助手 proves it was saved). Elsewhere: the system share sheet.
 // The continue button stays disabled until we have a sign the link was actually sent.
-function sendSelfSheet(S, { locked = false, doneText = '我发好了', onDone } = {}) {
-  const title = S.data()?.sale.title || '我的二手清单';
+function sendSelfSheet(S, { locked = false, doneText = tr('我发好了', 'Sent it'), onDone } = {}) {
+  const title = S.data()?.sale.title || TITLE_PICKS[0];
   const link = manageLink(S.saleId, S.key);
   let sent = false;
   let wentAway = false;
   const removeArrow = isWeChat ? wxMenuArrow() : () => {};
   if (isWeChat) history.replaceState(null, '', `/manage/${S.saleId}?k=${S.key}&saved=1`);
-  // WeChat's chat picker covers the page; coming back from it is our signal that it was sent.
+  // WeChat's chat picker (or Telegram's share screen) covers the page; coming back from it is our signal that it was sent.
   const onVisible = () => {
     if (document.hidden) wentAway = true;
     else if (wentAway && !sent) {
@@ -1745,26 +1880,31 @@ function sendSelfSheet(S, { locked = false, doneText = '我发好了', onDone } 
       sh.refresh();
     }
   };
-  if (isWeChat) document.addEventListener('visibilitychange', onVisible);
-  const sh = openSheet(() => `<h2>先把管理入口发给自己</h2>
-    <div class="hint">这个页面就是你的<b>管理入口</b>：上架、改价、看谁预订了都在这里。发给自己存好，以后在微信里点一下就能回来。</div>
+  if (isWeChat || isTelegram) document.addEventListener('visibilitychange', onVisible);
+  const text = tr(`【二手清单 · 管理入口】${title}\n点开就能管理：上架、改价、看谁预订了。只发给自己，别发到群里。`, `[Secondhand List · manage] ${title}\nTap to manage: add items, change prices, see who reserved. Keep it to yourself, never post it in a group.`);
+  const sh = openSheet(() => `<h2>${tr('先把管理入口发给自己', 'First, send yourself the management link')}</h2>
+    <div class="hint">${tr('这个页面就是你的<b>管理入口</b>：上架、改价、看谁预订了都在这里。发给自己存好，以后点一下就能回来。', 'This page is where you <b>manage</b> the list: add items, change prices, see who reserved. Send it to yourself so one tap brings you back.')}</div>
     <div class="group"><div class="cell small" style="display:block;line-height:1.9">
       ${isWeChat
-        ? `1. 点右上角 <b>···</b> →「<b>发送给朋友</b>」<br>2. 选一个<b>你记得住的地方</b>，发送<br>3. 去那里<b>点开刚发的卡片</b>，就会接着上架`
-        : `1. 点下面的「发给自己」<br>2. 选微信，再选一个<b>你记得住的地方</b>，发送`}
+        ? tr(`1. 点右上角 <b>···</b> →「<b>发送给朋友</b>」<br>2. 选一个<b>你记得住的地方</b>，发送<br>3. 去那里<b>点开刚发的卡片</b>，就会接着上架`, `1. Tap <b>···</b> at the top right → <b>Send to Chat</b><br>2. Pick <b>a chat you will remember</b> and send<br>3. <b>Open the card</b> you just sent there to carry on`)
+        : isTelegram
+          ? tr(`1. 点下面的「发到 Saved Messages」<br>2. 选「<b>Saved Messages</b>」，发送`, `1. Tap "Send to Saved Messages" below<br>2. Choose <b>Saved Messages</b> and send`)
+          : tr(`1. 点下面的「发给自己」<br>2. 选微信或 Telegram，再选一个<b>你记得住的地方</b>，发送`, `1. Tap "Send it to myself" below<br>2. Pick Telegram, WeChat or email, then <b>a chat you will remember</b>, and send`)}
     </div></div>
-    <div class="hint" style="padding-top:0">比如：<b>文件传输助手</b>、和<b>自己</b>的聊天窗口、只有你一个人的群，或者存到微信<b>收藏</b>。</div>
-    <div class="hint" style="padding-top:0">只发给自己，<b>别发到群里</b>：拿到它的人都能改你的清单。</div>
+    <div class="hint" style="padding-top:0">${tr('比如：Telegram 的 <b>Saved Messages</b>、微信的<b>文件传输助手</b>、和<b>自己</b>的聊天窗口，或者存到微信<b>收藏</b>。', 'For example Telegram <b>Saved Messages</b>, WeChat <b>File Transfer</b>, or a chat with <b>yourself</b>.')}</div>
+    <div class="hint" style="padding-top:0">${tr('只发给自己，<b>别发到群里</b>：拿到它的人都能改你的清单。', 'Only to yourself, <b>never to a group</b>: anyone with it can change your list.')}</div>
     <div class="actions">
-      ${isWeChat ? '' : `<button class="btn primary block" data-act="sendself">发给自己</button>`}
-      <button class="btn ${sent ? 'primary' : ''} block" data-act="done" ${sent ? '' : 'disabled'}>${sent ? esc(doneText) : '发送以后才能继续'}</button>
-      ${locked ? '' : `<button class="link-btn small" data-act="close" style="margin:4px auto 0">关闭</button>`}
+      ${isTelegram ? `<a class="btn primary block" href="${esc(tgShareUrl(link, text))}" data-act="sendtg">${tr('发到 Saved Messages', 'Send to Saved Messages')}</a>` : ''}
+      ${isWeChat || isTelegram ? '' : `<button class="btn primary block" data-act="sendself">${tr('发给自己', 'Send it to myself')}</button>`}
+      <button class="btn ${sent ? 'primary' : ''} block" data-act="done" ${sent ? '' : 'disabled'}>${sent ? esc(doneText) : tr('发送以后才能继续', 'Send it first to carry on')}</button>
+      ${locked ? '' : `<button class="link-btn small" data-act="close" style="margin:4px auto 0">${tr('关闭', 'Close')}</button>`}
     </div>`, async (act, el, s) => {
+    // Telegram's share screen covers this page; coming back from it counts as sent (onVisible).
+    if (act === 'sendtg') wentAway = false;
     if (act === 'sendself') {
-      const text = `【二手清单 · 管理入口】${title}\n点开就能管理：上架、改价、看谁预订了。只发给自己，别发到群里。`;
       try {
-        if (navigator.share) await navigator.share({ title: `管理入口｜${title}`, text, url: link });
-        else await copy(`${text}\n${link}`, '已复制，发到文件传输助手或自己的窗口');
+        if (navigator.share) await navigator.share({ title: tr(`管理入口｜${title}`, `Manage | ${title}`), text, url: link });
+        else await copy(`${text}\n${link}`, tr('已复制，发到文件传输助手或自己的窗口', 'Copied: paste it into Saved Messages or a chat with yourself'));
       } catch {
         return;
       }
@@ -1792,7 +1932,7 @@ function sendSelfSheet(S, { locked = false, doneText = '我发好了', onDone } 
 function newSaleSheet(S) {
   sendSelfSheet(S, {
     locked: true,
-    doneText: '我发好了，开始上架',
+    doneText: tr('我发好了，开始上架', 'Sent it, start listing'),
     onDone: () => {
       composer(S);
       S.reload();
@@ -1815,22 +1955,22 @@ function maybeCheck(S, beforeShare, then) {
   const answered = {};
   let changed = false;
   const sh = openSheet(() => `
-    <h2>这几件卖掉了吗？</h2>
-    ${beforeShare ? `<div class="hint center" style="padding-top:0">先确认一下，发出去的就是最新的</div>` : ''}
+    <h2>${tr('这几件卖掉了吗？', 'Did these sell?')}</h2>
+    ${beforeShare ? `<div class="hint center" style="padding-top:0">${tr('先确认一下，发出去的就是最新的', 'A quick check so what you share is up to date')}</div>` : ''}
     ${list.map((it) => `
       <div class="check-row ${answered[it.id] ? 'answered' : ''}">
         <div class="row">
           <img src="${img(it.photos[0])}" alt="">
-          <div class="grow"><div class="ellipsis"><span class="no">${it.no}</span> ${esc(it.name)}</div><div class="small muted">第 1 位：${esc(it.queue[0]?.nickname || '')}</div></div>
+          <div class="grow"><div class="ellipsis"><span class="no">${it.no}</span> ${esc(it.name)}</div><div class="small muted">${tr('第 1 位：', 'First: ')}${esc(it.queue[0]?.nickname || '')}</div></div>
           ${answered[it.id] ? `<span class="small">${answered[it.id]}</span>` : ''}
         </div>
         <div class="btns">
-          <button class="btn primary" data-act="sell" data-id="${it.id}">卖掉了</button>
-          <button class="btn" data-act="still" data-id="${it.id}">还没</button>
-          <button class="btn" data-act="decline" data-id="${it.id}">他不要了</button>
+          <button class="btn primary" data-act="sell" data-id="${it.id}">${tr('卖掉了', 'Sold')}</button>
+          <button class="btn" data-act="still" data-id="${it.id}">${tr('还没', 'Not yet')}</button>
+          <button class="btn" data-act="decline" data-id="${it.id}">${tr('他不要了', "They don't want it")}</button>
         </div>
       </div>`).join('')}
-    <div class="actions"><button class="btn block" data-act="later">${beforeShare ? '稍后再说，先分享' : '稍后再说'}</button></div>`,
+    <div class="actions"><button class="btn block" data-act="later">${beforeShare ? tr('稍后再说，先分享', 'Later, share now') : tr('稍后再说', 'Later')}</button></div>`,
   async (act, el, s) => {
     if (act === 'later') return s.close();
     const it = list.find((i) => i.id === el.dataset.id);
@@ -1839,11 +1979,11 @@ function maybeCheck(S, beforeShare, then) {
     try {
       const body = act === 'decline' ? { action: 'decline', seq: it.queue[0]?.seq } : { action: act };
       await api(`/item/${it.id}/action`, { method: 'POST', key: S.key, body });
-      answered[it.id] = { sell: '已出', still: '还没', decline: '下一位顶上' }[act];
+      answered[it.id] = tr({ sell: '已出', still: '还没', decline: '下一位顶上' }, { sell: 'Sold', still: 'Not yet', decline: 'Next in line moves up' })[act];
       changed = true;
       if (list.every((i) => answered[i.id])) {
         s.close();
-        toast('已更新，群里看到的就是最新的');
+        toast(tr('已更新，群里看到的就是最新的', 'Updated: the groups see the latest'));
       } else s.refresh();
     } catch (err) {
       toast(err.message);
@@ -1859,6 +1999,15 @@ function maybeCheck(S, beforeShare, then) {
 }
 
 // ---------- 6.3 composer (like sending WeChat messages) ----------
+
+const NAME_HINT = tr('名字，例：宜家台灯', 'Name, e.g. IKEA desk lamp');
+const NOTE_HINT = tr('详情（选填）：型号、尺寸、用了多久、有没有瑕疵…', 'Details (optional): model, size, how old, any flaws…');
+
+// An AI answer in the seller's language, keeping the other language as the item's translation.
+function aiPick(r) {
+  if (LANG === 'en' && r.nameEn) return { name: r.nameEn, note: r.noteEn || '', nameAlt: r.name, noteAlt: r.note || '', retail: r.retail };
+  return { name: r.name, note: r.note || '', nameAlt: r.nameEn || '', noteAlt: r.noteEn || '', retail: r.retail };
+}
 
 function composer(S) {
   const sale = S.data().sale;
@@ -1889,59 +2038,59 @@ function composer(S) {
   const retailHtml = (c) => {
     if (!c.retail) return `<div class="cretail"></div>`;
     const { low, high, generic } = c.retail;
-    return `<div class="cretail">${generic ? '同类新品约' : '新品原价约'}${esc(sym)}${low}${high > low ? `–${high}` : ''}</div>`;
+    return `<div class="cretail">${generic ? tr('同类新品约', 'Similar new: about ') : tr('新品原价约', 'New: about ')}${esc(sym)}${low}${high > low ? `–${high}` : ''}</div>`;
   };
 
   const statusHtml = (c) => {
     if (c.error) return `<div class="cstatus err">${esc(c.error)}</div>`;
-    if (c.aiBusy) return `<div class="cstatus">✨ AI 正在认这是什么…</div>`;
-    if (c.touched && !c.name.trim()) return `<div class="cstatus err">还没填名字</div>`;
-    if (c.touched && priceCents(c) == null) return `<div class="cstatus err">还没填价格</div>`;
-    if (c.touched && Number.isNaN(parsePrice(c.orig))) return `<div class="cstatus err">原价填数字，不填也行</div>`;
+    if (c.aiBusy) return `<div class="cstatus">✨ ${tr('AI 正在认这是什么…', 'The AI is working out what this is…')}</div>`;
+    if (c.touched && !c.name.trim()) return `<div class="cstatus err">${tr('还没填名字', 'Name missing')}</div>`;
+    if (c.touched && priceCents(c) == null) return `<div class="cstatus err">${tr('还没填价格', 'Price missing')}</div>`;
+    if (c.touched && Number.isNaN(parsePrice(c.orig))) return `<div class="cstatus err">${tr('原价填数字，不填也行', 'Original price: a number, or leave it empty')}</div>`;
     return `<div class="cstatus"></div>`;
   };
 
   // Manual AI run: after adding photos, or when auto-recognition was off / stopped.
-  const aiBtnHtml = (c) => `<button class="ai-btn cai" data-act="reai" ${c.aiBusy ? 'disabled' : ''}>${c.aiBusy ? '识别中…' : c.aiDone ? 'AI 重新识别' : 'AI 识别'}</button>`;
+  const aiBtnHtml = (c) => `<button class="ai-btn cai" data-act="reai" ${c.aiBusy ? 'disabled' : ''}>${c.aiBusy ? tr('识别中…', 'Working…') : c.aiDone ? tr('AI 重新识别', 'AI again') : tr('AI 识别', 'AI name it')}</button>`;
 
   const cardHtml = (c, idx) => `
     <div class="ccard ${c.error || (c.touched && !valid(c)) ? 'bad' : ''}" data-idx="${idx}">
       <div class="crow">
         <div class="thumbs">
           ${c.files.map((f, j) => `<div class="t"><img src="${f.url}" alt="" data-act="photo" data-j="${j}">${c.files.length > 1 ? `<button class="x" data-act="rmph" data-j="${j}">✕</button>` : ''}</div>`).join('')}
-          ${c.files.length < MAX_PHOTOS ? `<button class="addph" data-act="addph" title="给这件东西再加图">＋</button>` : ''}
+          ${c.files.length < MAX_PHOTOS ? `<button class="addph" data-act="addph" title="${tr('给这件东西再加图', 'Add a photo of this item')}">＋</button>` : ''}
         </div>
         <div class="cside">
-          <button class="link-btn small cdel" data-act="del">删除</button>
-          ${idx > 0 && cards[idx - 1].files.length + c.files.length <= MAX_PHOTOS ? `<button class="link-btn small" data-act="merge">并到上一件</button>` : ''}
+          <button class="link-btn small cdel" data-act="del">${tr('删除', 'Delete')}</button>
+          ${idx > 0 && cards[idx - 1].files.length + c.files.length <= MAX_PHOTOS ? `<button class="link-btn small" data-act="merge">${tr('并到上一件', 'Merge with previous')}</button>` : ''}
           ${aiBtnHtml(c)}
         </div>
       </div>
       <div class="cfields">
-        <input class="inp boxed" type="text" maxlength="30" enterkeyhint="next" placeholder="${c.aiBusy ? 'AI 识别中…' : '名字，例：宜家台灯'}" value="${esc(c.name)}" data-in="name">
-        <label class="price-in"><span>${esc(sym)}</span><input type="text" inputmode="decimal" maxlength="9" enterkeyhint="next" placeholder="价格" value="${esc(c.price)}" data-in="price"></label>
+        <input class="inp boxed" type="text" maxlength="60" enterkeyhint="next" placeholder="${c.aiBusy ? tr('AI 识别中…', 'AI working…') : NAME_HINT}" value="${esc(c.name)}" data-in="name">
+        <label class="price-in"><span>${esc(sym)}</span><input type="text" inputmode="decimal" maxlength="9" enterkeyhint="next" placeholder="${tr('价格', 'Price')}" value="${esc(c.price)}" data-in="price"></label>
       </div>
       <div class="corig">
         ${retailHtml(c)}
-        <label class="price-in"><span>原价${esc(sym)}</span><input type="text" inputmode="decimal" maxlength="9" enterkeyhint="next" placeholder="选填" value="${esc(c.orig)}" data-in="orig"></label>
+        <label class="price-in"><span>${tr('原价', 'New')}${esc(sym)}</span><input type="text" inputmode="decimal" maxlength="9" enterkeyhint="next" placeholder="${tr('选填', 'optional')}" value="${esc(c.orig)}" data-in="orig"></label>
       </div>
-      <textarea class="inp boxed cnote" rows="2" maxlength="100" placeholder="详情（选填）：型号、尺寸、用了多久、有没有瑕疵…" data-in="note">${esc(c.note)}</textarea>
+      <textarea class="inp boxed cnote" rows="2" maxlength="200" placeholder="${NOTE_HINT}" data-in="note">${esc(c.note)}</textarea>
       ${statusHtml(c)}
     </div>`;
 
   const footerHtml = () => {
     const n = cards.filter(valid).length;
     return `
-      <button class="btn big" data-act="pick">＋ 新物品</button>
-      <button class="btn primary big" data-act="submit" ${n && !busy ? '' : 'disabled'}>${busy ? '上架中…' : `全部上架（${n} 件）`}</button>`;
+      <button class="btn big" data-act="pick">${tr('＋ 新物品', '+ New item')}</button>
+      <button class="btn primary big" data-act="submit" ${n && !busy ? '' : 'disabled'}>${busy ? tr('上架中…', 'Listing…') : tr(`全部上架（${n} 件）`, `List all (${n})`)}</button>`;
   };
 
   const render = () => {
     el.innerHTML = `
       <div class="inner">
-        <div class="bar"><button class="link-btn" data-act="close">‹ 返回</button><b>上架</b><span style="width:48px"></span></div>
-        <div class="hint" style="padding-bottom:0">${aiAutoOn() ? '同一件东西的几张照片会自动归到一张卡片里；分错了，点照片拆开，或点「并到上一件」。' : '每张照片是一件新物品；同一件东西的多张图，点卡片里的「＋」加，或点「并到上一件」。'}价格填 0 就是免费送。<br>详情填得越详细，群里来回问的就越少。</div>
-        ${cards.length ? cards.map(cardHtml).join('') : `<div class="empty">点下面的「＋ 新物品」选照片。<br>可以一次选很多张，同一件的几张会自动放在一起。</div>`}
+        <div class="bar"><button class="link-btn" data-act="close">‹ ${tr('返回', 'Back')}</button><b>${tr('上架', 'Add items')}</b><span style="width:48px"></span></div>
+        <div class="hint" style="padding-bottom:0">${aiAutoOn() ? tr('同一件东西的几张照片会自动归到一张卡片里；分错了，点照片拆开，或点「并到上一件」。', 'Photos of the same thing go onto one card; if one lands wrong, tap the photo to split it, or "Merge with previous".') : tr('每张照片是一件新物品；同一件东西的多张图，点卡片里的「＋」加，或点「并到上一件」。', 'Each photo is a new item; for more photos of one thing, tap ＋ on its card or "Merge with previous".')}${tr('价格填 0 就是免费送。<br>详情填得越详细，群里来回问的就越少。', ' A price of 0 means free.<br>The more details, the fewer questions in the group.')}</div>
+        ${cards.length ? cards.map(cardHtml).join('') : `<div class="empty">${tr('点下面的「＋ 新物品」选照片。<br>可以一次选很多张，同一件的几张会自动放在一起。', 'Tap "+ New item" below to pick photos.<br>Pick many at once; shots of the same thing are grouped.')}</div>`}
         <div class="footer"><div class="inner">${footerHtml()}</div></div>
       </div>`;
   };
@@ -1954,7 +2103,7 @@ function composer(S) {
     if (document.activeElement !== nameIn) nameIn.value = c.name;
     const noteIn = card.querySelector('[data-in=note]');
     if (document.activeElement !== noteIn) noteIn.value = c.note;
-    nameIn.placeholder = c.aiBusy ? 'AI 识别中…' : '名字，例：宜家台灯';
+    nameIn.placeholder = c.aiBusy ? tr('AI 识别中…', 'AI working…') : NAME_HINT;
     card.classList.toggle('bad', !!(c.error || (c.touched && !valid(c))));
     card.querySelector('.cstatus').outerHTML = statusHtml(c);
     card.querySelector('.cretail').outerHTML = retailHtml(c);
@@ -1968,11 +2117,12 @@ function composer(S) {
     c.aiBusy = true;
     refreshCard(c);
     try {
-      const r = await aiRecognize(c.files.map((f) => f.file), sale.currency);
+      const r = aiPick(await aiRecognize(c.files.map((f) => f.file), sale.currency));
       c.aiDone = true;
       c.retail = r.retail || null;
       if (force || !c.name.trim()) c.name = r.name;
       if ((force || !c.note.trim()) && r.note) c.note = r.note;
+      c.ai = r;
       return true;
     } catch (err) {
       if (err.code === 'LIMIT') aiLimitSheet(onRegain);
@@ -2015,7 +2165,7 @@ function composer(S) {
       render();
       return recognise(added);
     }
-    const stop = loading('AI 正在整理照片…');
+    const stop = loading(tr('AI 正在整理照片…', 'The AI is sorting your photos…'));
     const added = [];
     let dropped = 0;
     let sheet = null;
@@ -2036,14 +2186,17 @@ function composer(S) {
       for (const it of items) {
         dropped += Math.max(0, it.photos.length - MAX_PHOTOS);
         const c = newCard(it.photos.slice(0, MAX_PHOTOS).map((j) => batch[j]));
-        if (it.name) Object.assign(c, { name: it.name, note: it.note || '', retail: it.retail || null, aiDone: true });
+        if (it.name) {
+          const r = aiPick(it);
+          Object.assign(c, { name: r.name, note: r.note, retail: it.retail || null, aiDone: true, ai: r });
+        }
         added.push(c);
       }
     }
     stop();
     cards.push(...added);
     render();
-    if (dropped) toast(`每件最多 ${MAX_PHOTOS} 张，多出的 ${dropped} 张没放进去`, 3000);
+    if (dropped) toast(tr(`每件最多 ${MAX_PHOTOS} 张，多出的 ${dropped} 张没放进去`, `Up to ${MAX_PHOTOS} photos per item; ${dropped} left out`), 3000);
     if (sheet === 'limit') aiLimitSheet(regain);
     else if (sheet === 'busy') aiBusySheet();
   };
@@ -2051,10 +2204,10 @@ function composer(S) {
   // Tapping a photo: mosaic part of it; on a card with several, also move it to its own card or drop it.
   const photoSheet = (c, j) => openSheet(() => `
     <div class="actions">
-      <button class="btn block" data-act="mosaic">打码（遮住门牌、快递单、人脸）</button>
-      ${c.files.length > 1 ? `<button class="btn block" data-act="split">拆成单独一件</button>
-      <button class="btn danger block" data-act="rm">删掉这张</button>` : ''}
-      <button class="btn block" data-act="cancel">取消</button>
+      <button class="btn block" data-act="mosaic">${tr('打码（遮住门牌、快递单、人脸）', 'Blur parts (door numbers, labels, faces)')}</button>
+      ${c.files.length > 1 ? `<button class="btn block" data-act="split">${tr('拆成单独一件', 'Make it a separate item')}</button>
+      <button class="btn danger block" data-act="rm">${tr('删掉这张', 'Delete this photo')}</button>` : ''}
+      <button class="btn block" data-act="cancel">${tr('取消', 'Cancel')}</button>
     </div>`, async (act, _el, s) => {
     s.close();
     if (!cards.includes(c) || !c.files[j]) return;
@@ -2114,7 +2267,7 @@ function composer(S) {
     const c = cardEl ? cards[Number(cardEl.dataset.idx)] : null;
     switch (a.dataset.act) {
       case 'close':
-        if (cards.length && !(await ask({ title: '还有没上架的物品', text: '离开的话，这些不会保存。', ok: '离开', danger: true }))) return;
+        if (cards.length && !(await ask({ title: tr('还有没上架的物品', 'Some items are not listed yet'), text: tr('离开的话，这些不会保存。', 'If you leave, they are not saved.'), ok: tr('离开', 'Leave'), danger: true }))) return;
         return close();
       case 'pick':
         return addFiles();
@@ -2163,24 +2316,23 @@ function composer(S) {
       try {
         c.photoIds ||= [];
         for (let j = c.photoIds.length; j < c.files.length; j++) c.photoIds.push(await uploadPhoto(S.saleId, S.key, c.files[j].file));
-        await api(`/sale/${S.saleId}/items`, {
-          method: 'POST',
-          key: S.key,
-          body: { name: c.name.trim(), priceCents: priceCents(c), origPriceCents: parsePrice(c.orig), condition: '', note: c.note.trim(), photos: c.photoIds },
-        });
+        const body = { name: c.name.trim(), priceCents: priceCents(c), origPriceCents: parsePrice(c.orig), condition: '', note: c.note.trim(), photos: c.photoIds };
+        // The AI's other-language name goes along while the seller kept its wording; otherwise the server translates.
+        if (c.ai?.nameAlt && body.name === c.ai.name && body.note === c.ai.note && (c.ai.noteAlt || !body.note)) Object.assign(body, { nameAlt: c.ai.nameAlt, noteAlt: c.ai.noteAlt });
+        await api(`/sale/${S.saleId}/items`, { method: 'POST', key: S.key, body });
         c.files.forEach((f) => URL.revokeObjectURL(f.url));
         cards.splice(cards.indexOf(c), 1);
         done++;
       } catch (err) {
-        c.error = err.code === 'NETWORK' ? '没保存成功，网络恢复后再点一次' : err.message;
+        c.error = err.code === 'NETWORK' ? tr('没保存成功，网络恢复后再点一次', 'Not saved. Tap again once you are back online') : err.message;
         failed++;
       }
       render();
     }
     busy = false;
     render();
-    if (done) toast(`上架了 ${done} 件${failed ? `，${failed} 件没成功` : ''}`);
-    else if (failed) toast('没保存成功，网络恢复后再点一次');
+    if (done) toast(tr(`上架了 ${done} 件${failed ? `，${failed} 件没成功` : ''}`, `Listed ${done}${failed ? `, ${failed} failed` : ''}`));
+    else if (failed) toast(tr('没保存成功，网络恢复后再点一次', 'Not saved. Tap again once you are back online'));
     if (!cards.length) close();
     if (done) setTimeout(() => S.afterUpload?.(), 600);
   };
@@ -2206,7 +2358,9 @@ function itemSheet(S, itemId) {
   const sh = openSheet(() => {
     const open = it.status === 'available' || it.status === 'reserved';
     if (edit) {
-      return `<h2>编辑 ${it.no} 号</h2>
+      // The translation the other-language buyers see, editable; it follows the original's language.
+      const altLabel = textLang(edit.name) === 'zh' ? tr('英文名', 'English name') : tr('中文名', 'Chinese name');
+      return `<h2>${tr(`编辑 ${it.no} 号`, `Edit #${it.no}`)}</h2>
         <div class="group" style="padding:12px">
           <div class="photo-strip">
             ${edit.photos.map((p, j) => `<div class="t"><img src="${img(p)}" alt="">${edit.photos.length > 1 ? `<button class="x" data-act="eph-rm" data-j="${j}">✕</button>` : ''}</div>`).join('')}
@@ -2214,12 +2368,16 @@ function itemSheet(S, itemId) {
           </div>
         </div>
         <div class="group">
-          <label class="field"><span>名字</span><input class="inp" name="name" maxlength="30" value="${esc(edit.name)}"></label>
-          <label class="field"><span>价格（${esc(CURRENCIES[sale.currency].trim())}，0 = 免费送）</span><input class="inp" name="price" type="number" inputmode="decimal" min="0" step="0.01" value="${edit.priceCents / 100}"></label>
-          <label class="field"><span>原价（选填，会划掉显示在价格旁边）</span><input class="inp" name="orig" type="text" inputmode="decimal" maxlength="9" value="${edit.origPriceCents == null || Number.isNaN(edit.origPriceCents) ? '' : edit.origPriceCents / 100}"></label>
-          <label class="field"><span>详情（选填）</span><textarea class="inp" name="note" rows="3" maxlength="100" placeholder="型号、尺寸、用了多久、有没有瑕疵…">${esc(edit.note)}</textarea></label>
+          <label class="field"><span>${tr('名字', 'Name')}</span><input class="inp" name="name" maxlength="60" value="${esc(edit.name)}"></label>
+          <label class="field"><span>${tr(`价格（${esc(CURRENCIES[sale.currency].trim())}，0 = 免费送）`, `Price (${esc(CURRENCIES[sale.currency].trim())}, 0 = free)`)}</span><input class="inp" name="price" type="number" inputmode="decimal" min="0" step="0.01" value="${edit.priceCents / 100}"></label>
+          <label class="field"><span>${tr('原价（选填，会划掉显示在价格旁边）', 'Original price (optional, shown struck through)')}</span><input class="inp" name="orig" type="text" inputmode="decimal" maxlength="9" value="${edit.origPriceCents == null || Number.isNaN(edit.origPriceCents) ? '' : edit.origPriceCents / 100}"></label>
+          <label class="field"><span>${tr('详情（选填）', 'Details (optional)')}</span><textarea class="inp" name="note" rows="3" maxlength="200" placeholder="${NOTE_HINT}">${esc(edit.note)}</textarea></label>
         </div>
-        <div class="actions"><button class="btn primary block" data-act="save">保存</button><button class="btn block" data-act="cancel-edit">取消</button></div>`;
+        <div class="group">
+          <label class="field"><span>${altLabel}${tr('（自动翻译，不对可以改）', ' (auto-translated, fix it if wrong)')}</span><input class="inp" name="nameAlt" maxlength="60" value="${esc(edit.nameAlt)}" placeholder="${tr('保存后自动翻译', 'Translated after saving')}"></label>
+          <label class="field"><span>${tr('翻译的详情', 'Translated details')}</span><textarea class="inp" name="noteAlt" rows="2" maxlength="200">${esc(edit.noteAlt)}</textarea></label>
+        </div>
+        <div class="actions"><button class="btn primary block" data-act="save">${tr('保存', 'Save')}</button><button class="btn block" data-act="cancel-edit">${tr('取消', 'Cancel')}</button></div>`;
     }
     const q = it.queue;
     return `
@@ -2227,33 +2385,35 @@ function itemSheet(S, itemId) {
         <img src="${img(it.photos[0])}" style="width:72px;height:72px;border-radius:8px;object-fit:cover" alt="">
         <div class="grow">
           <div><span class="no">${it.no}</span> <b>${esc(it.name)}</b></div>
-          <div>${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)} · <span class="st ${it.status}">${statusText[it.status]}</span>${it.condition ? ` · ${CONDITIONS[it.condition]}` : ''}</div>
+          <div>${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)} · <span class="st ${it.status}">${statusText[it.status]}</span>${it.condition ? ` · ${conditionText(it.condition, LANG)}` : ''}</div>
           ${it.note ? `<div class="small muted">${esc(it.note)}</div>` : ''}
+          ${it.nameAlt ? `<div class="small muted">${textLang(it.name) === 'zh' ? 'EN' : '中'}: ${esc(it.nameAlt)}</div>` : ''}
         </div>
-        ${open ? `<button class="btn small" data-act="edit">编辑</button>` : ''}
+        ${open ? `<button class="btn small" data-act="edit">${tr('编辑', 'Edit')}</button>` : ''}
       </div>
       ${open ? `
-        <div class="small muted" style="margin:0 4px 6px">排队名单（${q.length} 人）</div>
+        <div class="small muted" style="margin:0 4px 6px">${tr(`排队名单（${q.length} 人）`, `In line (${q.length})`)}</div>
         <div class="group">
           ${q.length ? q.map((r, i) => `
             <div class="qrow ${i === 0 ? 'head' : ''}">
               <span class="pos">${i + 1}</span>
               <div class="grow">
-                <div><b>${esc(r.nickname)}</b>${r.addedBy === 'seller' ? ' <span class="small muted">（手动加）</span>' : ''}${r.wechat ? ` <button class="link-btn small" data-copy="${esc(r.wechat)}">复制微信号</button>` : ''}</div>
-                <div class="small muted">${new Date(r.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
-                ${i === 0 ? `<div class="acts"><button class="btn primary" data-act="sell">卖给他了</button><button class="btn" data-act="decline" data-seq="${r.seq}">他不要了</button></div>` : ''}
+                <div>${r.telegram ? '<span class="kind-tag tg">TG</span> ' : r.wechat ? `<span class="kind-tag wx">${tr('微信', 'WeChat')}</span> ` : ''}<b>${esc(r.nickname)}</b>${r.addedBy === 'seller' ? ` <span class="small muted">${tr('（手动加）', '(added by you)')}</span>` : ''}
+                  ${r.telegram ? ` <a class="link-btn small" href="${esc(tgChatUrl(r.telegram))}" target="_blank" rel="noopener">${tr('Telegram 发消息', 'Message')}</a>` : r.wechat ? ` <button class="link-btn small" data-copy="${esc(r.wechat)}">${tr('复制微信号', 'Copy WeChat ID')}</button>` : ''}</div>
+                <div class="small muted">${new Date(r.createdAt).toLocaleString(tr('zh-CN', 'en-GB'), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                ${i === 0 ? `<div class="acts"><button class="btn primary" data-act="sell">${tr('卖给他了', 'Sold to them')}</button><button class="btn" data-act="decline" data-seq="${r.seq}">${tr('他不要了', "They don't want it")}</button></div>` : ''}
               </div>
-              ${i > 0 ? `<button class="btn small" data-act="rmq" data-seq="${r.seq}">移除</button>` : ''}
-            </div>`).join('') : `<div class="cell muted small">还没人排队</div>`}
+              ${i > 0 ? `<button class="btn small" data-act="rmq" data-seq="${r.seq}">${tr('移除', 'Remove')}</button>` : ''}
+            </div>`).join('') : `<div class="cell muted small">${tr('还没人排队', 'Nobody in line yet')}</div>`}
         </div>
-        <div class="group"><div class="cell"><input class="inp grow" name="manual" maxlength="20" placeholder="没在这里排队的人，填称呼加到队尾"><button class="btn small" data-act="manual">手动加人</button></div></div>
+        <div class="group"><div class="cell"><input class="inp grow" name="manual" maxlength="20" placeholder="${tr('没在这里排队的人，填称呼加到队尾', "Someone who didn't reserve here? Add their name at the end")}"><button class="btn small" data-act="manual">${tr('手动加人', 'Add')}</button></div></div>
         <div class="actions">
-          ${q.length ? '' : `<button class="btn primary block" data-act="sell">已经卖掉了</button>`}
-          <button class="btn block" data-act="share-item">发这件的卡片</button>
-          <button class="btn danger block" data-act="remove">下架</button>
+          ${q.length ? '' : `<button class="btn primary block" data-act="sell">${tr('已经卖掉了', 'Already sold')}</button>`}
+          <button class="btn block" data-act="share-item">${tr('发这件的卡片', 'Share this item')}</button>
+          <button class="btn danger block" data-act="remove">${tr('下架', 'Take down')}</button>
         </div>` : it.status === 'sold'
-        ? `<div class="hint center">卖出去了！觉得好用？<button class="link-btn small" data-act="tip">请开发者喝杯咖啡</button></div>`
-        : `<div class="hint center">这件${statusText[it.status]}了</div>`}`;
+        ? `<div class="hint center">${tr('卖出去了！', 'Sold!')}${tipOn() ? ` ${tr('觉得好用？', 'Was it handy?')}<button class="link-btn small" data-act="tip">${tr('请开发者喝杯咖啡', 'Buy the developer a coffee')}</button>` : ''}</div>`
+        : `<div class="hint center">${tr(`这件${statusText[it.status]}了`, `This item is ${statusText[it.status].toLowerCase()}`)}</div>`}`;
   }, async (act, el, s) => {
     const run = async (body, msg) => {
       el.disabled = true;
@@ -2268,27 +2428,27 @@ function itemSheet(S, itemId) {
     };
     switch (act) {
       case 'sell':
-        return run({ action: 'sell' }, '已标记为已出');
+        return run({ action: 'sell' }, tr('已标记为已出', 'Marked as sold'));
       case 'decline':
-        return run({ action: 'decline', seq: Number(el.dataset.seq) }, it.queue.length > 1 ? '下一位顶上了' : '回到在售');
+        return run({ action: 'decline', seq: Number(el.dataset.seq) }, it.queue.length > 1 ? tr('下一位顶上了', 'Next in line moves up') : tr('回到在售', 'Back on sale'));
       case 'rmq':
-        if (!(await ask({ title: '把这个人移出队列？', ok: '移出', danger: true }))) return;
+        if (!(await ask({ title: tr('把这个人移出队列？', 'Remove this person from the line?'), ok: tr('移出', 'Remove'), danger: true }))) return;
         return run({ action: 'removeQueue', seq: Number(el.dataset.seq) });
       case 'manual': {
         const nickname = s.el.querySelector('[name=manual]').value.trim();
-        if (!nickname) return toast('填个称呼');
-        return run({ action: 'addManual', nickname }, '已加到队尾');
+        if (!nickname) return toast(tr('填个称呼', 'Add a name'));
+        return run({ action: 'addManual', nickname }, tr('已加到队尾', 'Added at the end'));
       }
       case 'remove':
-        if (!(await ask({ title: `下架 ${it.no} 号？`, text: '排队的人会被移出。', ok: '下架', danger: true }))) return;
-        await run({ action: 'remove' }, '已下架');
+        if (!(await ask({ title: tr(`下架 ${it.no} 号？`, `Take down #${it.no}?`), text: tr('排队的人会被移出。', 'Everyone in line is removed.'), ok: tr('下架', 'Take down'), danger: true }))) return;
+        await run({ action: 'remove' }, tr('已下架', 'Taken down'));
         return s.close();
       case 'share-item':
         return shareItem(S, it);
       case 'tip':
         return tipSheet();
       case 'edit':
-        edit = { name: it.name, priceCents: it.priceCents, origPriceCents: it.origPriceCents ?? null, condition: it.condition, note: it.note, photos: [...it.photos] };
+        edit = { name: it.name, priceCents: it.priceCents, origPriceCents: it.origPriceCents ?? null, condition: it.condition, note: it.note, photos: [...it.photos], nameAlt: it.nameAlt || '', noteAlt: it.noteAlt || '' };
         return s.refresh();
       case 'cancel-edit':
         edit = null;
@@ -2300,7 +2460,7 @@ function itemSheet(S, itemId) {
       case 'eph-add': {
         syncEdit(s);
         const fs = await pickFiles({ multiple: true });
-        const stop = loading('上传照片…');
+        const stop = loading(tr('上传照片…', 'Uploading photos…'));
         try {
           for (const f of fs.slice(0, MAX_PHOTOS - edit.photos.length)) edit.photos.push(await uploadPhoto(S.saleId, S.key, f));
         } catch (err) {
@@ -2312,14 +2472,20 @@ function itemSheet(S, itemId) {
       }
       case 'save': {
         syncEdit(s);
-        if (!edit.name) return toast('名字不能为空');
-        if (!Number.isFinite(edit.priceCents) || edit.priceCents < 0) return toast('价格不对');
-        if (Number.isNaN(edit.origPriceCents)) return toast('原价填数字，不填也行');
+        if (!edit.name) return toast(tr('名字不能为空', 'The name is required'));
+        if (!Number.isFinite(edit.priceCents) || edit.priceCents < 0) return toast(tr('价格不对', 'Invalid price'));
+        if (Number.isNaN(edit.origPriceCents)) return toast(tr('原价填数字，不填也行', 'Original price: a number, or leave it empty'));
         el.disabled = true;
+        const body = { ...edit };
+        // An untouched translation is left to the server, which redoes it if the text changed.
+        if (body.nameAlt === (it.nameAlt || '') && body.noteAlt === (it.noteAlt || '')) {
+          delete body.nameAlt;
+          delete body.noteAlt;
+        }
         try {
-          await api(`/item/${it.id}`, { method: 'PATCH', key: S.key, body: edit });
+          await api(`/item/${it.id}`, { method: 'PATCH', key: S.key, body });
           edit = null;
-          toast('已保存');
+          toast(tr('已保存', 'Saved'));
           await refreshItem();
         } catch (err) {
           toast(err.message);
@@ -2336,6 +2502,8 @@ function itemSheet(S, itemId) {
     edit.priceCents = Math.round(parseFloat(v('price') || '0') * 100);
     edit.origPriceCents = parsePrice(v('orig'));
     edit.note = v('note').trim();
+    edit.nameAlt = v('nameAlt').trim();
+    edit.noteAlt = v('noteAlt').trim();
   }
 }
 
@@ -2343,27 +2511,37 @@ function itemSheet(S, itemId) {
 
 function settingsSheet(S) {
   const { sale } = S.data();
-  const sh = openSheet(() => `<h2>设置</h2>
+  // The list's title and place in the other language, as buyers in that language see them.
+  const otherLang = textLang(sale.title) === 'zh' ? 'en' : 'zh';
+  const shown = saleText(sale, otherLang);
+  const altHtml = `<div class="group">
+      <div class="small muted" style="margin:8px 4px 0">${otherLang === 'en' ? tr('英文买家看到的（自动翻译，不对可以改）', 'What English-speaking buyers see (auto-translated, fix it if wrong)') : tr('中文买家看到的（自动翻译，不对可以改）', 'What Chinese-speaking buyers see (auto-translated, fix it if wrong)')}</div>
+      <label class="field"><span>${tr('标题', 'Title')}</span><input class="inp" name="altTitle" maxlength="60" value="${esc(sale.alt ? shown.title : '')}" placeholder="${tr('保存后自动翻译', 'Translated after saving')}"></label>
+      <label class="field"><span>${tr('取货地点', 'Pick-up place')}</span><input class="inp" name="altLocation" maxlength="60" value="${esc(sale.alt ? shown.location : '')}"></label>
+    </div>`;
+  const sh = openSheet(() => `<h2>${tr('设置', 'Settings')}</h2>
     <div class="settings-form">${saleFormHtml({ ...sale, wechatId: sale.wechatId })}</div>
+    ${altHtml}
     <div class="actions">
-      <button class="btn primary block" data-act="save">保存</button>
+      <button class="btn primary block" data-act="save">${tr('保存', 'Save')}</button>
       ${googleOn() ? (sale.ownerEmail
-        ? `<div class="hint center">已绑定 Google 账号 ${esc(sale.ownerEmail)}，换设备登录就能管理</div>`
-        : `<div class="login-card"><div class="small">用 Google 登录，清单跟着账号走</div><div class="gbtn"></div></div>`) : ''}
-      <button class="btn block" data-act="link">把管理入口发给自己（换手机、换浏览器用）</button>
-      <button class="btn block" data-act="feedback">反馈问题 / 提建议</button>
+        ? `<div class="hint center">${tr(`已绑定 Google 账号 ${esc(sale.ownerEmail)}，换设备登录就能管理`, `Linked to Google account ${esc(sale.ownerEmail)}: sign in on any device to manage`)}</div>`
+        : `<div class="login-card"><div class="small">${tr('用 Google 登录，清单跟着账号走', 'Sign in with Google so the list follows your account')}</div><div class="gbtn"></div></div>`) : ''}
+      <button class="btn block" data-act="link">${tr('把管理入口发给自己（换手机、换浏览器用）', 'Send myself the management link (for a new phone or browser)')}</button>
+      <button class="btn block" data-act="feedback">${tr('反馈问题 / 提建议', 'Feedback / ideas')}</button>
       ${sale.status === 'active'
-        ? `<button class="btn danger block" data-act="end">结束清单（对买家隐藏）</button>`
-        : `<button class="btn block" data-act="reopen">重新公开</button>`}
-      <button class="btn danger block" data-act="delete">永久删除清单</button>
+        ? `<button class="btn danger block" data-act="end">${tr('结束清单（对买家隐藏）', 'End the list (hide it from buyers)')}</button>`
+        : `<button class="btn block" data-act="reopen">${tr('重新公开', 'Reopen')}</button>`}
+      <button class="btn danger block" data-act="delete">${tr('永久删除清单', 'Delete the list for good')}</button>
     </div>
-    <label class="nearby-row" style="margin:16px 4px 6px"><input type="checkbox" data-act="aiauto" ${aiAutoOn() ? 'checked' : ''}><span>上架时自动用 AI 认出照片里是什么</span></label>
-    <div class="small muted" style="margin:0 4px 6px">AI 识别照片 · <span class="ai-status">查询中…</span></div>
-    ${inviteRowHtml()}`, async (act, el, s) => {
+    <label class="nearby-row" style="margin:16px 4px 6px"><input type="checkbox" data-act="aiauto" ${aiAutoOn() ? 'checked' : ''}><span>${tr('上架时自动用 AI 认出照片里是什么', 'Let the AI name photos when adding items')}</span></label>
+    <div class="small muted" style="margin:0 4px 6px">${tr('AI 识别照片', 'AI photo naming')} · <span class="ai-status">${tr('查询中…', 'checking…')}</span></div>
+    ${inviteRowHtml()}
+    <div class="center" style="margin-top:10px">${langSwitchHtml()}</div>`, async (act, el, s) => {
     if (act === 'invite') return useInvite(s);
     if (act === 'aiauto') {
       store.set('aiAuto', el.checked);
-      return toast(el.checked ? '上架时会自动识别照片' : '已关闭 AI 自动识别');
+      return toast(el.checked ? tr('上架时会自动识别照片', 'New photos will be named by the AI') : tr('已关闭 AI 自动识别', 'AI naming is off'));
     }
     if (act === 'feedback') {
       s.close();
@@ -2375,7 +2553,13 @@ function settingsSheet(S) {
     }
     if (act === 'save') {
       const f = readSaleForm(s.el);
-      if (!f.title || !f.wechatId || !f.location) return toast('标题、联系方式、取货地点不能为空');
+      if (!f.title || !f.location) return toast(tr('标题和取货地点不能为空', 'Title and pick-up place are required'));
+      const bad = contactError(f);
+      if (bad) return toast(bad, 2600);
+      const altTitle = s.el.querySelector('[name=altTitle]').value.trim();
+      const altLocation = s.el.querySelector('[name=altLocation]').value.trim();
+      // Sent only when the seller corrected it; otherwise the server translates the new text.
+      if (altTitle && (altTitle !== shown.title || altLocation !== shown.location || !sale.alt)) f.alt = { title: altTitle, location: altLocation };
       el.disabled = true;
       if (f.nearby && !sale.hasLocation) {
         const loc = await getLocation();
@@ -2383,7 +2567,7 @@ function settingsSheet(S) {
       }
       try {
         await api(`/sale/${S.saleId}`, { method: 'PATCH', key: S.key, body: f });
-        toast('已保存');
+        toast(tr('已保存', 'Saved'));
         s.close();
         S.reload();
       } catch (err) {
@@ -2397,11 +2581,11 @@ function settingsSheet(S) {
     }
     if (act === 'delete') {
       const yes = await ask({
-        title: '永久删除这份清单？',
-        text: '所有物品、照片和排队记录都会被删掉，不能恢复。\n只想先不让买家看到的话，用「结束清单」就行。',
-        ok: '永久删除',
+        title: tr('永久删除这份清单？', 'Delete this list for good?'),
+        text: tr('所有物品、照片和排队记录都会被删掉，不能恢复。\n只想先不让买家看到的话，用「结束清单」就行。', 'All items, photos and reservations are deleted and cannot be recovered.\nTo just hide it from buyers, use "End the list".'),
+        ok: tr('永久删除', 'Delete for good'),
         danger: true,
-        word: '删除',
+        word: tr('删除', 'delete'),
       });
       if (!yes) return;
       try {
@@ -2424,7 +2608,7 @@ function settingsSheet(S) {
   buyerToken(true);
   api('/ai/quota').then((q) => {
     const el = sh.el.querySelector('.ai-status');
-    if (el) el.textContent = q.unlimited ? '已用邀请码，不限次数' : `这台手机还剩 ${q.left} 次`;
+    if (el) el.textContent = q.unlimited ? tr('已用邀请码，不限次数', 'Invite code: unlimited') : tr(`这台手机还剩 ${q.left} 次`, `${q.left} left on this phone`);
   }).catch(() => {});
 }
 
@@ -2433,17 +2617,17 @@ function endSheet(S) {
   const { sale, items, soldCents } = S.data();
   const sold = items.filter((i) => i.status === 'sold').length;
   const days = Math.max(1, Math.ceil((Date.now() - sale.createdAt) / (24 * HOUR)));
-  openSheet(() => `<h2>结束这份清单？</h2>
+  openSheet(() => `<h2>${tr('结束这份清单？', 'End this list?')}</h2>
     <div class="end-summary">
-      <div class="small muted">这次清仓</div>
-      <div class="end-big">${sold ? `卖出 ${sold} 件，收回 ${esc(money(soldCents, sale.currency))}` : '还没有卖出的东西'}</div>
-      <div class="small muted">上架 ${items.length} 件 · 用了 ${days} 天</div>
+      <div class="small muted">${tr('这次清仓', 'This sale')}</div>
+      <div class="end-big">${sold ? tr(`卖出 ${sold} 件，收回 ${esc(money(soldCents, sale.currency))}`, `${sold} sold, ${esc(money(soldCents, sale.currency))} earned`) : tr('还没有卖出的东西', 'Nothing sold yet')}</div>
+      <div class="small muted">${tr(`上架 ${items.length} 件 · 用了 ${days} 天`, `${items.length} listed · ${days} ${days === 1 ? 'day' : 'days'}`)}</div>
     </div>
-    <div class="hint" style="padding:0 2px 10px">结束后，买家打开链接会看到「已经结束」和附近还在卖的东西，所有排队会被取消。你还能在这里看到它，随时可以重新公开。</div>
-    <div class="highlight keep-block"><b>下次还要用？</b>搬家、帮朋友出东西时，打开二手清单首页就能新建一份。${store.get('kept', false) ? '' : '<br><a href="/keep?save=1">☆ 收藏「二手清单」</a>'}</div>
+    <div class="hint" style="padding:0 2px 10px">${tr('结束后，买家打开链接会看到「已经结束」和附近还在卖的东西，所有排队会被取消。你还能在这里看到它，随时可以重新公开。', 'Buyers opening the link will see that it ended, plus things still for sale nearby, and every reservation is cancelled. You still see it here and can reopen it any time.')}</div>
+    <div class="highlight keep-block"><b>${tr('下次还要用？', 'Need it again?')}</b> ${tr('搬家、帮朋友出东西时，打开二手清单首页就能新建一份。', 'Next move, or helping a friend sell, start a new list from the home page.')}${store.get('kept', false) ? '' : `<br><a href="/keep?save=1">☆ ${tr('收藏「二手清单」', 'Keep Secondhand List')}</a>`}</div>
     <div class="actions">
-      <button class="btn danger-solid big block" data-act="end">结束清单</button>
-      <button class="btn block" data-act="close">先不结束</button>
+      <button class="btn danger-solid big block" data-act="end">${tr('结束清单', 'End the list')}</button>
+      <button class="btn block" data-act="close">${tr('先不结束', 'Keep it open')}</button>
     </div>`, async (act, el, s) => {
     if (act === 'close') return s.close();
     if (act !== 'end') return;
@@ -2471,49 +2655,94 @@ function isCardHere(url) {
   return isWeChat && cardSession() && new URL(url).pathname === location.pathname;
 }
 
+// Where the seller is posting: WeChat groups (card + text, two messages) or Telegram groups
+// (one message whose link Telegram turns into a preview). Remembered per phone.
+function shareTarget() {
+  return store.get('shareTarget', '') || (isTelegram || (LANG === 'en' && !isWeChat) ? 'telegram' : 'wechat');
+}
+
+// Language of what goes out to a group, which can differ from the seller's own UI:
+// a Chinese seller posting in an English Telegram group writes Chinese and shares English.
+function shareLang(target) {
+  return target === 'telegram' ? store.get('shareLangTg', 'en') : store.get('shareLangWx', LANG);
+}
+
+// The link a Telegram group gets: src=tg makes the preview English and the page default to
+// Telegram contacts; cl=zh keeps the preview Chinese for a Chinese group.
+function tgLink(url, lang) {
+  return `${url}?src=tg${lang === 'zh' ? '&cl=zh' : ''}`;
+}
+
 function shareSheet(S) {
   const { sale } = S.data();
   const here = isCardHere(publicUrl(S));
-  openSheet(() => `<h2>分享到群</h2>
-    <div class="share-step">
-      <div class="small muted">推荐：按顺序发两条</div>
-      <button class="btn primary big block" data-act="card"><span class="step-no">1</span>发卡片</button>
-      <div class="small muted step-why">群友点卡片就能看大图、预订</div>
-      <button class="btn primary big block" data-act="text"><span class="step-no">2</span>发文字</button>
-      <div class="small muted step-why">接着粘贴物品清单，不点开也知道有什么、多少钱</div>
-    </div>
-    <div class="small muted" style="margin:10px 4px 0">可以发到好几个群：大家排的是同一个队，先到先得，不会撞单。</div>
-    <div class="share-or"><span>或者</span></div>
+  let target = shareTarget();
+  const sh = openSheet(() => {
+    const seg = `<div class="seg share-target">${[['wechat', tr('发到微信群', 'WeChat groups')], ['telegram', tr('发到 Telegram 群', 'Telegram groups')]]
+      .map(([k, l]) => `<button class="${target === k ? 'on' : ''}" data-act="target" data-t="${k}">${l}</button>`).join('')}</div>`;
+    const imageBtn = `<div class="share-or"><span>${tr('或者', 'or')}</span></div>
     <div class="actions">
-      <button class="btn big block" data-act="image">直接发清单图</button>
-      <div class="small muted center">一张长图，所有东西和价格都在上面，扫码进来预订</div>
+      <button class="btn big block" data-act="image">${tr('直接发清单图', 'Post a picture of the list')}</button>
+      <div class="small muted center">${tr('一张长图，所有东西和价格都在上面，扫码进来预订', 'One long picture with every item and price, and a QR code to reserve')}</div>
+    </div>`;
+    const multi = `<div class="small muted" style="margin:10px 4px 0">${tr('可以发到好几个群（微信、Telegram 都行）：大家排的是同一个队，先到先得，不会撞单。', 'Post it to as many groups as you like, WeChat and Telegram alike: everyone joins the same line, first come first served, no double-selling.')}</div>`;
+    if (target === 'telegram') {
+      return `<h2>${tr('分享到群', 'Share to groups')}</h2>${seg}
+      <div class="share-step">
+        <button class="btn primary big block" data-act="tgtext">${tr('写好文字，发到 Telegram', 'Write the post and send it to Telegram')}</button>
+        <div class="small muted step-why">${tr('一条消息就够：开头一句、链接、物品清单。Telegram 会把链接变成带图的预览，群友点开就能看大图、预订。', 'One message does it: a line, the link, the item list. Telegram turns the link into a preview with a picture; people tap it to see photos and reserve.')}</div>
+      </div>
+      ${multi}
+      ${imageBtn}`;
+    }
+    return `<h2>${tr('分享到群', 'Share to groups')}</h2>${seg}
+    <div class="share-step">
+      <div class="small muted">${tr('推荐：按顺序发两条', 'Best: send these two, in order')}</div>
+      <button class="btn primary big block" data-act="card"><span class="step-no">1</span>${tr('发卡片', 'Send the card')}</button>
+      <div class="small muted step-why">${tr('群友点卡片就能看大图、预订', 'People tap the card to see photos and reserve')}</div>
+      <button class="btn primary big block" data-act="text"><span class="step-no">2</span>${tr('发文字', 'Send the text')}</button>
+      <div class="small muted step-why">${tr('接着粘贴物品清单，不点开也知道有什么、多少钱', "Then paste the item list, so people see what's there and the prices without opening it")}</div>
     </div>
+    ${multi}
+    ${imageBtn}
     <div class="share-help">
-      <div class="survey-title">怎么分享图文卡片出去？</div>
+      <div class="survey-title">${tr('怎么分享图文卡片出去？', 'How do I send a card in WeChat?')}</div>
       <div class="group"><div class="cell small" style="display:block;line-height:1.9">
-        ${here ? `这个页面转发出去就是卡片，可以直接转发：<br>
+        ${here ? tr(`这个页面转发出去就是卡片，可以直接转发：<br>
         1. 点右上角 <b>···</b> →「发送给朋友」→ 选群，发出去就是卡片<br>
-        2. 回来点「发文字」，复制后粘贴到同一个群` : `
+        2. 回来点「发文字」，复制后粘贴到同一个群`, `This page already forwards as a card:<br>
+        1. Tap <b>···</b> at the top right → Send to Chat → pick the group<br>
+        2. Come back, tap "Send the text", copy it and paste it in the same group`) : tr(`
         1. 点上面的「发卡片」，会出现一个二维码<br>
         2. ${isWeChat ? '<b>长按二维码</b> →「识别图中二维码」' : '保存二维码图片，发到微信「文件传输助手」，在微信里<b>长按这张图</b> →「识别图中二维码」'}<br>
         3. 页面打开后，点右上角 <b>···</b> →「发送给朋友」→ 选群，发出去就是卡片<br>
-        4. 回来点「发文字」，复制后粘贴到同一个群`}
+        4. 回来点「发文字」，复制后粘贴到同一个群`, `
+        1. Tap "Send the card" above; a QR code appears<br>
+        2. ${isWeChat ? '<b>Long-press the QR code</b> → Scan QR Code in Image' : 'Save the QR picture and send it to WeChat File Transfer; in WeChat, <b>long-press it</b> → Scan QR Code in Image'}<br>
+        3. On the page that opens, tap <b>···</b> → Send to Chat → pick the group: it goes as a card<br>
+        4. Come back, tap "Send the text", copy it and paste it in the same group`)}
       </div></div>
-      ${here ? '' : `<div class="small muted" style="margin:0 4px">别直接点链接打开再转发，那样微信只会发出一串网址。群里有了卡片以后，别人从卡片点进去再转发，也是卡片。</div>`}
-    </div>`, async (act, el, s) => {
-    if (act === 'text') {
+      ${here ? '' : `<div class="small muted" style="margin:0 4px">${tr('别直接点链接打开再转发，那样微信只会发出一串网址。群里有了卡片以后，别人从卡片点进去再转发，也是卡片。', "Don't open the link directly and forward it: WeChat would only send a bare URL. Once a card is in a group, anyone opening it can forward it as a card too.")}</div>`}
+    </div>`;
+  }, async (act, el, s) => {
+    if (act === 'target') {
+      target = el.dataset.t;
+      store.set('shareTarget', target);
+      return s.refresh();
+    }
+    if (act === 'text' || act === 'tgtext') {
       s.close();
-      return textSheet(S);
+      return textSheet(S, target);
     }
     if (act === 'image') {
       s.close();
-      return saveSaleImage(S);
+      return saveSaleImage(S, shareLang(target));
     }
     if (act === 'card') {
       s.close();
-      const stop = loading('正在生成卡片图…');
+      const stop = loading(tr('正在生成卡片图…', 'Making the card picture…'));
       try {
-        await uploadCover(S);
+        await uploadCover(S, shareLang('wechat'));
       } catch {
         // The card still works with the first item photo as fallback.
       } finally {
@@ -2522,45 +2751,73 @@ function shareSheet(S) {
       return sendCard(publicUrl(S), sale.title);
     }
   });
+  return sh;
 }
 
-// Editable group text. The opening line is the seller's own (remembered per list);
-// the item list below 【物品清单】 is regenerated every time so it is never stale.
-function textSheet(S) {
+// Editable group text. The opening line is the seller's own (remembered per list, app and language);
+// the item list below the list mark is regenerated every time so it is never stale.
+// For Telegram the link goes right under the opening line, and the card picture is refreshed in the
+// background so the preview shows what is for sale now.
+function textSheet(S, target = 'wechat') {
   const { sale, items } = S.data();
-  const intros = store.get('shareIntro', {});
-  const opts = { prices: false, compact: false, ...store.get('shareTextOpts', {}) };
-  const text = shareText(sale, items, { ...opts, intro: stripLinks(intros[S.saleId]) || defaultIntro(sale) });
-  const canShare = !isWeChat && !!navigator.share;
+  const tg = target === 'telegram';
+  let lang = shareLang(target);
+  const optsKey = tg ? 'shareTextOptsTg' : 'shareTextOpts';
+  const opts = { prices: tg, compact: false, ...store.get(optsKey, {}) };
+  const introKey = () => (!tg && lang === 'zh' ? S.saleId : `${S.saleId}:${target}:${lang}`);
+  const link = () => (tg ? tgLink(publicUrl(S), lang) : '');
+  const def = () => defaultIntro(sale, { lang, target });
+  const build = (intro) => shareText(sale, items, { ...opts, lang, target, link: link(), intro: intro || def() });
+  const introOf = (t) => stripLinks(t.split(listMark(lang))[0]).trim();
+  const canShare = !isWeChat && !isTelegram && !!navigator.share;
+  if (tg) uploadCover(S, lang).catch(() => {});
   const remember = (t) => {
-    const intro = t.split(LIST_MARK)[0].trim();
+    const intro = introOf(t);
     const all = store.get('shareIntro', {});
-    if (intro && intro !== defaultIntro(sale)) all[S.saleId] = intro;
-    else delete all[S.saleId];
+    if (intro && intro !== def()) all[introKey()] = intro;
+    else delete all[introKey()];
     store.set('shareIntro', all);
   };
-  const sh = openSheet(() => `<h2>群文字</h2>
-    <div class="hint" style="padding-top:0">开头那段可以随便改，下次会记住；${LIST_MARK}下面每次按最新状态重新生成。</div>
-    <textarea class="inp boxed share-text" rows="12">${esc(text)}</textarea>
+  const text = () => build(stripLinks(store.get('shareIntro', {})[introKey()]));
+  const sh = openSheet(() => `<h2>${tg ? tr('Telegram 群文字', 'Telegram post') : tr('群文字', 'Group text')}</h2>
+    <div class="seg small share-lang">${[['zh', '中文'], ['en', 'English']].map(([k, l]) => `<button class="${lang === k ? 'on' : ''}" data-act="lang" data-l="${k}">${l}</button>`).join('')}</div>
+    <div class="hint" style="padding-top:0">${tr(`开头那段可以随便改，下次会记住；${esc(listMark(lang))}下面每次按最新状态重新生成。`, `Rewrite the opening as you like, it is remembered; everything under ${esc(listMark(lang))} is rebuilt from the latest list.`)}${lang !== textLang(sale.title) ? tr('物品名用的是自动翻译，不对的话在物品里改。', ' Item names are auto-translated; fix any in the item itself.') : ''}</div>
+    <textarea class="inp boxed share-text" rows="12">${esc(text())}</textarea>
     <div class="share-opts">
-      <label class="nearby-row"><input type="checkbox" data-act="prices" ${opts.prices ? 'checked' : ''}><span>带价格</span></label>
-      <label class="nearby-row"><input type="checkbox" data-act="compact" ${opts.compact ? 'checked' : ''}><span>紧凑（用 · 隔开，不换行）</span></label>
+      <label class="nearby-row"><input type="checkbox" data-act="prices" ${opts.prices ? 'checked' : ''}><span>${tr('带价格', 'With prices')}</span></label>
+      <label class="nearby-row"><input type="checkbox" data-act="compact" ${opts.compact ? 'checked' : ''}><span>${tr('紧凑（用 · 隔开，不换行）', 'Compact (one line, separated by ·)')}</span></label>
     </div>
     <div class="actions" style="margin-top:12px">
-      <button class="btn primary block" data-act="copy">复制，去群里粘贴</button>
-      ${canShare ? `<button class="btn block" data-act="share">分享到微信</button>` : ''}
-      <button class="link-btn small" data-act="reset" style="margin:4px auto 0">恢复默认开头</button>
-    </div>`, async (act, el, s) => {
+      ${tg ? `<button class="btn primary block" data-act="tgsend">${tr('在 Telegram 里选群发送', 'Pick a Telegram group and send')}</button>
+      <button class="btn block" data-act="copy">${tr('复制，去群里粘贴', 'Copy, then paste in the group')}</button>`
+        : `<button class="btn primary block" data-act="copy">${tr('复制，去群里粘贴', 'Copy, then paste in the group')}</button>`}
+      ${canShare && !tg ? `<button class="btn block" data-act="share">${tr('分享到微信', 'Share…')}</button>` : ''}
+      <button class="link-btn small" data-act="reset" style="margin:4px auto 0">${tr('恢复默认开头', 'Reset the opening')}</button>
+    </div>
+    ${tg ? `<div class="small muted" style="margin:8px 4px 0">${tr('Telegram 的预览图是发送那一刻的样子；卖掉的东西在页面上会实时更新。', 'The Telegram preview shows the list as it was when sent; the page itself is always live.')}</div>` : ''}`,
+  async (act, el, s) => {
     const box = s.el.querySelector('.share-text');
     const t = box.value;
+    if (act === 'lang') {
+      remember(t);
+      lang = el.dataset.l;
+      store.set(tg ? 'shareLangTg' : 'shareLangWx', lang);
+      if (tg) uploadCover(S, lang).catch(() => {});
+      return s.refresh();
+    }
     if (act === 'prices' || act === 'compact') {
       opts[act] = el.checked;
-      store.set('shareTextOpts', opts);
-      box.value = shareText(sale, items, { ...opts, intro: t.split(LIST_MARK)[0].trim() || defaultIntro(sale) });
+      store.set(optsKey, opts);
+      box.value = build(introOf(t));
     }
     if (act === 'copy') {
       remember(t);
-      copy(t, '已复制，去群里粘贴');
+      copy(t, tr('已复制，去群里粘贴', 'Copied, paste it in the group'));
+    }
+    if (act === 'tgsend') {
+      remember(t);
+      // Telegram's share page puts the link first and the text under it, so the text goes without it.
+      location.href = tgShareUrl(link(), t.replace(link(), '').replace(/\n{3,}/g, '\n\n').trim());
     }
     if (act === 'share') {
       remember(t);
@@ -2570,16 +2827,29 @@ function textSheet(S) {
     }
     if (act === 'reset') {
       const all = store.get('shareIntro', {});
-      delete all[S.saleId];
+      delete all[introKey()];
       store.set('shareIntro', all);
-      box.value = shareText(sale, items, opts);
+      box.value = build('');
     }
   });
   return sh;
 }
 
+// One item: a WeChat card (QR code first), or its link for Telegram.
 function shareItem(S, it) {
-  return sendCard(`${publicUrl(S)}/i/${it.no}`, it.name);
+  const url = `${publicUrl(S)}/i/${it.no}`;
+  if (isWeChat) return sendCard(url, it.name);
+  const lang = shareLang('telegram');
+  const t = itemText(it, lang);
+  openSheet(() => `<h2>${tr('发这件', 'Share this item')}</h2>
+    <div class="actions">
+      <a class="btn primary block" href="${esc(tgShareUrl(tgLink(url, lang), `${t.name} ${moneyIn(it.priceCents, S.data().sale.currency, lang)}`))}">${tr('发到 Telegram', 'Send to Telegram')}</a>
+      <button class="btn block" data-act="wechat">${tr('发微信卡片', 'Send a WeChat card')}</button>
+    </div>`, (act, el, s) => {
+    if (act !== 'wechat') return;
+    s.close();
+    sendCard(url, it.name);
+  });
 }
 
 // WeChat forwards a page opened from a chat link as a bare URL, but a page opened by scanning
@@ -2587,14 +2857,13 @@ function shareItem(S, it) {
 // anyone who opens it and forwards it sends a card too.
 async function sendCard(url, what) {
   if (isCardHere(url)) {
-    return openSheet(() => `<h2>发卡片</h2>
+    return openSheet(() => `<h2>${tr('发卡片', 'Send the card')}</h2>
       <div class="group"><div class="cell small" style="display:block;line-height:1.9">
-        这个页面转发出去就是卡片，不用再扫码：<br>
-        点右上角 <b>···</b> →「发送给朋友」→ 选群，发出去就是卡片
+        ${tr('这个页面转发出去就是卡片，不用再扫码：<br>点右上角 <b>···</b> →「发送给朋友」→ 选群，发出去就是卡片', 'This page forwards as a card, no QR code needed:<br>tap <b>···</b> at the top right → Send to Chat → pick the group')}
       </div></div>
       <div class="actions">
-        <button class="btn block" data-act="close">好了</button>
-        <button class="link-btn small" data-act="not-card" style="margin:4px auto 0">发出去只是一串网址？改用二维码</button>
+        <button class="btn block" data-act="close">${tr('好了', 'Done')}</button>
+        <button class="link-btn small" data-act="not-card" style="margin:4px auto 0">${tr('发出去只是一串网址？改用二维码', 'Only a bare link got sent? Use the QR code')}</button>
       </div>`, (act, el, s) => {
       if (act === 'close') s.close();
       if (act === 'not-card') {
@@ -2604,7 +2873,7 @@ async function sendCard(url, what) {
       }
     });
   }
-  const stop = loading('正在生成二维码…');
+  const stop = loading(tr('正在生成二维码…', 'Making the QR code…'));
   let src;
   try {
     const qrUrl = new URL(url);
@@ -2613,19 +2882,19 @@ async function sendCard(url, what) {
   } finally {
     stop();
   }
-  if (!src) return toast('二维码没生成出来，检查网络再试');
-  openSheet(() => `<h2>发卡片</h2>
-    <div class="qr-card"><img src="${src}" alt="${esc(what)} 的二维码"><div class="small muted">${esc(what)}</div></div>
+  if (!src) return toast(tr('二维码没生成出来，检查网络再试', "The QR code didn't load; check your connection and try again"));
+  openSheet(() => `<h2>${tr('发卡片', 'Send the card')}</h2>
+    <div class="qr-card"><img src="${src}" alt="${esc(what)} QR"><div class="small muted">${esc(what)}</div></div>
     <div class="group"><div class="cell small" style="display:block;line-height:1.9">
       ${isWeChat
-        ? `1. <b>长按上面的二维码</b> →「识别图中二维码」<br>2. 打开后点右上角 <b>···</b> →「发送给朋友」→ 选群`
-        : `1. 长按二维码保存图片（或截图），发到微信「文件传输助手」<br>2. 在微信里长按这张图 →「识别图中二维码」<br>3. 打开后点右上角 <b>···</b> →「发送给朋友」→ 选群`}
+        ? tr(`1. <b>长按上面的二维码</b> →「识别图中二维码」<br>2. 打开后点右上角 <b>···</b> →「发送给朋友」→ 选群`, `1. <b>Long-press the QR code</b> → Scan QR Code in Image<br>2. On the page that opens, tap <b>···</b> → Send to Chat → pick the group`)
+        : tr(`1. 长按二维码保存图片（或截图），发到微信「文件传输助手」<br>2. 在微信里长按这张图 →「识别图中二维码」<br>3. 打开后点右上角 <b>···</b> →「发送给朋友」→ 选群`, `1. Save the QR picture (or screenshot it) and send it to WeChat File Transfer<br>2. In WeChat, long-press it → Scan QR Code in Image<br>3. On the page that opens, tap <b>···</b> → Send to Chat → pick the group`)}
     </div></div>
-    <div class="hint" style="padding-top:0">要从二维码打开再转发：直接点链接打开的页面，微信只会转发成一串网址。群里有了卡片，别人从卡片点进去再转发，也都是卡片。</div>
+    <div class="hint" style="padding-top:0">${tr('要从二维码打开再转发：直接点链接打开的页面，微信只会转发成一串网址。群里有了卡片，别人从卡片点进去再转发，也都是卡片。', 'Open it from the QR code before forwarding: a page opened from a plain link forwards as a bare URL in WeChat. Once a card is in a group, anyone opening it forwards a card too.')}</div>
     <div class="actions">
-      ${isWeChat ? '' : `<a class="btn block" download="二维码.png" href="${src}">下载二维码图片</a>`}
-      <button class="btn block" data-act="close">好了</button>
-      ${isWeChat && new URL(url).pathname === location.pathname ? `<button class="link-btn small" data-act="is-card" style="margin:4px auto 0">这页转发出去已经是卡片了？不用扫码</button>` : ''}
+      ${isWeChat ? '' : `<a class="btn block" download="qr.png" href="${src}">${tr('下载二维码图片', 'Download the QR picture')}</a>`}
+      <button class="btn block" data-act="close">${tr('好了', 'Done')}</button>
+      ${isWeChat && new URL(url).pathname === location.pathname ? `<button class="link-btn small" data-act="is-card" style="margin:4px auto 0">${tr('这页转发出去已经是卡片了？不用扫码', 'This page already forwards as a card? Skip the QR code')}</button>` : ''}
     </div>`, (act, el, s) => {
     if (act === 'close') s.close();
     if (act === 'is-card') {
@@ -2749,8 +3018,9 @@ async function loadAll(ids) {
 }
 
 // 9.1: square 2×2 grid of the first 4 available items — WeChat crops card thumbnails to a square.
-async function uploadCover(S) {
+async function uploadCover(S, lang = LANG) {
   const { sale, items } = S.data();
+  const L = (zh, en) => (lang === 'en' ? en : zh);
   const pick = [...items.filter((i) => i.status === 'available'), ...items.filter((i) => i.status === 'reserved')].slice(0, 4);
   if (!pick.length) return;
   const size = 600;
@@ -2771,17 +3041,18 @@ async function uploadCover(S) {
     const [x, y, w, h] = cells[k] || cells[cells.length - 1];
     if (!cells[k]) return;
     if (ims[k]) drawCover(g, ims[k], x + 2, y + 2, w - 4, h - 4);
-    drawPriceTag(g, money(it.priceCents, sale.currency), x + w - 12, y + h - 12, 30);
+    drawPriceTag(g, moneyIn(it.priceCents, sale.currency, lang), x + w - 12, y + h - 12, 30);
   });
   g.fillStyle = BLUE;
   g.fillRect(0, ph, size, band);
   g.fillStyle = YELLOW;
   g.font = `900 40px ${FONT}`;
-  g.fillText(`在售 ${items.filter((i) => i.status === 'available').length} 件`, 22, size - 28);
+  const n = items.filter((i) => i.status === 'available').length;
+  g.fillText(L(`在售 ${n} 件`, `${n} for sale`), 22, size - 28);
   g.textAlign = 'right';
   g.fillStyle = '#fff';
-  g.font = `700 32px ${FONT}`;
-  g.fillText('二手清单', size - 22, size - 30);
+  g.font = `700 ${lang === 'en' ? 26 : 32}px ${FONT}`;
+  g.fillText(L('二手清单', 'Secondhand List'), size - 22, size - 30);
   g.textAlign = 'left';
   const blob = await canvasBlob(c, 0.85);
   const form = new FormData();
@@ -2804,29 +3075,31 @@ async function qrMatrix(text) {
 }
 
 // 9.2: 1080px wide, 3 columns, available + reserved items, max 30 per image, QR at the bottom.
-async function saveSaleImage(S) {
-  const stop = loading('正在生成清单图…');
+async function saveSaleImage(S, lang = LANG) {
+  const stop = loading(tr('正在生成清单图…', 'Making the list picture…'));
   try {
     const { sale, items } = S.data();
     const list = [...items.filter((i) => i.status === 'available'), ...items.filter((i) => i.status === 'reserved')];
     if (!list.length) {
-      toast('还没有在售的东西');
+      toast(tr('还没有在售的东西', 'Nothing for sale yet'));
       return;
     }
-    const url = publicUrl(S);
+    const url = shareTarget() === 'telegram' ? tgLink(publicUrl(S), lang) : publicUrl(S);
     const qr = await qrMatrix(url);
     const pages = [];
     for (let i = 0; i < list.length; i += 30) pages.push(list.slice(i, i + 30));
     const out = [];
     const counts = Object.fromEntries(['available', 'reserved', 'sold'].map((st) => [st, items.filter((i) => i.status === st).length]));
-    for (let pi = 0; pi < pages.length; pi++) out.push(await drawSalePage(sale, pages[pi], qr, url, pi, pages.length, counts));
+    for (let pi = 0; pi < pages.length; pi++) out.push(await drawSalePage(sale, pages[pi], qr, url, pi, pages.length, counts, lang));
     showImages(out);
   } finally {
     stop();
   }
 }
 
-async function drawSalePage(sale, list, qr, url, pi, pn, counts) {
+async function drawSalePage(sale, list, qr, url, pi, pn, counts, lang = LANG) {
+  const L = (zh, en) => (lang === 'en' ? en : zh);
+  const st = saleText(sale, lang);
   const W = 1080;
   const pad = 30;
   const gap = 15;
@@ -2849,20 +3122,21 @@ async function drawSalePage(sale, list, qr, url, pi, pn, counts) {
 
   g.fillStyle = '#111';
   g.font = `800 56px ${FONT}`;
-  g.fillText(fitText(g, sale.title + (pn > 1 ? `（${pi + 1}/${pn}）` : ''), W - pad * 2), pad, 90);
+  g.fillText(fitText(g, st.title + (pn > 1 ? ` (${pi + 1}/${pn})` : ''), W - pad * 2), pad, 90);
   g.font = `400 34px ${FONT}`;
   g.fillStyle = '#484848';
-  g.fillText(fitText(g, '📍 ' + sale.location + (sale.leaveDate ? ` · ${dateText(sale.leaveDate)}前出完` : ''), W - pad * 2), pad, 145);
-  if (sale.rules.length) {
+  const until = sale.leaveDate ? L(` · ${dateText(sale.leaveDate, lang)}前出完`, ` · until ${dateText(sale.leaveDate, lang)}`) : '';
+  g.fillText(fitText(g, '📍 ' + st.location + until, W - pad * 2), pad, 145);
+  if (st.rules.length) {
     g.font = `400 28px ${FONT}`;
     g.fillStyle = '#888';
-    g.fillText(fitText(g, sale.rules.join(' · '), W - pad * 2), pad, 190);
+    g.fillText(fitText(g, st.rules.join(' · '), W - pad * 2), pad, 190);
   }
   // Status line + bar: blue = sold, yellow = reserved.
   const total = counts.available + counts.reserved + counts.sold;
   g.font = `800 32px ${FONT}`;
   g.fillStyle = '#111';
-  g.fillText(`在售 ${counts.available} · 已预订 ${counts.reserved} · 已出 ${counts.sold}`, pad, 240);
+  g.fillText(L(`在售 ${counts.available} · 已预订 ${counts.reserved} · 已出 ${counts.sold}`, `${counts.available} for sale · ${counts.reserved} reserved · ${counts.sold} sold`), pad, 240);
   g.fillStyle = '#e6e6e6';
   g.fillRect(pad, 256, W - pad * 2, 16);
   g.fillStyle = YELLOW;
@@ -2877,15 +3151,15 @@ async function drawSalePage(sale, list, qr, url, pi, pn, counts) {
     g.fillStyle = '#f5f5f5';
     g.fillRect(x, y, cell, cell);
     if (ims[k]) drawCover(g, ims[k], x, y, cell, cell);
-    if (it.status === 'reserved') drawStamp(g, '已预订', x + cell / 2, y + cell / 2, 40, '#111');
+    if (it.status === 'reserved') drawStamp(g, L('已预订', 'Reserved'), x + cell / 2, y + cell / 2, 40, '#111');
     g.fillStyle = '#111';
     g.font = `800 30px ${FONT}`;
-    g.fillText(fitText(g, it.name, cell - 8), x + 2, y + cell + 40);
-    const price = money(it.priceCents, sale.currency);
+    g.fillText(fitText(g, itemText(it, lang).name, cell - 8), x + 2, y + cell + 40);
+    const price = moneyIn(it.priceCents, sale.currency, lang);
     g.font = `900 30px ${FONT}`;
     const tagRight = x + 2 + g.measureText(price).width + 18;
     drawPriceTag(g, price, tagRight, y + cell + 90, 30);
-    if (it.origPriceCents > it.priceCents) drawStruck(g, money(it.origPriceCents, sale.currency), tagRight + 12, y + cell + 71, x + cell);
+    if (it.origPriceCents > it.priceCents) drawStruck(g, moneyIn(it.origPriceCents, sale.currency, lang), tagRight + 12, y + cell + 71, x + cell);
   });
 
   const fy = H - footH + 30;
@@ -2903,10 +3177,10 @@ async function drawSalePage(sale, list, qr, url, pi, pn, counts) {
   }
   g.fillStyle = YELLOW;
   g.font = `800 40px ${FONT}`;
-  g.fillText(qr ? '长按识别 · 先到先得' : '打开链接排队', qx + qs + 36, qy + 80);
+  g.fillText(qr ? L('长按识别 · 先到先得', 'Scan to reserve · first come') : L('打开链接排队', 'Open the link to reserve'), qx + qs + 36, qy + 80);
   g.font = `400 30px ${FONT}`;
   g.fillStyle = '#fff';
-  g.fillText('页面实时更新，显示「预订」就是还在', qx + qs + 36, qy + 130);
+  g.fillText(fitText(g, L('页面实时更新，显示「预订」就是还在', 'Live page: "Reserve" means still available'), W - pad * 2 - qs - 100), qx + qs + 36, qy + 130);
   g.font = `400 24px ${FONT}`;
   g.fillStyle = 'rgba(255,255,255,0.75)';
   g.fillText(fitText(g, url, W - pad * 2 - qs - 100), qx + qs + 36, qy + 175);
@@ -2919,10 +3193,11 @@ async function drawSalePage(sale, list, qr, url, pi, pn, counts) {
   g.fillRect(pad + 24, by + 22, 170, 52);
   g.fillStyle = YELLOW;
   g.font = `900 34px ${FONT}`;
-  g.fillText('二手清单', pad + 40, by + 61);
+  g.font = `900 ${lang === 'en' ? 22 : 34}px ${FONT}`;
+  g.fillText(L('二手清单', 'Secondhand List'), pad + 40, by + (lang === 'en' ? 57 : 61));
   g.fillStyle = '#111';
   g.font = `700 31px ${FONT}`;
-  g.fillText('搬家出闲置：拍照上架，群友自己排队', pad + 220, by + 60);
+  g.fillText(fitText(g, L('搬家出闲置：拍照上架，群友自己排队', 'Moving out? Snap, list, buyers line up'), W - pad * 2 - 230), pad + 220, by + 60);
   return c.toDataURL('image/jpeg', 0.86);
 }
 
@@ -2930,16 +3205,16 @@ function showImages(urls) {
   const el = document.createElement('div');
   el.className = 'imgview';
   el.innerHTML = `
-    <div class="tip">${isWeChat ? '长按图片 → 保存图片' : '长按图片保存到相册（电脑上点下面的按钮下载）'}</div>
-    ${urls.map((u, i) => `<img src="${u}" alt="清单图 ${i + 1}"><div class="center" style="margin:-6px 0 18px"><a class="btn small" download="清单图-${i + 1}.jpg" href="${u}">下载第 ${i + 1} 张</a></div>`).join('')}
-    <div class="bottom-bar" style="background:#111;border-top-color:#333"><div class="inner"><button class="btn big">关闭</button></div></div>`;
+    <div class="tip">${isWeChat ? tr('长按图片 → 保存图片', 'Long-press the picture → Save') : tr('长按图片保存到相册（电脑上点下面的按钮下载）', 'Long-press to save to your photos (on a computer, use the download button)')}</div>
+    ${urls.map((u, i) => `<img src="${u}" alt="${tr('清单图', 'List picture')} ${i + 1}"><div class="center" style="margin:-6px 0 18px"><a class="btn small" download="${tr('清单图', 'list')}-${i + 1}.jpg" href="${u}">${tr(`下载第 ${i + 1} 张`, `Download picture ${i + 1}`)}</a></div>`).join('')}
+    <div class="bottom-bar" style="background:#111;border-top-color:#333"><div class="inner"><button class="btn big">${tr('关闭', 'Close')}</button></div></div>`;
   el.querySelector('.bottom-bar button').onclick = () => el.remove();
   document.body.appendChild(el);
 }
 
 // ---------- AI photo recognition ----------
 
-const SURVEY = [
+const SURVEY = tr([
   {
     key: 'slowest',
     q: '上一次出二手（搬家、毕业、回国），最花时间的是哪一步？',
@@ -2956,19 +3231,35 @@ const SURVEY = [
     q: 'AI 识别每次都有成本。如果以后要分担一点，哪种你最能接受？',
     options: ['出一份清单付一次，1–2 块钱', '看一段 15 秒广告，换几次识别', '都不想要，我自己打字就行', '别的方式（写在下面）'],
   },
-];
+], [
+  {
+    key: 'slowest',
+    q: 'Last time you sold your stuff (moving, graduating, leaving), which step took the most time?',
+    options: ['Photos and descriptions', 'Answering "still available?" and price questions', 'Tracking who wants what, who was first', 'Arranging pick-up times', 'Something else'],
+  },
+  {
+    key: 'hours',
+    q: 'Roughly how much time did those things take, all in all?',
+    options: ['Under 1 hour', '1–3 hours', '3–10 hours', 'Over 10 hours', "Can't remember"],
+  },
+  {
+    key: 'pay',
+    q: 'Every AI recognition costs money. If you chipped in later, which would you accept most?',
+    options: ['Pay once per list, 1–2 euros', 'Watch a 15-second ad for a few tries', "Neither, I'll type", 'Something else (write below)'],
+  },
+]);
 
 function inviteRowHtml() {
-  return `<div class="group"><div class="cell"><input class="inp grow" name="invite" maxlength="20" placeholder="有邀请码？填在这里" autocapitalize="characters"><button class="btn small" data-act="invite">使用</button></div></div>`;
+  return `<div class="group"><div class="cell"><input class="inp grow" name="invite" maxlength="20" placeholder="${tr('有邀请码？填在这里', 'Invite code?')}" autocapitalize="characters"><button class="btn small" data-act="invite">${tr('使用', 'Use')}</button></div></div>`;
 }
 
 async function useInvite(s, onDone) {
   const code = s.el.querySelector('[name=invite]')?.value.trim();
-  if (!code) return toast('填一下邀请码');
+  if (!code) return toast(tr('填一下邀请码', 'Enter the code'));
   buyerToken(true);
   try {
     await api('/ai/invite', { method: 'POST', body: { code } });
-    toast('邀请码有效，AI 识别不限次数');
+    toast(tr('邀请码有效，AI 识别不限次数', 'Code accepted: unlimited AI naming'));
     s.close();
     onDone?.();
   } catch (err) {
@@ -2981,7 +3272,7 @@ async function nudge(el) {
   el.disabled = true;
   try {
     const { total } = await api('/ai/nudge', { method: 'POST', body: {} });
-    el.textContent = `已催！开发者已经被 ${total} 个人催着充钱了`;
+    el.textContent = tr(`已催！开发者已经被 ${total} 个人催着充钱了`, `Nagged! ${total} people are now on the developer's case to top up`);
   } catch (err) {
     toast(err.message);
     el.disabled = false;
@@ -2997,25 +3288,25 @@ function feedbackSheet() {
   const role = path.startsWith('/manage/') ? 'seller' : path.startsWith('/s/') || path === '/my' ? 'buyer' : '';
   const shots = []; // { url } object URLs of picked screenshots
   let text = '';
-  let contact = store.get('buyerWechat', '');
+  let contact = store.get('buyerTelegram', '') ? `@${store.get('buyerTelegram', '')}` : store.get('buyerWechat', '');
   // Typed text lives here: refresh() re-renders the sheet when screenshots change.
   const sync = (s) => {
     text = s.el.querySelector('[name=fb]').value;
     contact = s.el.querySelector('[name=fbc]').value;
   };
-  const sh = openSheet(() => `<h2>反馈问题 / 提建议</h2>
+  const sh = openSheet(() => `<h2>${tr('反馈问题 / 提建议', 'Feedback / ideas')}</h2>
     <div class="group">
-      <label class="field"><span>想说什么</span><textarea class="inp" name="fb" rows="4" maxlength="1000" placeholder="哪里不好用、出了什么错、想要什么功能，都可以说">${esc(text)}</textarea></label>
-      <div class="field"><span>截图（选填，最多 ${FEEDBACK_MAX_SHOTS} 张）</span>
+      <label class="field"><span>${tr('想说什么', 'What would you like to say?')}</span><textarea class="inp" name="fb" rows="4" maxlength="1000" placeholder="${tr('哪里不好用、出了什么错、想要什么功能，都可以说', "What's awkward, what broke, what you wish it did")}">${esc(text)}</textarea></label>
+      <div class="field"><span>${tr(`截图（选填，最多 ${FEEDBACK_MAX_SHOTS} 张）`, `Screenshots (optional, up to ${FEEDBACK_MAX_SHOTS})`)}</span>
         <div class="photo-strip" style="margin-top:6px">
           ${shots.map((p, j) => `<div class="t"><img src="${p.url}" alt=""><button class="x" data-act="rm" data-j="${j}">✕</button></div>`).join('')}
           ${shots.length < FEEDBACK_MAX_SHOTS ? `<button class="addph" data-act="add">＋</button>` : ''}
         </div>
       </div>
-      <label class="field"><span>你的微信号（选填）</span><input class="inp" type="text" name="fbc" maxlength="60" value="${esc(contact)}"></label>
+      <label class="field"><span>${tr('你的微信号或 Telegram（选填）', 'Your Telegram or WeChat (optional)')}</span><input class="inp" type="text" name="fbc" maxlength="60" value="${esc(contact)}"></label>
     </div>
-    <div class="hint" style="padding-top:0">一张截图比一段话说得清楚。留微信号，开发者需要细问时能找到你。会自动附上你在哪个页面、用的什么手机。</div>
-    <div class="actions"><button class="btn primary big block" data-act="send">发送</button></div>`, async (act, el, s) => {
+    <div class="hint" style="padding-top:0">${tr('一张截图比一段话说得清楚。留个联系方式，开发者需要细问时能找到你。会自动附上你在哪个页面、用的什么手机。', 'A screenshot says more than a paragraph. Leave a contact so the developer can ask follow-ups. The page you are on and your phone model are attached.')}</div>
+    <div class="actions"><button class="btn primary big block" data-act="send">${tr('发送', 'Send')}</button></div>`, async (act, el, s) => {
     sync(s);
     if (act === 'add') {
       const fs = await pickFiles({ multiple: true });
@@ -3027,7 +3318,7 @@ function feedbackSheet() {
       return s.refresh();
     }
     if (act !== 'send') return;
-    if (!text.trim() && !shots.length) return toast('写一句或者传张截图吧');
+    if (!text.trim() && !shots.length) return toast(tr('写一句或者传张截图吧', 'Write a line or add a screenshot'));
     buyerToken(true);
     el.disabled = true;
     try {
@@ -3036,7 +3327,7 @@ function feedbackSheet() {
       // Screenshots are mostly text: a larger long edge than item photos keeps them readable.
       for (const p of shots) form.append('shot', await resize(await loadImage(p.url), 1600, 0.8), 'shot.jpg');
       await api('/feedback', { method: 'POST', form });
-      toast('收到了，谢谢！');
+      toast(tr('收到了，谢谢！', 'Got it, thanks!'));
       s.close();
     } catch (err) {
       toast(err.message);
@@ -3046,8 +3337,14 @@ function feedbackSheet() {
   setTimeout(() => sh.el.querySelector('[name=fb]')?.focus(), 250);
 }
 
-// WeChat 赞赏码. We can't see payments, so "我打赏了" is taken on trust (the server grants the bonus once per device).
+// Two ways to tip: the WeChat 赞赏码 for Chinese users, and a web tip page (TIP_URL, e.g. Ko-fi or
+// PayPal.me) for everyone else, Telegram users included. We can't see payments, so "我打赏了" is
+// taken on trust (the server grants the bonus once per device).
 const TIP_QR = '/tip-qr.png';
+const tipUrl = () => CFG.tipUrl || '';
+const wechatTipOn = () => LANG === 'zh' || isWeChat;
+// Whether this viewer has any way to tip; without one, tip buttons are left out.
+const tipOn = () => wechatTipOn() || !!tipUrl();
 
 async function tipSheet(onRegain) {
   buyerToken(true);
@@ -3055,16 +3352,17 @@ async function tipSheet(onRegain) {
   try {
     q = await api('/ai/quota');
   } catch {}
-  openSheet(() => `<h2>打赏开发者</h2>
-    <div class="hint center" style="padding-top:0">AI 识别是开发者自掏腰包付的。你打赏，他充 AI，大家接着薅。</div>
-    <img class="tip-qr" src="${TIP_QR}" alt="微信赞赏码">
-    <div class="hint center">${isWeChat ? '长按二维码，选「识别图中二维码」' : '截图，在微信「扫一扫」里从相册选这张图'}</div>
-    <div class="actions"><button class="btn primary big block" data-act="tipped">${q.tipped ? '我打赏了' : '我打赏了，送我 100 次 AI 识别'}</button></div>`, async (act, el, s) => {
+  openSheet(() => `<h2>${tr('打赏开发者', 'Tip the developer')}</h2>
+    <div class="hint center" style="padding-top:0">${tr('AI 识别是开发者自掏腰包付的。你打赏，他充 AI，大家接着薅。', 'The AI runs on the developer\'s own money. You tip, the developer tops it up, everyone keeps freeloading.')}</div>
+    ${tipUrl() ? `<div class="actions"><a class="btn ${wechatTipOn() ? '' : 'primary big'} block" href="${esc(tipUrl())}" target="_blank" rel="noopener">☕ ${tr('请开发者喝杯咖啡（PayPal / 银行卡）', 'Buy the developer a coffee')}</a></div>` : ''}
+    ${wechatTipOn() ? `<img class="tip-qr" src="${TIP_QR}" alt="${tr('微信赞赏码', 'WeChat tip code')}">
+    <div class="hint center">${isWeChat ? tr('长按二维码，选「识别图中二维码」', 'Long-press the QR code → Scan QR Code in Image') : tr('截图，在微信「扫一扫」里从相册选这张图', 'Screenshot it, then pick it from your album in WeChat Scan')}</div>` : ''}
+    <div class="actions"><button class="btn ${wechatTipOn() ? 'primary big' : ''} block" data-act="tipped">${q.tipped ? tr('我打赏了', 'I tipped') : tr('我打赏了，送我 100 次 AI 识别', 'I tipped, give me 100 AI tries')}</button></div>`, async (act, el, s) => {
     if (act !== 'tipped') return;
     el.disabled = true;
     try {
       const r = await api('/ai/tip', { method: 'POST', body: {} });
-      toast(r.granted ? `谢谢打赏！送你 ${r.bonus} 次 AI 识别` : '谢谢打赏！');
+      toast(r.granted ? tr(`谢谢打赏！送你 ${r.bonus} 次 AI 识别`, `Thank you! ${r.bonus} AI tries added`) : tr('谢谢打赏！', 'Thank you!'));
       s.close();
       if (r.granted) onRegain?.();
     } catch (err) {
@@ -3076,11 +3374,11 @@ async function tipSheet(onRegain) {
 
 // Global cap reached (or the free model allowance is used up).
 function aiBusySheet() {
-  openSheet(() => `<h2>今天的 AI 额度被薅完了</h2>
-    <div class="hint" style="padding-top:0">AI 识别是开发者自掏腰包付的，今天的额度已经被大家用光了，明天会恢复。自己填名字也很快。<br>想让开发者赶紧加钱？点下面催一下，催的人越多，他越不好意思不充。</div>
+  openSheet(() => `<h2>${tr('今天的 AI 额度被薅完了', "Today's free AI got freeloaded dry")}</h2>
+    <div class="hint" style="padding-top:0">${tr('AI 识别是开发者自掏腰包付的，今天的额度已经被大家用光了，明天会恢复。自己填名字也很快。<br>想让开发者赶紧加钱？点下面催一下，催的人越多，他越不好意思不充。', "The AI runs on the developer's own money and today's share is gone; it's back tomorrow. Typing a name is quick too.<br>Want the developer to cough up more? Nag below: the more people nag, the more embarrassing it gets not to.")}</div>
     <div class="actions">
-      <button class="btn primary big block" data-act="nudge">催开发者充钱</button>
-      <button class="btn big block" data-act="tip">打赏开发者，帮他充钱</button>
+      <button class="btn primary big block" data-act="nudge">${tr('催开发者充钱', 'Nag the developer to pay up')}</button>
+      ${tipOn() ? `<button class="btn big block" data-act="tip">${tr('打赏开发者，帮他充钱', 'Tip so the developer can top up')}</button>` : ''}
     </div>
     <div style="margin-top:12px">${inviteRowHtml()}</div>`, (act, el, s) => {
     if (act === 'nudge') nudge(el);
@@ -3099,11 +3397,12 @@ async function aiLimitSheet(onRegain) {
     q = await api('/ai/quota');
   } catch {}
   if (!q.surveyDone) return surveySheet(onRegain);
-  openSheet(() => `<h2>你的免费次数薅完了</h2>
-    <div class="hint" style="padding-top:0">AI 识别是开发者自掏腰包付的，每人先送这么多次。自己填名字也很快。<br>还想接着用？催开发者加预算吧，催的人多了他就会加。</div>
+  const tipBtn = !q.tipped && tipOn();
+  openSheet(() => `<h2>${tr('你的免费次数薅完了', "You've freeloaded all your free tries")}</h2>
+    <div class="hint" style="padding-top:0">${tr('AI 识别是开发者自掏腰包付的，每人先送这么多次。自己填名字也很快。<br>还想接着用？催开发者加预算吧，催的人多了他就会加。', "The AI runs on the developer's own money, so everyone gets this many to start. Typing a name is quick too.<br>Want more? Nag the developer to raise the budget; enough nagging and it happens.")}</div>
     <div class="actions">
-      ${q.tipped ? '' : `<button class="btn primary big block" data-act="tip">打赏开发者，送你 100 次</button>`}
-      <button class="btn ${q.tipped ? 'primary ' : ''}big block" data-act="nudge">催开发者加预算</button>
+      ${tipBtn ? `<button class="btn primary big block" data-act="tip">${tr('打赏开发者，送你 100 次', 'Tip the developer, get 100 tries')}</button>` : ''}
+      <button class="btn ${tipBtn ? '' : 'primary '}big block" data-act="nudge">${tr('催开发者加预算', 'Nag the developer for more budget')}</button>
     </div>
     <div style="margin-top:12px">${inviteRowHtml()}</div>`, (act, el, s) => {
     if (act === 'nudge') nudge(el);
@@ -3118,20 +3417,20 @@ async function aiLimitSheet(onRegain) {
 // Three Mom-Test style questions about what actually happened last time, not opinions.
 function surveySheet(onRegain) {
   const a = { slowest: '', hours: '', pay: '', detail: '', contact: '' };
-  const sh = openSheet(() => `<div class="quota-out">送你的 3 次 AI 识图用完啦</div>
-    <h2>想听听你的真实想法</h2>
-    <div class="hint" style="padding-top:0">这是我们自己做的小工具，还在摸索怎么做才真正好用。AI 识别每用一次，开发者都要自掏腰包付一点钱，所以先送了 3 次。<br>想请你花半分钟，按真实情况回答 3 个问题。你的回答会直接影响我们接下来做什么。作为感谢，<b>再送你 10 次</b>。</div>
+  const sh = openSheet(() => `<div class="quota-out">${tr('送你的 3 次 AI 识图用完啦', 'Your 3 free AI tries are used up')}</div>
+    <h2>${tr('想听听你的真实想法', "We'd love your honest take")}</h2>
+    <div class="hint" style="padding-top:0">${tr('这是我们自己做的小工具，还在摸索怎么做才真正好用。AI 识别每用一次，开发者都要自掏腰包付一点钱，所以先送了 3 次。<br>想请你花半分钟，按真实情况回答 3 个问题。你的回答会直接影响我们接下来做什么。作为感谢，<b>再送你 10 次</b>。', 'This is a small tool we made ourselves, still figuring out what makes it truly useful. Every AI recognition costs the developer a little, so you got 3 to start.<br>Could you spend half a minute answering 3 questions about what actually happened? Your answers shape what we build next. As thanks, <b>10 more tries</b>.')}</div>
     ${SURVEY.map((s, i) => `
       <div class="survey-q">
         <div class="survey-title">${i + 1}. ${esc(s.q)}</div>
         <div class="seg">${s.options.map((o) => `<button class="${a[s.key] === o ? 'on' : ''}" data-act="pick" data-k="${s.key}" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div>
       </div>`).join('')}
     <div class="group" style="margin-top:12px">
-      <label class="field"><span>为什么这么选？或者任何想法（选填）</span><input class="inp" name="detail" maxlength="200" value="${esc(a.detail)}"></label>
-      <label class="field"><span>愿意让我们再问你两句的话，留个微信（选填）</span><input class="inp" name="contact" maxlength="60" value="${esc(a.contact)}"></label>
+      <label class="field"><span>${tr('为什么这么选？或者任何想法（选填）', 'Why? Or any thoughts (optional)')}</span><input class="inp" name="detail" maxlength="200" value="${esc(a.detail)}"></label>
+      <label class="field"><span>${tr('愿意让我们再问你两句的话，留个微信或 Telegram（选填）', 'Happy to answer a follow-up? Leave your Telegram or WeChat (optional)')}</span><input class="inp" name="contact" maxlength="60" value="${esc(a.contact)}"></label>
     </div>
     <div class="actions">
-      <button class="btn primary big block" data-act="submit">提交，再送 10 次</button>
+      <button class="btn primary big block" data-act="submit">${tr('提交，再送 10 次', 'Send, get 10 more')}</button>
     </div>
     <div style="margin-top:12px">${inviteRowHtml()}</div>`, async (act, el, s) => {
     const sync = () => {
@@ -3148,13 +3447,13 @@ function surveySheet(onRegain) {
     if (act === 'invite') useInvite(s, onRegain);
     if (act === 'submit') {
       sync();
-      if (!a.slowest || !a.hours || !a.pay) return toast('三道题都选一下就好');
+      if (!a.slowest || !a.hours || !a.pay) return toast(tr('三道题都选一下就好', 'Please answer all three'));
       buyerToken(true);
       el.disabled = true;
       try {
         const q = await api('/ai/survey', { method: 'POST', body: a });
         s.close();
-        toast(`谢谢你！又送了 10 次，现在还剩 ${q.left ?? '不限'} 次`);
+        toast(tr(`谢谢你！又送了 10 次，现在还剩 ${q.left ?? '不限'} 次`, `Thank you! 10 more added, ${q.left ?? 'unlimited'} left`));
         onRegain?.();
       } catch (err) {
         toast(err.message);
@@ -3221,7 +3520,8 @@ const nearbyCache = {};
 
 function kmText(km) {
   if (km == null) return '';
-  return km < 1 ? '1 公里内' : `约 ${km < 10 ? km.toFixed(1) : Math.round(km)} 公里`;
+  const n = km < 10 ? km.toFixed(1) : Math.round(km);
+  return km < 1 ? tr('1 公里内', 'within 1 km') : tr(`约 ${n} 公里`, `about ${n} km`);
 }
 
 // "附近的二手" as an inline feed: newest first, or by distance once the viewer shares a location.
@@ -3247,36 +3547,36 @@ function mountNearbyFeed(root) {
       return;
     }
     const cityName = data?.city || '';
-    const empty = scope === 'near' ? '10 公里内还没有公开的东西。' : `${cityName ? esc(cityName) + ' ' : ''}还没有公开的东西。`;
+    const empty = scope === 'near' ? tr('10 公里内还没有公开的东西。', 'Nothing listed within 10 km yet.') : tr(`${cityName ? esc(cityName) + ' ' : ''}还没有公开的东西。`, `Nothing listed${cityName ? ` in ${esc(cityName)}` : ''} yet.`);
     root.innerHTML = `
       <div class="feed-head">
-        <b>附近的二手</b>
+        <b>${tr('附近的二手', 'Secondhand nearby')}</b>
         <div class="chips feed-tabs">
-          <button class="chip ${scope === 'city' ? 'on' : ''}" data-scope="city">同城${cityName && scope === 'city' ? ` · ${esc(cityName)}` : ''}</button>
-          <button class="chip ${scope === 'near' ? 'on' : ''}" data-scope="near">附近 10 公里</button>
+          <button class="chip ${scope === 'city' ? 'on' : ''}" data-scope="city">${tr('同城', 'This city')}${cityName && scope === 'city' ? ` · ${esc(cityName)}` : ''}</button>
+          <button class="chip ${scope === 'near' ? 'on' : ''}" data-scope="near">${tr('附近 10 公里', 'Within 10 km')}</button>
         </div>
       </div>
-      ${!data ? `<div class="empty">加载中…</div>`
+      ${!data ? `<div class="empty">${tr('加载中…', 'Loading…')}</div>`
         : items.length ? `<div class="grid">${items.map((it) => `
           <a class="tile nearby-tile" href="/s/${esc(it.saleId)}/i/${it.no}">
             <div class="ph"><div class="track"><span><img src="${img(it.photo)}" loading="lazy" alt=""></span></div></div>
             <div class="info">
               <div class="sub">${moneyHtml(it.priceCents, it.currency, it.origPriceCents)}</div>
-              <div class="name">${esc(it.name)}</div>
-              <div class="extra">📍 ${esc(it.location)}${it.km != null ? ` · ${kmText(it.km)}` : ''}</div>
+              <div class="name">${esc(itemT(it).name)}</div>
+              <div class="extra">📍 ${esc(it.locationAlt && textLang(it.location) !== LANG ? it.locationAlt : it.location)}${it.km != null ? ` · ${kmText(it.km)}` : ''}</div>
             </div>
           </a>`).join('')}</div>`
-        : `<div class="empty">${empty}<br>你要出二手的话，发一份清单，这里就能看到。</div>`}`;
+        : `<div class="empty">${empty}<br>${tr('你要出二手的话，发一份清单，这里就能看到。', 'Selling something? Post a list and it shows up here.')}</div>`}`;
   };
   root.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-scope]');
     if (!b || b.dataset.scope === scope) return;
     if (b.dataset.scope === 'near' && !loc) {
       b.disabled = true;
-      b.textContent = '定位中…';
+      b.textContent = tr('定位中…', 'Locating…');
       const p = await getLocation();
       if (!p) {
-        toast('没拿到位置，可以在手机设置里允许浏览器使用位置');
+        toast(tr('没拿到位置，可以在手机设置里允许浏览器使用位置', 'No location: allow the browser to use it in your phone settings'));
         return render();
       }
       // Only the rounded position is kept, and only on this phone.
@@ -3300,8 +3600,8 @@ function mountNearbyFeeds() {
 function nearbyPage() {
   $app.innerHTML = `${nearbyEntryHtml()}
     <div style="padding:24px 16px 8px;display:flex;gap:10px;justify-content:center">
-      <a class="btn small" href="/my">我的排队</a>
-      <a class="btn small" href="/new">我也要发清单</a>
+      <a class="btn small" href="/my">${tr('我的排队', 'My reservations')}</a>
+      <a class="btn small" href="/new">${tr('我也要发清单', 'Make my own list')}</a>
     </div>`;
   mountNearbyFeeds();
 }
