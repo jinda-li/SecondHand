@@ -464,6 +464,9 @@ img { display: block; max-width: 100%; }
 .orig-text { margin-top: 8px; }
 .orig-text summary { cursor: pointer; }
 .lang-bar { display: flex; justify-content: flex-end; padding: 8px 12px 0; }
+.head-row { display: flex; align-items: flex-start; gap: 10px; }
+.head-row h1 { flex: 1; min-width: 0; }
+.head-row .lang-seg { flex: none; margin-top: 3px; }
 .lang-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; font-size: 13px; background: #fff; }
 .lang-seg b, .lang-seg button { padding: 4px 12px; line-height: 1.4; }
 .lang-seg b { background: #111; color: #fff; font-weight: 700; }

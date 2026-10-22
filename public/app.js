@@ -628,10 +628,12 @@ function localKey(saleId) {
 
 
 // 中文 | English at the top of every page, the current one highlighted; switching reloads the page.
-function langBarHtml() {
-  return `<div class="lang-bar"><span class="lang-seg">${[['zh', '中文'], ['en', 'English']]
-    .map(([k, l]) => (k === LANG ? `<b>${l}</b>` : `<button data-lang-switch>${l}</button>`)).join('')}</span></div>`;
+// The manage page puts it beside the list's title instead, so it takes no row of its own.
+function langSegHtml() {
+  return `<span class="lang-seg">${[['zh', '中文'], ['en', 'English']]
+    .map(([k, l]) => (k === LANG ? `<b>${l}</b>` : `<button data-lang-switch>${l}</button>`)).join('')}</span>`;
 }
+const langBarHtml = () => `<div class="lang-bar">${langSegHtml()}</div>`;
 
 function ownerBanner(sale) {
   return `<div class="banner">${tr('这是买家看到的样子。你是卖家，不能预订自己的东西。', 'This is what buyers see. You are the seller, so you can\'t reserve your own things.')}</div>`;
@@ -1782,7 +1784,8 @@ function manage(saleId) {
   let key = sellerKey(saleId);
   const params = new URLSearchParams(location.search);
   let data = null;
-  let tab = 'all';
+  // Opens on what is still to sell (for sale or reserved); sold items have a tab of their own.
+  let tab = 'open';
   let sort = store.get('manageSort', 'no');
   let checkedThisOpen = false;
   let hiddenAt = 0;
@@ -1811,12 +1814,13 @@ function manage(saleId) {
   const render = () => {
     const { sale, items, soldCents } = data;
     const count = (st) => items.filter((i) => i.status === st).length;
-    const list = sortItems(tab === 'all' ? items : items.filter((i) => i.status === tab), sort);
+    const list = sortItems(items.filter((i) => (tab === 'open' ? i.status === 'available' || i.status === 'reserved' : i.status === tab)), sort);
     const ended = sale.status === 'ended';
     document.title = tr(`管理｜${sale.title}`, `Manage | ${sale.title}`);
+    document.querySelector('.lang-bar')?.remove();
     $app.innerHTML = `
       <div class="topbar"><button class="btn fit" data-act="lists"><span>${tr('我的清单', 'Lists')} (${store.get('mySales', []).length})</span>▾</button><a class="btn fit" href="/s/${sale.id}"><span>${tr('买家视角', 'Buyer view')}</span></a><button class="btn" data-act="settings" aria-label="${tr('设置', 'Settings')}">⚙</button><button class="btn rec-btn" data-recommend>🎁 ${tr('推荐朋友', 'Invite')}</button></div>
-      <div class="head" style="padding-top:8px"><h1>${esc(sale.title)}</h1><div class="meta">📍 ${esc(sale.location)}</div></div>
+      <div class="head" style="padding-top:8px"><div class="head-row"><h1>${esc(sale.title)}</h1>${langSegHtml()}</div><div class="meta">📍 ${esc(sale.location)}</div></div>
       ${ended ? `<div class="banner">${tr('这份清单已结束：买家打开链接会看到「清单已经不见了」。', 'This list has ended: buyers opening the link see that it is gone.')}<br><button class="btn small primary" style="margin-top:8px" data-act="reopen">${tr('重新公开', 'Reopen')}</button></div>` : ''}
       ${ended ? '' : renewBannerHtml(sale, data.now)}
       ${linkSaved(saleId) ? '' : `<div class="banner">${tr('还没把管理入口发给自己：换手机或在微信里打开时，没有它就管理不了这份清单。', "You haven't sent yourself the management link yet: on a new phone or another app, you can't manage this list without it.")}<br><button class="btn small primary" style="margin-top:8px" data-act="savelink">${tr('发给自己', 'Send it to myself')}</button></div>`}
@@ -1827,7 +1831,7 @@ function manage(saleId) {
         <div class="stat-earned"><b>${esc(soldCents ? money(soldCents, sale.currency) : CURRENCIES[sale.currency].trim() + '0')}</b><span>${tr('已收回', 'Earned')}</span></div>
       </div>
       <div class="chips">
-        ${[['all', tr('全部', 'All')], ['available', statusText.available], ['reserved', statusText.reserved], ['sold', statusText.sold]].map(([k, l]) => `<button class="chip ${tab === k ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('')}
+        ${[['open', tr('未出', 'Open')], ['available', statusText.available], ['reserved', statusText.reserved], ['sold', statusText.sold]].map(([k, l]) => `<button class="chip ${tab === k ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('')}
       </div>
       ${list.length > 1 ? `<div class="list-bar end">${sortSegHtml(sort)}</div>` : ''}
       ${items.length === 0 ? `<div class="empty">${tr('拍张照、填个价格，就上架了。', 'Snap a photo, add a price, and it is listed.')}<br><br><button class="btn primary" data-act="compose">${tr('选照片', 'Choose photos')}</button></div>`
