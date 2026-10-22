@@ -1279,7 +1279,8 @@ async function createSale() {
 // ---------- 7.2 buyer sale page ----------
 
 // Grid tile: swipeable photos, price + name, and the queue button right on the sale page.
-function tileHtml(sale, it, mine) {
+// badge: '新' / '降价' in the photo's corner, or nothing.
+function tileHtml(sale, it, mine, badge = '') {
   const my = mine?.[it.id];
   const ended = sale.status === 'ended';
   let stamp = '';
@@ -1299,6 +1300,7 @@ function tileHtml(sale, it, mine) {
         <div class="track">${it.photos.map((p, k) => `<a href="/s/${sale.id}/i/${it.no}"><img src="${img(p)}" ${k ? 'loading="lazy"' : ''} alt=""></a>`).join('')}</div>
         <span class="ph-price${it.priceCents === 0 ? ' free' : ''}">${esc(money(it.priceCents, sale.currency))}</span>
         ${it.photos.length > 1 ? `<span class="dots">${it.photos.map((_, k) => `<i class="${k ? '' : 'on'}"></i>`).join('')}</span>` : ''}
+        ${badge ? `<span class="badge">${badge}</span>` : ''}
         ${stamp}
       </div>
       <div class="info">
@@ -1369,6 +1371,28 @@ function sortItems(items, sort) {
   return [...items].sort((a, b) => (a.priceCents == null) - (b.priceCents == null) || dir * (a.priceCents - b.priceCents) || a.no - b.no);
 }
 
+// Buyers' default: the day an item was listed or last marked down, newest first, so a list
+// that keeps growing shows what's new at the top. Same day: by number, as the seller listed them.
+const freshAt = (it) => Math.max(it.createdAt || 0, it.droppedAt || 0);
+const dayOf = (t) => new Date(t).setHours(0, 0, 0, 0);
+function sortRecent(items) {
+  return [...items].sort((a, b) => dayOf(freshAt(b)) - dayOf(freshAt(a)) || a.no - b.no);
+}
+
+// A marked-down item keeps its tag this long.
+const DROP_TAG_MS = 7 * 86400_000;
+// Reloads within this window count as one visit, so the "new" tags don't vanish on a refresh.
+const VISIT_GAP_MS = 30 * 60_000;
+
+// When this buyer last came to the list before the current visit (null on a first visit).
+function previousVisit(saleId, t) {
+  const key = `seen:${saleId}`;
+  const v = store.get(key, null);
+  if (v && t - v.at < VISIT_GAP_MS) return v.prev;
+  store.set(key, { at: t, prev: v?.at ?? null });
+  return v?.at ?? null;
+}
+
 // Brand mark: the tag icon with the name, so people remember (and can search for) 二手清单.
 const LOGO = `<a class="logo" href="/"><img src="/icon.svg" alt="" width="34" height="34"><span class="logo-txt"><b>${APP_NAME}</b><small>${tr('AI识别 · 多群同步', 'AI photos · all your groups')}</small></span></a>`;
 
@@ -1396,8 +1420,8 @@ function sortSegHtml(sort) {
 function buyerSale(saleId) {
   // Assume seller view right away if this browser holds the key; the refetch below confirms it.
   let data = BOOT.sale ? { ...BOOT, isOwner: !!localKey(saleId) } : null;
-  let showSold = false;
   let sort = store.get('buyerSort', 'no');
+  let lastVisit;
 
   const render = () => {
     if (!data) {
@@ -1406,11 +1430,19 @@ function buyerSale(saleId) {
     }
     const { sale, items, now, mine, contact, isOwner } = data;
     const st = saleT(sale);
+    // Sold items aren't shown to buyers at all.
     const avail = items.filter((i) => i.status === 'available');
     const reserved = items.filter((i) => i.status === 'reserved');
-    const sold = items.filter((i) => i.status === 'sold');
     const ended = sale.status === 'ended';
-    const list = [...sortItems(avail, sort), ...sortItems(reserved, sort)];
+    const order = (arr) => (sort === 'no' ? sortRecent(arr) : sortItems(arr, sort));
+    const list = [...order(avail), ...order(reserved)];
+    if (lastVisit === undefined) lastVisit = isOwner ? null : previousVisit(saleId, now);
+    const badge = (it) => {
+      if (isOwner || it.status !== 'available') return '';
+      if (lastVisit && it.createdAt > lastVisit) return tr('新', 'New');
+      return it.droppedAt && now - it.droppedAt < DROP_TAG_MS ? tr('降价', 'Price cut') : '';
+    };
+    const newCount = avail.filter((it) => lastVisit && it.createdAt > lastVisit).length;
     document.title = tr(`${st.title}｜在售 ${avail.length} 件`, `${st.title} | ${avail.length} for sale`);
     // Corner: newcomers are asked to save the tool; people already using it, to pass it on.
     const keepTag = !isOwner && !ended && keepWanted();
@@ -1428,13 +1460,10 @@ function buyerSale(saleId) {
       ${sale.paused ? `<div class="banner">${tr('卖家暂停了这份清单，暂时不能排队', 'The seller paused this list; reservations are closed for now')}</div>` : ''}
       ${isOwner ? ownerBanner(sale) : ''}${contact || ended || sale.paused ? '' : `<div class="how-line">${tr('点「预订」排队，排到第 1 位就能看到卖家联系方式。显示「预订」的都还在。', "Tap Reserve to get in line; when you're first, you'll see how to reach the seller. Anything showing Reserve is still available.")}</div>`}
       ${contact ? contactHtml(contact) : ''}
-      <div class="list-bar"><div class="hint">${statusText.available} ${avail.length} · ${statusText.reserved} ${reserved.length} · ${statusText.sold} ${sold.length}</div>
+      <div class="list-bar"><div class="hint">${statusText.available} ${avail.length} · ${statusText.reserved} ${reserved.length}${newCount ? ` · <b class="new-count">${tr(`上次来过后新增 ${newCount} 件`, `${newCount} new since last visit`)}</b>` : ''}</div>
         ${list.length > 1 ? sortSegHtml(sort) : ''}</div>
-      ${list.length ? `<div class="grid">${list.map((it) => tileHtml(sale, it, mine)).join('')}</div>`
+      ${list.length ? `<div class="grid">${list.map((it) => tileHtml(sale, it, mine, badge(it))).join('')}</div>`
         : `<div class="empty">${items.length ? tr('都卖完了', 'All sold') : tr('卖家还没上架东西', 'Nothing listed yet')}</div>`}
-      ${sold.length ? (showSold
-        ? `<div class="hint">${tr(`已出 ${sold.length} 件`, `${sold.length} sold`)}</div><div class="grid">${sold.map((it) => tileHtml(sale, it, mine)).join('')}</div>`
-        : `<button class="link-btn fold" data-sold>${tr(`已出 ${sold.length} 件（展开）`, `${sold.length} sold (show)`)}</button>`) : ''}
       ${isOwner ? `<div class="bottom-bar"><div class="inner">
         <a class="btn big" href="/manage/${sale.id}">${tr('回到管理', 'Manage')}</a>
         ${ended || sale.paused ? '' : `<button class="btn primary big" data-owner-share>${tr('分享到群', 'Share')}</button>`}
@@ -1448,10 +1477,6 @@ function buyerSale(saleId) {
   };
 
   $app.addEventListener('click', (e) => {
-    if (e.target.closest('[data-sold]')) {
-      showSold = true;
-      render();
-    }
     if (e.target.closest('[data-feedback]')) feedbackSheet();
     if (e.target.closest('[data-promo-x]')) {
       store.set('promoHidden', true);

@@ -444,6 +444,8 @@ function mapItem(r, t) {
     status: r.status,
     statusCheckedAt: r.status_checked_at,
     maybeSold: r.status === 'reserved' && t - r.status_checked_at > MAYBE_SOLD_MS,
+    createdAt: r.created_at,
+    droppedAt: r.price_dropped_at ?? null,
   };
 }
 
@@ -919,6 +921,7 @@ async function updateItem(env, ctx, sale, item, b) {
   } else retranslate = !item.name_alt;
   const t = now();
   if ('price_cents' in f && f.price_cents !== item.price_cents) f.price_changed_at = t;
+  if (f.price_cents != null && item.price_cents != null && f.price_cents < item.price_cents) f.price_dropped_at = t;
   f.status_checked_at = t;
   f.updated_at = t;
   const cols = Object.keys(f);
