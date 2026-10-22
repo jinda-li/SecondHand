@@ -113,11 +113,11 @@ export function defaultIntro(sale, { lang = 'zh', target = 'wechat' } = {}) {
   const where = saleText(sale, lang).location;
   if (target === 'telegram') {
     return lang === 'en'
-      ? `Selling my stuff — ${where}. Photos and reservations at the link, first come first served:`
+      ? `Selling my stuff 📍 ${where}\nPhotos and reservations at the link, first come first served:`
       : `出二手，${where}。点链接看大图、预订，先到先得：`;
   }
   return lang === 'en'
-    ? `Selling my stuff — ${where}. Tap the card above for photos and to reserve.`
+    ? `Selling my stuff 📍 ${where}\nTap the card above for photos and to reserve.`
     : `打扰了出二手，${where}，点上面的卡片可以看大图和预订。`;
 }
 

@@ -1,6 +1,6 @@
 import { money, contactNote, itemText, saleText, textLang, normTelegram, looksLikeTelegram, RULES } from '../public/lib.js';
 
-const VERSION = '40';
+const VERSION = '41';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 // An open list pauses this long after its last renewal: buyers can look but not queue,
@@ -189,7 +189,8 @@ const appJsonLd = (url, lang) => ({
   offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
 });
 
-function page({ title, desc = '', image = '', imageSize = 600, url, lang = 'zh', data = {}, status = 200, robots = false, keepQuery = false, jsonLd = null }) {
+// wide: the image is the 1200×630 Telegram card, shown large under the message.
+function page({ title, desc = '', image = '', imageSize = 600, wide = false, url, lang = 'zh', data = {}, status = 200, robots = false, keepQuery = false, jsonLd = null }) {
   const canonical = url.origin + url.pathname + (keepQuery ? url.search : '');
   const dataJson = JSON.stringify(data).replace(/</g, '\\u003c');
   const html = `<!doctype html>
@@ -207,13 +208,13 @@ ${robots ? '<meta name="robots" content="noindex"><meta name="referrer" content=
 <meta property="og:description" content="${esc(desc)}">
 <meta property="og:url" content="${esc(canonical)}">
 ${image ? `<meta property="og:image" content="${esc(image)}">
-<meta property="og:image:width" content="${imageSize}">
-<meta property="og:image:height" content="${imageSize}">
+<meta property="og:image:width" content="${wide ? 1200 : imageSize}">
+<meta property="og:image:height" content="${wide ? 630 : imageSize}">
 <meta itemprop="image" content="${esc(image)}">
 <meta name="twitter:image" content="${esc(image)}">` : ''}
 <meta itemprop="name" content="${esc(title)}">
 <meta itemprop="description" content="${esc(desc)}">
-<meta name="twitter:card" content="summary">
+<meta name="twitter:card" content="${wide ? 'summary_large_image' : 'summary'}">
 <meta name="twitter:title" content="${esc(title)}">
 <meta name="twitter:description" content="${esc(desc)}">
 <meta name="theme-color" content="#0058a3">
@@ -224,7 +225,7 @@ ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(
 <link rel="stylesheet" href="/theme.css?v=${VERSION}">
 </head>
 <body>
-${image ? `<div class="wx-thumb" aria-hidden="true"><img src="${esc(image)}" width="300" height="300" alt=""></div>` : ''}
+${image && !wide ? `<div class="wx-thumb" aria-hidden="true"><img src="${esc(image)}" width="300" height="300" alt=""></div>` : ''}
 <div id="app"></div>
 <script>window.__DATA__=${dataJson};window.__CFG__=${JSON.stringify(CLIENT_CFG)}</script>
 <script type="module" src="/app.js?v=${VERSION}"></script>
@@ -289,10 +290,13 @@ async function salePage(env, url, saleId) {
     ? `${st.location}${until} · ${sample || 'Tap to see photos and reserve'} · made with Secondhand List`
     : `${st.location}${until} · ${sample || '点开看图、排队'} · 用「二手清单」做的`;
   const firstPhoto = (avail[0] || items[0])?.photos?.[0];
-  const image = sale.coverPhoto
-    ? `${url.origin}/img/${sale.coverPhoto}`
+  // Telegram shows a landscape picture large under the message; WeChat crops cards to a square.
+  const wide = url.searchParams.get('src') === 'tg' && !!sale.coverWide;
+  const image = wide
+    ? `${url.origin}/img/${sale.coverWide}`
+    : sale.coverPhoto ? `${url.origin}/img/${sale.coverPhoto}`
     : firstPhoto ? `${url.origin}/img/${firstPhoto}/t` : '';
-  return page({ title, desc, image, url, lang, data });
+  return page({ title, desc, image, wide, url, lang, data });
 }
 
 async function itemPage(env, url, saleId, no) {
@@ -350,6 +354,7 @@ function mapSale(r) {
     status: r.status,
     nextNo: r.next_no,
     coverPhoto: r.cover_photo || '',
+    coverWide: r.cover_wide || '',
     sellerActiveAt: r.seller_active_at,
     expiresAt: r.renewed_at + LIST_TTL_MS,
     paused: r.status === 'active' && now() > r.renewed_at + LIST_TTL_MS,
@@ -638,7 +643,8 @@ async function api(req, env, url, ctx) {
   if ((m = p.match(/^\/sale\/(\w+)\/reopen$/)) && M === 'POST') return reopenSale(env, await requireSeller(req, env, m[1]));
   if ((m = p.match(/^\/sale\/(\w+)\/renew$/)) && M === 'POST') return renewSale(env, await requireSeller(req, env, m[1]));
   if ((m = p.match(/^\/sale\/(\w+)\/photo$/)) && M === 'POST') return uploadPhoto(env, await requireSeller(req, env, m[1]), req, false);
-  if ((m = p.match(/^\/sale\/(\w+)\/cover$/)) && M === 'POST') return uploadPhoto(env, await requireSeller(req, env, m[1]), req, true);
+  if ((m = p.match(/^\/sale\/(\w+)\/cover$/)) && M === 'POST') return uploadPhoto(env, await requireSeller(req, env, m[1]), req, url.searchParams.has('wide') ? 'cover_wide' : 'cover_photo');
+  if ((m = p.match(/^\/sale\/(\w+)\/translate$/)) && M === 'POST') return translateNow(env, await requireSeller(req, env, m[1]));
   if ((m = p.match(/^\/sale\/(\w+)\/items$/)) && M === 'POST') return createItem(env, ctx, await requireSeller(req, env, m[1]), await body(req));
   if ((m = p.match(/^\/item\/(\w+)$/)) && M === 'PATCH') {
     const item = await getItem(env, m[1]);
@@ -802,7 +808,8 @@ async function manageData(env, sale) {
   });
 }
 
-async function uploadPhoto(env, sale, req, isCover) {
+// cover: the sales column the photo replaces ('cover_photo' or 'cover_wide'), or false for an item photo.
+async function uploadPhoto(env, sale, req, cover) {
   let form;
   try {
     form = await req.formData();
@@ -821,9 +828,9 @@ async function uploadPhoto(env, sale, req, isCover) {
   const stmts = [
     env.DB.prepare('INSERT INTO photos (id, sale_id, full, thumb, created_at) VALUES (?, ?, ?, ?, ?)').bind(id, sale.id, fullBuf, thumbBuf, t),
   ];
-  if (isCover) {
-    if (sale.cover_photo) stmts.push(env.DB.prepare('DELETE FROM photos WHERE id = ?').bind(sale.cover_photo));
-    stmts.push(env.DB.prepare('UPDATE sales SET cover_photo = ?, updated_at = ? WHERE id = ?').bind(id, t, sale.id));
+  if (cover) {
+    if (sale[cover]) stmts.push(env.DB.prepare('DELETE FROM photos WHERE id = ?').bind(sale[cover]));
+    stmts.push(env.DB.prepare(`UPDATE sales SET ${cover} = ?, updated_at = ? WHERE id = ?`).bind(id, t, sale.id));
   }
   await env.DB.batch(stmts);
   return ok({ photoId: id });
@@ -1083,6 +1090,10 @@ const hasCJKText = (s) => textLang(s) === 'zh';
 // Text calls cost a fraction of a photo call; this keeps translation from eating the free daily AI allowance.
 const TRANSLATE_DAILY_CAP = 800;
 
+// Local names with an agreed translation, which the model would otherwise transliterate
+// (大苹果 is the Iso Omena shopping centre in Espoo, never "Da Pingguo"). Add new ones here.
+const GLOSSARY = [['大苹果', 'Iso Omena']];
+
 // Short listing texts into `to` ('zh' | 'en'), in one call. Returns an array of the same length,
 // or null when the model's answer can't be used. Empty strings stay empty and are not sent.
 async function translateTexts(env, texts, to) {
@@ -1093,10 +1104,13 @@ async function translateTexts(env, texts, to) {
   const used = await env.DB.prepare('SELECT count FROM ai_daily WHERE day = ?').bind(day).first();
   if ((used?.count ?? 0) >= TRANSLATE_DAILY_CAP) return null;
   await env.DB.prepare('INSERT INTO ai_daily (day, count) VALUES (?1, 1) ON CONFLICT (day) DO UPDATE SET count = count + 1').bind(day).run();
-  const src = idx.map((i) => texts[i]);
+  // Glossary names are swapped in before and after the call, so the model can't get them wrong.
+  const swap = (t, from, into) => GLOSSARY.reduce((x, g) => x.split(g[from]).join(g[into]), String(t));
+  const src = idx.map((i) => (to === 'en' ? swap(texts[i], 0, 1) : texts[i]));
   const prompt = `下面 JSON 数组里是二手物品清单上的短文字：物品名、物品详情、清单标题、取货地点或交易规则。把每一条翻译成${to === 'en' ? '自然、简洁的英文' : '自然、简洁的简体中文'}。
 - 品牌、型号保持原文（例如 IKEA、MALM、AirPods Pro）。
 - 地名、街道名、车站名保持原文（例如 Otaniemi、Kamppi）。
+- 这些叫法固定这样译：${GLOSSARY.map(([zh, en]) => `「${zh}」↔「${en}」`).join('、')}。
 - ${to === 'en' ? '物品名用常见叫法，只有第一个词首字母大写，不加引号（例如「Desk lamp」）。人名保持原文，「小王的二手清单」译成「Wang\'s secondhand list」。' : '物品名用国内常用叫法（例如「台灯」「抽屉柜」）。品牌用中国人常用的叫法（例如 IKEA 写「宜家」）。'}
 - 只输出一个长度为 ${src.length} 的 JSON 字符串数组，顺序不变，不要任何别的文字。
 ${JSON.stringify(src)}`;
@@ -1111,7 +1125,10 @@ ${JSON.stringify(src)}`;
     }
   }
   if (!Array.isArray(arr) || arr.length !== src.length) return null;
-  idx.forEach((i, k) => (out[i] = String(arr[k] ?? '').replace(/[\r\n]+/g, ' ').trim()));
+  idx.forEach((i, k) => {
+    const t = String(arr[k] ?? '').replace(/[\r\n]+/g, ' ').trim();
+    out[i] = to === 'zh' ? swap(t, 1, 0) : t;
+  });
   return out;
 }
 
@@ -1146,11 +1163,41 @@ async function translateItem(env, itemId) {
 const customRules = (rules) => rules.filter((r) => !RULES.zh.includes(r) && !RULES.en.includes(r));
 const saleSrc = (row) => JSON.stringify([row.title, row.location, ...customRules(JSON.parse(row.rules || '[]'))]);
 
+// The list and up to `limit` of its open items that have no translation of their current text.
+async function translateMissing(env, saleId, limit) {
+  await translateSale(env, saleId);
+  const { results } = await env.DB.prepare(
+    `SELECT id, name, note, alt_src FROM items WHERE sale_id = ? AND status IN ('available', 'reserved') AND (alt_src IS NULL OR name_alt IS NULL) ORDER BY no LIMIT ${limit}`,
+  ).bind(saleId).all();
+  const todo = results.filter((r) => r.alt_src !== itemSrc(r.name, r.note));
+  if (!todo.length) return;
+  const out = await translateEach(env, todo.flatMap((r) => [r.name, r.note]));
+  if (!out) return;
+  const done = todo.filter((_, k) => out[2 * k]);
+  if (!done.length) return;
+  await env.DB.batch(done.map((r) => {
+    const k = todo.indexOf(r);
+    return env.DB.prepare('UPDATE items SET name_alt = ?, note_alt = ?, alt_src = ? WHERE id = ? AND name = ? AND note = ?')
+      .bind([...out[2 * k]].slice(0, 60).join(''), [...out[2 * k + 1]].slice(0, 200).join(''), itemSrc(r.name, r.note), r.id, r.name, r.note);
+  }));
+}
+
+// The seller is about to share the list in the other language: translate what is missing first,
+// so the group text has no untranslated names. Failures leave the originals in place.
+async function translateNow(env, sale) {
+  try {
+    await translateMissing(env, sale.id, 60);
+  } catch (e) {
+    console.error('translate now', sale.id, e?.message || e);
+  }
+  return ok({});
+}
+
 // Lists made before translations existed (or whose translation failed) get them when someone
 // opens them: the list itself and up to BACKFILL_ITEMS untranslated items.
 // Never throws. An isolate tries a list at most once per BACKFILL_EVERY, so a translation that
 // keeps failing doesn't cost an AI call on every page view.
-const BACKFILL_ITEMS = 12;
+const BACKFILL_ITEMS = 30;
 const BACKFILL_EVERY = HOUR;
 const backfillTried = new Map();
 
@@ -1162,21 +1209,7 @@ async function backfillTranslations(env, saleId) {
   try {
     const sale = await env.DB.prepare('SELECT status FROM sales WHERE id = ?').bind(saleId).first();
     if (sale?.status !== 'active') return;
-    await translateSale(env, saleId);
-    const { results } = await env.DB.prepare(
-      `SELECT id, name, note, alt_src FROM items WHERE sale_id = ? AND status IN ('available', 'reserved') AND (alt_src IS NULL OR name_alt IS NULL) ORDER BY no LIMIT ${BACKFILL_ITEMS}`,
-    ).bind(saleId).all();
-    const todo = results.filter((r) => r.alt_src !== itemSrc(r.name, r.note));
-    if (!todo.length) return;
-    const out = await translateEach(env, todo.flatMap((r) => [r.name, r.note]));
-    if (!out) return;
-    const done = todo.filter((_, k) => out[2 * k]);
-    if (!done.length) return;
-    await env.DB.batch(done.map((r) => {
-      const k = todo.indexOf(r);
-      return env.DB.prepare('UPDATE items SET name_alt = ?, note_alt = ?, alt_src = ? WHERE id = ? AND name = ? AND note = ?')
-        .bind([...out[2 * k]].slice(0, 60).join(''), [...out[2 * k + 1]].slice(0, 200).join(''), itemSrc(r.name, r.note), r.id, r.name, r.note);
-    }));
+    await translateMissing(env, saleId, BACKFILL_ITEMS);
   } catch (e) {
     console.error('backfill', saleId, e?.message || e);
   }

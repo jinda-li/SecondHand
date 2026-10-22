@@ -2664,10 +2664,11 @@ function shareLang(target) {
   return target === 'telegram' ? store.get('shareLangTg', 'en') : store.get('shareLangWx', LANG);
 }
 
-// The link a Telegram group gets: src=tg makes the preview English and the page default to
-// Telegram contacts; cl=zh keeps the preview Chinese for a Chinese group.
-function tgLink(url, lang) {
-  return `${url}?src=tg${lang === 'zh' ? '&cl=zh' : ''}`;
+// The link a Telegram group gets: src=tg makes the preview English, large and the page default to
+// Telegram contacts; cl=zh keeps the preview Chinese for a Chinese group. v makes each share a new
+// address: Telegram caches a link's preview, and an old one would show old counts and picture.
+function tgLink(url, lang, v = '') {
+  return `${url}?src=tg${lang === 'zh' ? '&cl=zh' : ''}${v ? `&v=${v}` : ''}`;
 }
 
 function shareSheet(S) {
@@ -2755,19 +2756,37 @@ function shareSheet(S) {
 // the item list below the list mark is regenerated every time so it is never stale.
 // For Telegram the link goes right under the opening line, and the card picture is refreshed in the
 // background so the preview shows what is for sale now.
-function textSheet(S, target = 'wechat') {
-  const { sale, items } = S.data();
+async function textSheet(S, target = 'wechat') {
+  let { sale, items } = S.data();
   const tg = target === 'telegram';
   let lang = shareLang(target);
   const optsKey = tg ? 'shareTextOptsTg' : 'shareTextOpts';
   const opts = { prices: tg, compact: false, ...store.get(optsKey, {}) };
   const introKey = () => (!tg && lang === 'zh' ? S.saleId : `${S.saleId}:${target}:${lang}`);
-  const link = () => (tg ? tgLink(publicUrl(S), lang) : '');
+  const ver = Date.now().toString(36).slice(-5);
+  const link = () => (tg ? tgLink(publicUrl(S), lang, ver) : '');
+  // Names not yet translated into the share language (an older list, a just-added item) are
+  // translated now, so the text that goes out has no leftovers in the other language.
+  const missing = () => (textLang(sale.title) !== lang && !sale.alt)
+    || items.some((i) => (i.status === 'available' || i.status === 'reserved') && textLang(i.name) !== lang && !i.nameAlt);
+  const ensure = async () => {
+    if (!missing()) return;
+    const stop = loading(tr('正在翻译物品名…', 'Translating item names…'));
+    try {
+      await api(`/sale/${S.saleId}/translate`, { method: 'POST', key: S.key, body: {} });
+      ({ sale, items } = await api(`/sale/${S.saleId}/manage`, { key: S.key }));
+    } catch {
+      // Untranslated names stay in their original language.
+    } finally {
+      stop();
+    }
+  };
+  await ensure();
   const def = () => defaultIntro(sale, { lang, target });
   const build = (intro) => shareText(sale, items, { ...opts, lang, target, link: link(), intro: intro || def() });
   const introOf = (t) => stripLinks(t.split(listMark(lang))[0]).trim();
   const canShare = !isWeChat && !isTelegram && !!navigator.share;
-  if (tg) uploadCover(S, lang).catch(() => {});
+  if (tg) uploadCover(S, lang, true).catch(() => {});
   const remember = (t) => {
     const intro = introOf(t);
     const all = store.get('shareIntro', {});
@@ -2799,7 +2818,8 @@ function textSheet(S, target = 'wechat') {
       remember(t);
       lang = el.dataset.l;
       store.set(tg ? 'shareLangTg' : 'shareLangWx', lang);
-      if (tg) uploadCover(S, lang).catch(() => {});
+      await ensure();
+      if (tg) uploadCover(S, lang, true).catch(() => {});
       return s.refresh();
     }
     if (act === 'prices' || act === 'compact') {
@@ -3015,46 +3035,51 @@ async function loadAll(ids) {
 }
 
 // 9.1: square 2×2 grid of the first 4 available items — WeChat crops card thumbnails to a square.
-async function uploadCover(S, lang = LANG) {
+// wide: the 1200×630 card for Telegram, where a landscape picture shows large under the message;
+// up to four photos side by side. Otherwise the square WeChat card, a 2×2 grid.
+async function uploadCover(S, lang = LANG, wide = false) {
   const { sale, items } = S.data();
   const L = (zh, en) => (lang === 'en' ? en : zh);
   const pick = [...items.filter((i) => i.status === 'available'), ...items.filter((i) => i.status === 'reserved')].slice(0, 4);
   if (!pick.length) return;
-  const size = 600;
+  const W = wide ? 1200 : 600;
+  const H = wide ? 630 : 600;
   const c = document.createElement('canvas');
-  c.width = size;
-  c.height = size;
+  c.width = W;
+  c.height = H;
   const g = c.getContext('2d');
   g.fillStyle = '#fff';
-  g.fillRect(0, 0, size, size);
+  g.fillRect(0, 0, W, H);
   const ims = await loadAll(pick.map((i) => i.photos[0]));
   // Photos fill the area above a band carrying the live count and the product name.
-  const band = 86;
-  const ph = size - band;
-  const cells = pick.length === 1 ? [[0, 0, size, ph]]
-    : pick.length === 2 ? [[0, 0, size / 2, ph], [size / 2, 0, size / 2, ph]]
-    : [[0, 0, size / 2, ph / 2], [size / 2, 0, size / 2, ph / 2], [0, ph / 2, size / 2, ph / 2], [size / 2, ph / 2, size / 2, ph / 2]];
+  const band = wide ? 96 : 86;
+  const ph = H - band;
+  const n = pick.length;
+  const cells = wide ? pick.map((_, k) => [(W / n) * k, 0, W / n, ph])
+    : n === 1 ? [[0, 0, W, ph]]
+    : n === 2 ? [[0, 0, W / 2, ph], [W / 2, 0, W / 2, ph]]
+    : [[0, 0, W / 2, ph / 2], [W / 2, 0, W / 2, ph / 2], [0, ph / 2, W / 2, ph / 2], [W / 2, ph / 2, W / 2, ph / 2]];
   pick.forEach((it, k) => {
-    const [x, y, w, h] = cells[k] || cells[cells.length - 1];
     if (!cells[k]) return;
+    const [x, y, w, h] = cells[k];
     if (ims[k]) drawCover(g, ims[k], x + 2, y + 2, w - 4, h - 4);
-    drawPriceTag(g, moneyIn(it.priceCents, sale.currency, lang), x + w - 12, y + h - 12, 30);
+    drawPriceTag(g, moneyIn(it.priceCents, sale.currency, lang), x + w - 12, y + h - 12, wide ? 36 : 30);
   });
   g.fillStyle = BLUE;
-  g.fillRect(0, ph, size, band);
+  g.fillRect(0, ph, W, band);
   g.fillStyle = YELLOW;
-  g.font = `900 40px ${FONT}`;
-  const n = items.filter((i) => i.status === 'available').length;
-  g.fillText(L(`在售 ${n} 件`, `${n} for sale`), 22, size - 28);
+  g.font = `900 ${wide ? 46 : 40}px ${FONT}`;
+  const avail = items.filter((i) => i.status === 'available').length;
+  g.fillText(L(`在售 ${avail} 件`, `${avail} for sale`), wide ? 32 : 22, H - (wide ? 30 : 28));
   g.textAlign = 'right';
   g.fillStyle = '#fff';
-  g.font = `700 ${lang === 'en' ? 26 : 32}px ${FONT}`;
-  g.fillText(L('二手清单', 'Secondhand List'), size - 22, size - 30);
+  g.font = `700 ${wide ? 34 : lang === 'en' ? 26 : 32}px ${FONT}`;
+  g.fillText(L('二手清单', 'Secondhand List'), W - (wide ? 32 : 22), H - (wide ? 34 : 30));
   g.textAlign = 'left';
   const blob = await canvasBlob(c, 0.85);
   const form = new FormData();
   form.append('full', blob, 'cover.jpg');
-  await api(`/sale/${S.saleId}/cover`, { method: 'POST', key: S.key, form });
+  await api(`/sale/${S.saleId}/cover${wide ? '?wide=1' : ''}`, { method: 'POST', key: S.key, form });
 }
 
 async function qrMatrix(text) {
