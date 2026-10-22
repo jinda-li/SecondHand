@@ -1378,6 +1378,14 @@ function sortRecent(items) {
   return [...items].sort(byRecent);
 }
 
+// The seller's default: 未出 and 在售 as buyers see them; 已预订 and 已出 by when they got
+// there, latest first, so the sale that just happened is on top.
+const byChange = (a, b) => (b.changedAt || 0) - (a.changedAt || 0) || a.no - b.no;
+function manageOrder(items, tab) {
+  if (tab === 'open') return openItems(items);
+  return items.filter((i) => i.status === tab).sort(tab === 'available' ? byRecent : byChange);
+}
+
 // A marked-down item keeps its tag this long.
 const DROP_TAG_MS = 7 * 86400_000;
 // Reloads within this window count as one visit, so the "new" tags don't vanish on a refresh.
@@ -1811,7 +1819,7 @@ function manage(saleId) {
   const render = () => {
     const { sale, items, soldCents } = data;
     const count = (st) => items.filter((i) => i.status === st).length;
-    const list = sortItems(items.filter((i) => (tab === 'open' ? i.status === 'available' || i.status === 'reserved' : i.status === tab)), sort);
+    const list = sortItems(manageOrder(items, tab), sort);
     const ended = sale.status === 'ended';
     document.title = tr(`管理｜${sale.title}`, `Manage | ${sale.title}`);
     document.querySelector('.lang-bar')?.remove();

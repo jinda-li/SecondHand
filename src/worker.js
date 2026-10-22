@@ -1,6 +1,6 @@
 import { money, contactNote, byRecent, itemText, saleText, textLang, normTelegram, looksLikeTelegram, RULES } from '../public/lib.js';
 
-const VERSION = '50';
+const VERSION = '51';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 // An open list pauses this long after its last renewal: buyers can look but not queue,
@@ -447,6 +447,7 @@ function mapItem(r, t) {
     maybeSold: r.status === 'reserved' && t - r.status_checked_at > MAYBE_SOLD_MS,
     createdAt: r.created_at,
     droppedAt: r.price_dropped_at ?? null,
+    changedAt: r.status_changed_at,
   };
 }
 
