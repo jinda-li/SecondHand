@@ -3441,6 +3441,15 @@ async function drawSalePage(sale, list, qr, url, pi, pn, counts, lang = LANG) {
   return c.toDataURL('image/jpeg', 0.86);
 }
 
+function fileDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
 // name: the download file name; 清单图 for list pictures.
 function showImages(urls, name = tr('清单图', 'list')) {
   const el = document.createElement('div');
@@ -3654,7 +3663,8 @@ async function tgPostSheet(S) {
       remember();
       copy(t, tr('已复制，发图时粘贴', 'Copied, paste it as the caption'));
     }
-    if (act === 'save') showImages([url], 'telegram');
+    // A data: URL, like the list pictures: WeChat's long-press save can't read blob: URLs.
+    if (act === 'save') showImages([await fileDataUrl(file)], 'telegram');
   }, { onClose: () => setTimeout(() => URL.revokeObjectURL(url), 60000) });
   return sh;
 }
