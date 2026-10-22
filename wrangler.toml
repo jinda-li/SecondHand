@@ -20,6 +20,8 @@ enabled = true
 #   701807910613-h3753h0s5h1pljr88ovddvg9oc9uq6oi.apps.googleusercontent.com
 # Empty hides Google sign-in. Off for now: sharing happens inside WeChat, where Google sign-in is blocked.
 GOOGLE_CLIENT_ID = ""
+# Web tip page for people outside WeChat (English and Telegram users); empty hides it.
+TIP_URL = "https://ko-fi.com/jindali"
 # INVITE_CODE (unlimited AI photo recognition) is a secret: `wrangler secret put INVITE_CODE`;
 # for local dev put it in .dev.vars.
 

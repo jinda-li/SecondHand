@@ -3643,7 +3643,7 @@ async function tipSheet(onRegain) {
   } catch {}
   openSheet(() => `<h2>${tr('打赏开发者', 'Tip the developer')}</h2>
     <div class="hint center" style="padding-top:0">${tr('AI 识别是开发者自掏腰包付的。你打赏，他充 AI，大家接着薅。', 'The AI runs on the developer\'s own money. You tip, the developer tops it up, everyone keeps freeloading.')}</div>
-    ${tipUrl() ? `<div class="actions"><a class="btn ${wechatTipOn() ? '' : 'primary big'} block" href="${esc(tipUrl())}" target="_blank" rel="noopener">☕ ${tr('请开发者喝杯咖啡（PayPal / 银行卡）', 'Buy the developer a coffee')}</a></div>` : ''}
+    ${tipUrl() ? `<div class="actions"><a class="btn ${wechatTipOn() ? '' : 'primary big'} block" href="${esc(tipUrl())}" target="_blank" rel="noopener">☕ ${tr('请开发者喝杯咖啡（Ko-fi，银行卡）', 'Buy the developer a coffee (Ko-fi, card)')}</a></div>` : ''}
     ${wechatTipOn() ? `<img class="tip-qr" src="${TIP_QR}" alt="${tr('微信赞赏码', 'WeChat tip code')}">
     <div class="hint center">${isWeChat ? tr('长按二维码，选「识别图中二维码」', 'Long-press the QR code → Scan QR Code in Image') : tr('截图，在微信「扫一扫」里从相册选这张图', 'Screenshot it, then pick it from your album in WeChat Scan')}</div>` : ''}
     <div class="actions"><button class="btn ${wechatTipOn() ? 'primary big' : ''} block" data-act="tipped">${q.tipped ? tr('我打赏了', 'I tipped') : tr('我打赏了，送我 100 次 AI 识别', 'I tipped, give me 100 AI tries')}</button></div>`, async (act, el, s) => {
