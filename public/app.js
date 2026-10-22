@@ -3316,24 +3316,33 @@ function postCaption(sale, items, { withItems, ...opts }) {
   return shareText(sale, items, { ...opts, maxListed: 0 }).slice(0, CAPTION_MAX);
 }
 
-// Where the photos go in the area below the title, by how many there are: one large photo of the
-// first item, smaller ones beside and under it (at most 7; the last says "+N" when more are left).
+// Mosaics on a 6×5 grid: [column, row, width, height] in grid units, larger tiles first. Many
+// small photos of mixed sizes rather than a few big ones: enough to see what's there, small
+// enough that people open the link for the real photos.
+const MOSAICS = [
+  [[0, 0, 6, 5]],
+  [[0, 0, 3, 5], [3, 0, 3, 5]],
+  [[0, 0, 4, 5], [4, 0, 2, 3], [4, 3, 2, 2]],
+  [[0, 0, 4, 3], [4, 0, 2, 3], [0, 3, 3, 2], [3, 3, 3, 2]],
+  [[0, 0, 4, 3], [0, 3, 3, 2], [3, 3, 3, 2], [4, 0, 2, 2], [4, 2, 2, 1]],
+  [[0, 0, 3, 3], [3, 0, 2, 2], [0, 3, 2, 2], [2, 3, 2, 2], [4, 3, 2, 2], [3, 2, 3, 1], [5, 0, 1, 1], [5, 1, 1, 1]],
+  [
+    [0, 0, 2, 2], [4, 0, 2, 2], [2, 2, 2, 2], [0, 3, 2, 2], [4, 3, 2, 2], [2, 1, 2, 1],
+    [2, 0, 1, 1], [3, 0, 1, 1], [0, 2, 1, 1], [1, 2, 1, 1], [4, 2, 1, 1], [5, 2, 1, 1], [2, 4, 1, 1], [3, 4, 1, 1],
+  ],
+];
+
+// The tiles for n items, in pixels: the largest mosaic with no more tiles than items. The last
+// (a small one) becomes "+N" when items are left over.
 function collageCells(n, y, w, h) {
-  if (n === 1) return [[0, y, w, h]];
-  if (n === 2) return [[0, y, w / 2, h], [w / 2, y, w / 2, h]];
-  const bw = w * (2 / 3);
-  const sw = w - bw;
-  if (n === 3) return [[0, y, bw, h], [bw, y, sw, h / 2], [bw, y + h / 2, sw, h / 2]];
-  const bh = h * 0.62;
-  const rest = Math.min(n, 7) - 3;
-  return [
-    [0, y, bw, bh], [bw, y, sw, bh / 2], [bw, y + bh / 2, sw, bh / 2],
-    ...Array.from({ length: rest }, (_, k) => [(w / rest) * k, y + bh, w / rest, h - bh]),
-  ];
+  const m = [...MOSAICS].reverse().find((t) => t.length <= n) || MOSAICS[0];
+  const uw = w / 6;
+  const uh = h / 5;
+  return m.map(([cx, cy, cw, ch]) => [cx * uw, y + cy * uh, cw * uw, ch * uh]);
 }
 
-// The picture: title and place on top, the collage with prices, and a footer telling people to
-// open the link to reserve.
+// The picture: title and place on top, the mosaic with prices, and a footer telling people to
+// reserve at the link.
 async function drawCollage(sale, items, lang) {
   const L = (zh, en) => (lang === 'en' ? en : zh);
   const st = saleText(sale, lang);
@@ -3344,53 +3353,43 @@ async function drawCollage(sale, items, lang) {
   g.fillStyle = '#fff';
   g.fillRect(0, 0, POST_W, POST_H);
   const pad = 40;
-  const head = 200;
-  const foot = 230;
+  const head = 180;
+  const foot = 300;
   g.fillStyle = BLUE;
   g.fillRect(0, 0, POST_W, head);
   g.fillStyle = '#fff';
-  g.font = `800 62px ${FONT}`;
-  g.fillText(fitText(g, st.title, POST_W - pad * 2), pad, 96);
+  g.fillText(fitFont(g, st.title, POST_W - pad * 2, 60, 800), pad, 88);
   g.fillStyle = YELLOW;
-  g.font = `700 36px ${FONT}`;
   const until = sale.leaveDate ? L(` · ${dateText(sale.leaveDate, lang)}前出完`, ` · until ${dateText(sale.leaveDate, lang)}`) : '';
-  g.fillText(fitText(g, `📍 ${st.location}${until}`, POST_W - pad * 2), pad, 160);
+  g.fillText(fitFont(g, `📍 ${st.location}${until}`, POST_W - pad * 2, 34, 700), pad, 146);
 
   const list = openItems(items);
   const cells = collageCells(list.length, head, POST_W, POST_H - head - foot);
-  const shown = list.slice(0, cells.length);
+  const more = list.length - cells.length;
+  // The dearest items get the larger tiles; a "+N" tile takes the last, smallest place.
+  const shown = list.slice(0, more > 0 ? cells.length - 1 : cells.length).sort((a, b) => b.priceCents - a.priceCents);
   const ims = await Promise.all(shown.map((it) => loadImage(img(it.photos[0], false)).catch(() => null)));
-  shown.forEach((it, k) => {
-    const [x, y, w, h] = cells[k];
+  cells.forEach(([x, y, w, h], k) => {
+    const it = shown[k];
+    const side = Math.min(w, h);
     g.fillStyle = '#f2f2f2';
     g.fillRect(x + 3, y + 3, w - 6, h - 6);
-    if (ims[k]) drawCover(g, ims[k], x + 3, y + 3, w - 6, h - 6);
-    const big = k === 0;
-    const more = k === cells.length - 1 ? list.length - cells.length : 0;
-    if (more > 0) {
-      g.fillStyle = 'rgba(0,0,0,0.55)';
+    if (!it) {
+      g.fillStyle = BLUE;
       g.fillRect(x + 3, y + 3, w - 6, h - 6);
       g.fillStyle = '#fff';
       g.textAlign = 'center';
-      g.font = `900 72px ${FONT}`;
-      g.fillText(`+${more}`, x + w / 2, y + h / 2 + 10);
-      g.font = `600 30px ${FONT}`;
-      g.fillText(L('更多在链接里', 'more at the link'), x + w / 2, y + h / 2 + 56);
+      g.font = `900 ${Math.round(side * 0.34)}px ${FONT}`;
+      g.fillText(`+${more + 1}`, x + w / 2, y + h / 2 + side * 0.06);
+      g.font = `700 ${Math.round(side * 0.12)}px ${FONT}`;
+      g.fillText(L('链接里看', 'at the link'), x + w / 2, y + h / 2 + side * 0.26);
       g.textAlign = 'left';
       return;
     }
-    if (it.status === 'reserved') drawStamp(g, L('已预订', 'Reserved'), x + w / 2, y + h / 2, big ? 64 : 38, '#111');
-    drawPriceTag(g, moneyIn(it.priceCents, sale.currency, lang), x + w - 16, y + h - 16, big ? 50 : 34);
-    if (big) {
-      // The large photo also carries its name, on a dark strip so it reads on any photo.
-      g.font = `800 40px ${FONT}`;
-      const name = fitText(g, itemText(it, lang).name, w * 0.55);
-      const nw = g.measureText(name).width;
-      g.fillStyle = 'rgba(0,0,0,0.6)';
-      g.fillRect(x + 3, y + h - 82, nw + 40, 66);
-      g.fillStyle = '#fff';
-      g.fillText(name, x + 23, y + h - 34);
-    }
+    if (ims[k]) drawCover(g, ims[k], x + 3, y + 3, w - 6, h - 6);
+    const tag = Math.max(26, Math.min(44, Math.round(side * 0.15)));
+    if (it.status === 'reserved') drawStamp(g, L('已预订', 'Reserved'), x + w / 2, y + h / 2, tag, '#111');
+    drawPriceTag(g, moneyIn(it.priceCents, sale.currency, lang), x + w - 10, y + h - 10, tag);
   });
 
   const top = POST_H - foot;
@@ -3398,12 +3397,13 @@ async function drawCollage(sale, items, lang) {
   g.fillRect(0, top, POST_W, foot);
   const n = items.filter((i) => i.status === 'available').length;
   g.fillStyle = '#111';
-  g.fillText(fitFont(g, L('要预订？点下面的链接 👇', 'To reserve, tap the link below 👇'), POST_W - pad * 2, 64, 900), pad, top + 92);
-  g.fillText(fitFont(g, L(`在售 ${n} 件 · 先到先得 · 链接里看全部照片和价格`, `${n} for sale · first come, first served · all photos and prices at the link`), POST_W - pad * 2, 34, 600), pad, top + 150);
+  g.fillText(fitFont(g, L('预订请点下面的链接 👇', 'Reserve at the link below 👇'), POST_W - pad * 2, 66, 900), pad, top + 92);
+  g.fillText(fitFont(g, L('多个群同时发，回复不算占位，链接里排队先到先得', "Posted in several groups: replies don't hold a spot, the link keeps one line"), POST_W - pad * 2, 34, 700), pad, top + 156);
+  g.fillText(fitFont(g, L(`在售 ${n} 件 · 全部照片、价格和排队情况都在链接里`, `${n} for sale · every photo, price and the line are at the link`), POST_W - pad * 2, 32, 400), pad, top + 208);
   g.textAlign = 'right';
   g.fillStyle = BLUE;
   g.font = `800 30px ${FONT}`;
-  g.fillText(L('二手清单', 'Secondhand List'), POST_W - pad, top + 204);
+  g.fillText(L('二手清单', 'Secondhand List'), POST_W - pad, top + 270);
   g.textAlign = 'left';
   return canvasBlob(c, 0.9);
 }
