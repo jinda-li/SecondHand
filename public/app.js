@@ -494,12 +494,13 @@ function boot() {
     e.preventDefault();
     recommendFriend();
   });
-  // 中文 / English, wherever langSwitchHtml() is rendered.
+  // 中文 / English in the bar at the top of every page.
   document.addEventListener('click', (e) => {
     if (e.target.closest('[data-lang-switch]')) setLang(LANG === 'en' ? 'zh' : 'en');
   });
   // Any page that renders a .nearby-feed placeholder gets the live feed filled in.
   new MutationObserver(mountNearbyFeeds).observe($app, { childList: true, subtree: true });
+  $app.insertAdjacentHTML('beforebegin', langBarHtml());
   // The server titles pages for the share card (Chinese for WeChat); pages that don't set their own follow the UI.
   if (LANG === 'en' && textLang(document.title) === 'zh') document.title = APP_NAME;
   const path = location.pathname;
@@ -522,9 +523,10 @@ function localKey(saleId) {
 }
 
 
-// The other language, as a small link; switching reloads the page.
-function langSwitchHtml() {
-  return `<button class="link-btn small" data-lang-switch>${LANG === 'en' ? '中文' : 'English'}</button>`;
+// 中文 | English at the top of every page, the current one highlighted; switching reloads the page.
+function langBarHtml() {
+  return `<div class="lang-bar"><span class="lang-seg">${[['zh', '中文'], ['en', 'English']]
+    .map(([k, l]) => (k === LANG ? `<b>${l}</b>` : `<button data-lang-switch>${l}</button>`)).join('')}</span></div>`;
 }
 
 function ownerBanner(sale) {
@@ -569,7 +571,7 @@ async function home() {
       <button class="btn big block rec-btn" data-recommend>🎁 ${tr('推荐给要搬家的朋友', 'Recommend to a friend who is moving')}</button>
     </div>
     ${nearbyEntryHtml()}
-    <div class="hint center"><a href="/privacy${tr('', '#en')}">${tr('隐私政策', 'Privacy')}</a> · <a href="/terms${tr('', '#en')}">${tr('服务条款', 'Terms')}</a> · <button class="link-btn small" id="feedback">${tr('反馈', 'Feedback')}</button>${tipOn() ? ` · <button class="link-btn small" id="tip">${tr('打赏开发者', 'Tip the developer')}</button>` : ''} · ${langSwitchHtml()}</div>`;
+    <div class="hint center"><a href="/privacy${tr('', '#en')}">${tr('隐私政策', 'Privacy')}</a> · <a href="/terms${tr('', '#en')}">${tr('服务条款', 'Terms')}</a> · <button class="link-btn small" id="feedback">${tr('反馈', 'Feedback')}</button>${tipOn() ? ` · <button class="link-btn small" id="tip">${tr('打赏开发者', 'Tip the developer')}</button>` : ''}</div>`;
   googleButton($app.querySelector('.gbtn'), () => home());
   const tipBtn = $app.querySelector('#tip');
   if (tipBtn) tipBtn.onclick = () => tipSheet();
@@ -735,7 +737,6 @@ function intro() {
         <div class="intro-step2"><span class="intro-icon">${i}</span><div><b>${t}</b><div class="small muted">${d}</div></div></div>`).join('')}
       </div>
       <div class="intro-free">${tr('免费 · 不用注册 · 不用下载', 'Free · no sign-up · no app')}</div>
-      <div class="center" style="margin-top:8px">${langSwitchHtml()}</div>
     </div>
     <div class="save-entry" id="save">
       <div class="save-t">${ICON_STAR}${tr('收藏这个页面', 'Keep this page')}</div>
@@ -1265,7 +1266,7 @@ function sortItems(items, sort) {
 }
 
 // Brand mark: the tag icon with the name, so people remember (and can search for) 二手清单.
-const LOGO = `<a class="logo" href="/"><img src="/icon.svg" alt="" width="34" height="34"><span class="logo-txt"><b>${APP_NAME}</b><small>${tr('AI识别 · 多群同步', 'AI photos · one link, many groups')}</small></span></a>`;
+const LOGO = `<a class="logo" href="/"><img src="/icon.svg" alt="" width="34" height="34"><span class="logo-txt"><b>${APP_NAME}</b><small>${tr('AI识别 · 多群同步', 'AI photos · all your groups')}</small></span></a>`;
 
 // Buyers arrive from a group card without knowing what this is: a slim dismissible strip
 // (like a store's "get the app" bar) above a bar with the name and 我的二手.
@@ -1331,14 +1332,13 @@ function buyerSale(saleId) {
         ? `<div class="hint">${tr(`已出 ${sold.length} 件`, `${sold.length} sold`)}</div><div class="grid">${sold.map((it) => tileHtml(sale, it, mine)).join('')}</div>`
         : `<button class="link-btn fold" data-sold>${tr(`已出 ${sold.length} 件（展开）`, `${sold.length} sold (show)`)}</button>`) : ''}
       ${isOwner ? `<div class="bottom-bar"><div class="inner">
-        <a class="btn big" href="/manage/${sale.id}">${tr('回到管理', 'Back to manage')}</a>
-        ${ended || sale.paused ? '' : `<button class="btn primary big" data-owner-share>${tr('分享到群', 'Share to groups')}</button>`}
+        <a class="btn big" href="/manage/${sale.id}">${tr('回到管理', 'Manage')}</a>
+        ${ended || sale.paused ? '' : `<button class="btn primary big" data-owner-share>${tr('分享到群', 'Share')}</button>`}
       </div></div>` : ''}
       ${isOwner ? '' : brandCardHtml()}
       <div style="padding:28px 16px 8px;display:flex;gap:10px;justify-content:center;align-items:center">
         <a class="btn small" href="/my">${tr('我的排队', 'My reservations')}</a>
         <button class="btn small" data-feedback>${tr('反馈问题', 'Feedback')}</button>
-        ${langSwitchHtml()}
       </div>
       ${nearbyEntryHtml(sale.id)}`;
   };
@@ -2533,8 +2533,7 @@ function settingsSheet(S) {
     </div>
     <label class="nearby-row" style="margin:16px 4px 6px"><input type="checkbox" data-act="aiauto" ${aiAutoOn() ? 'checked' : ''}><span>${tr('上架时自动用 AI 认出照片里是什么', 'Let the AI name photos when adding items')}</span></label>
     <div class="small muted" style="margin:0 4px 6px">${tr('AI 识别照片', 'AI photo naming')} · <span class="ai-status">${tr('查询中…', 'checking…')}</span></div>
-    ${inviteRowHtml()}
-    <div class="center" style="margin-top:10px">${langSwitchHtml()}</div>`, async (act, el, s) => {
+    ${inviteRowHtml()}`, async (act, el, s) => {
     if (act === 'invite') return useInvite(s);
     if (act === 'aiauto') {
       store.set('aiAuto', el.checked);
@@ -2687,11 +2686,12 @@ function shareSheet(S) {
     if (target === 'telegram') {
       return `<h2>${tr('分享到群', 'Share to groups')}</h2>${seg}
       <div class="share-step">
-        <button class="btn primary big block" data-act="tgtext">${tr('写好文字，发到 Telegram', 'Write the post and send it to Telegram')}</button>
-        <div class="small muted step-why">${tr('一条消息就够：开头一句、链接、物品清单。Telegram 会把链接变成带图的预览，群友点开就能看大图、预订。', 'One message does it: a line, the link, the item list. Telegram turns the link into a preview with a picture; people tap it to see photos and reserve.')}</div>
+        <button class="btn primary big block" data-act="album">${tr('发相册（推荐）', 'Post a photo album (recommended)')}</button>
+        <div class="small muted step-why">${tr('和群里大家一样直接发大图：一张封面加每件东西一张，配文带物品清单和预订链接。', 'Big photos like everyone else posts: a cover plus one per item, with the item list and the reservation link as the caption.')}</div>
+        <button class="btn big block" data-act="tgtext">${tr('只发文字和链接', 'Text and link only')}</button>
+        <div class="small muted step-why">${tr('一条消息：开头一句、链接、物品清单，Telegram 会显示带图的预览。', 'One message with a line, the link and the item list; Telegram shows a preview with a picture.')}</div>
       </div>
-      ${multi}
-      ${imageBtn}`;
+      ${multi}`;
     }
     return `<h2>${tr('分享到群', 'Share to groups')}</h2>${seg}
     <div class="share-step">
@@ -2732,6 +2732,10 @@ function shareSheet(S) {
       s.close();
       return textSheet(S, target);
     }
+    if (act === 'album') {
+      s.close();
+      return albumSheet(S);
+    }
     if (act === 'image') {
       s.close();
       return saveSaleImage(S, shareLang(target));
@@ -2752,6 +2756,24 @@ function shareSheet(S) {
   return sh;
 }
 
+// The list with its open items in lang: names not yet translated (an older list, a just-added item)
+// are translated first, so what goes out has no leftovers in the other language. d: the data so far.
+async function translatedData(S, lang, d = S.data()) {
+  const missing = (textLang(d.sale.title) !== lang && !d.sale.alt)
+    || d.items.some((i) => (i.status === 'available' || i.status === 'reserved') && textLang(i.name) !== lang && !i.nameAlt);
+  if (!missing) return d;
+  const stop = loading(tr('正在翻译物品名…', 'Translating item names…'));
+  try {
+    await api(`/sale/${S.saleId}/translate`, { method: 'POST', key: S.key, body: {} });
+    return await api(`/sale/${S.saleId}/manage`, { key: S.key });
+  } catch {
+    // Untranslated names stay in their original language.
+    return d;
+  } finally {
+    stop();
+  }
+}
+
 // Editable group text. The opening line is the seller's own (remembered per list, app and language);
 // the item list below the list mark is regenerated every time so it is never stale.
 // For Telegram the link goes right under the opening line, and the card picture is refreshed in the
@@ -2765,22 +2787,7 @@ async function textSheet(S, target = 'wechat') {
   const introKey = () => (!tg && lang === 'zh' ? S.saleId : `${S.saleId}:${target}:${lang}`);
   const ver = Date.now().toString(36).slice(-5);
   const link = () => (tg ? tgLink(publicUrl(S), lang, ver) : '');
-  // Names not yet translated into the share language (an older list, a just-added item) are
-  // translated now, so the text that goes out has no leftovers in the other language.
-  const missing = () => (textLang(sale.title) !== lang && !sale.alt)
-    || items.some((i) => (i.status === 'available' || i.status === 'reserved') && textLang(i.name) !== lang && !i.nameAlt);
-  const ensure = async () => {
-    if (!missing()) return;
-    const stop = loading(tr('正在翻译物品名…', 'Translating item names…'));
-    try {
-      await api(`/sale/${S.saleId}/translate`, { method: 'POST', key: S.key, body: {} });
-      ({ sale, items } = await api(`/sale/${S.saleId}/manage`, { key: S.key }));
-    } catch {
-      // Untranslated names stay in their original language.
-    } finally {
-      stop();
-    }
-  };
+  const ensure = async () => ({ sale, items } = await translatedData(S, lang, { sale, items }));
   await ensure();
   const def = () => defaultIntro(sale, { lang, target });
   const build = (intro) => shareText(sale, items, { ...opts, lang, target, link: link(), intro: intro || def() });
@@ -3223,15 +3230,204 @@ async function drawSalePage(sale, list, qr, url, pi, pn, counts, lang = LANG) {
   return c.toDataURL('image/jpeg', 0.86);
 }
 
-function showImages(urls) {
+// name: the download file name; 清单图 for list pictures.
+function showImages(urls, name = tr('清单图', 'list')) {
   const el = document.createElement('div');
   el.className = 'imgview';
   el.innerHTML = `
     <div class="tip">${isWeChat ? tr('长按图片 → 保存图片', 'Long-press the picture → Save') : tr('长按图片保存到相册（电脑上点下面的按钮下载）', 'Long-press to save to your photos (on a computer, use the download button)')}</div>
-    ${urls.map((u, i) => `<img src="${u}" alt="${tr('清单图', 'List picture')} ${i + 1}"><div class="center" style="margin:-6px 0 18px"><a class="btn small" download="${tr('清单图', 'list')}-${i + 1}.jpg" href="${u}">${tr(`下载第 ${i + 1} 张`, `Download picture ${i + 1}`)}</a></div>`).join('')}
+    ${urls.map((u, i) => `<img src="${u}" alt="${tr('清单图', 'List picture')} ${i + 1}"><div class="center" style="margin:-6px 0 18px"><a class="btn small" download="${name}-${i + 1}.jpg" href="${u}">${tr(`下载第 ${i + 1} 张`, `Download picture ${i + 1}`)}</a></div>`).join('')}
     <div class="bottom-bar" style="background:#111;border-top-color:#333"><div class="inner"><button class="btn big">${tr('关闭', 'Close')}</button></div></div>`;
   el.querySelector('.bottom-bar button').onclick = () => el.remove();
   document.body.appendChild(el);
+}
+
+// ---------- Telegram album: photos people see full size, the list and link as the caption ----------
+
+// Telegram's limits: 10 pictures per album, 1024 characters of caption.
+const ALBUM_MAX = 10;
+const CAPTION_MAX = 1024;
+// Portrait 4:5, the shape Telegram shows largest in an album.
+const ALBUM_W = 1080;
+const ALBUM_H = 1350;
+
+const openItems = (items) => [...items.filter((i) => i.status === 'available'), ...items.filter((i) => i.status === 'reserved')];
+
+// The Telegram post text with as many items as fit in a caption; the rest are "…and N more".
+function albumCaption(sale, items, opts) {
+  for (let n = 30; n >= 0; n--) {
+    const t = shareText(sale, items, { ...opts, maxListed: n });
+    if (t.length <= CAPTION_MAX) return t;
+  }
+  return shareText(sale, items, { ...opts, maxListed: 0 }).slice(0, CAPTION_MAX);
+}
+
+function albumCanvas() {
+  const c = document.createElement('canvas');
+  c.width = ALBUM_W;
+  c.height = ALBUM_H;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, ALBUM_W, ALBUM_H);
+  return [c, g];
+}
+
+// First picture: title and place on top, four items with prices, how many are for sale.
+async function drawAlbumCover(sale, items, lang) {
+  const L = (zh, en) => (lang === 'en' ? en : zh);
+  const st = saleText(sale, lang);
+  const [c, g] = albumCanvas();
+  const pad = 40;
+  const head = 220;
+  const foot = 190;
+  g.fillStyle = BLUE;
+  g.fillRect(0, 0, ALBUM_W, head);
+  g.fillStyle = '#fff';
+  g.font = `800 64px ${FONT}`;
+  g.fillText(fitText(g, st.title, ALBUM_W - pad * 2), pad, 104);
+  g.fillStyle = YELLOW;
+  g.font = `700 38px ${FONT}`;
+  const until = sale.leaveDate ? L(` · ${dateText(sale.leaveDate, lang)}前出完`, ` · until ${dateText(sale.leaveDate, lang)}`) : '';
+  g.fillText(fitText(g, `📍 ${st.location}${until}`, ALBUM_W - pad * 2), pad, 172);
+  const pick = openItems(items).slice(0, 4);
+  const ims = await loadAll(pick.map((i) => i.photos[0]));
+  const gh = ALBUM_H - head - foot;
+  const cells = pick.length === 1 ? [[0, head, ALBUM_W, gh]]
+    : pick.length === 2 ? [[0, head, ALBUM_W / 2, gh], [ALBUM_W / 2, head, ALBUM_W / 2, gh]]
+    : [[0, head, ALBUM_W / 2, gh / 2], [ALBUM_W / 2, head, ALBUM_W / 2, gh / 2], [0, head + gh / 2, ALBUM_W / 2, gh / 2], [ALBUM_W / 2, head + gh / 2, ALBUM_W / 2, gh / 2]];
+  pick.forEach((it, k) => {
+    if (!cells[k]) return;
+    const [x, y, w, h] = cells[k];
+    if (ims[k]) drawCover(g, ims[k], x + 3, y + 3, w - 6, h - 6);
+    drawPriceTag(g, moneyIn(it.priceCents, sale.currency, lang), x + w - 18, y + h - 18, 44);
+  });
+  g.fillStyle = YELLOW;
+  g.fillRect(0, ALBUM_H - foot, ALBUM_W, foot);
+  const n = items.filter((i) => i.status === 'available').length;
+  g.fillStyle = '#111';
+  g.font = `900 64px ${FONT}`;
+  g.fillText(L(`在售 ${n} 件`, `${n} for sale`), pad, ALBUM_H - foot + 86);
+  g.font = `400 34px ${FONT}`;
+  g.fillText(fitText(g, L('点配文里的链接预订 · 先到先得', 'Reserve at the link in the caption · first come, first served'), ALBUM_W - pad * 2), pad, ALBUM_H - foot + 146);
+  g.textAlign = 'right';
+  g.fillStyle = BLUE;
+  g.font = `800 32px ${FONT}`;
+  g.fillText(L('二手清单', 'Secondhand List'), ALBUM_W - pad, ALBUM_H - foot + 84);
+  g.textAlign = 'left';
+  return canvasBlob(c, 0.88);
+}
+
+// One item: its main photo full size, name and price in a band at the bottom.
+async function drawAlbumItem(sale, it, lang) {
+  const [c, g] = albumCanvas();
+  const pad = 40;
+  const band = 170;
+  const im = await loadImage(img(it.photos[0], false)).catch(() => null);
+  g.fillStyle = '#f5f5f5';
+  g.fillRect(0, 0, ALBUM_W, ALBUM_H - band);
+  if (im) drawCover(g, im, 0, 0, ALBUM_W, ALBUM_H - band);
+  if (it.status === 'reserved') drawStamp(g, lang === 'en' ? 'Reserved' : '已预订', ALBUM_W / 2, (ALBUM_H - band) / 2, 72, '#111');
+  const price = moneyIn(it.priceCents, sale.currency, lang);
+  g.font = `900 52px ${FONT}`;
+  const priceW = g.measureText(price).width + 52 * 0.6;
+  drawPriceTag(g, price, ALBUM_W - pad, ALBUM_H - 50, 52);
+  g.fillStyle = '#111';
+  g.font = `800 50px ${FONT}`;
+  g.fillText(fitText(g, itemText(it, lang).name, ALBUM_W - pad * 3 - priceW), pad, ALBUM_H - 72);
+  if (it.origPriceCents > it.priceCents) {
+    g.font = `400 30px ${FONT}`;
+    const orig = `${lang === 'en' ? 'New ' : '原价 '}${moneyIn(it.origPriceCents, sale.currency, lang)}`;
+    g.fillStyle = '#888';
+    g.textAlign = 'right';
+    g.fillText(orig, ALBUM_W - pad, ALBUM_H - band + 44);
+    g.textAlign = 'left';
+  }
+  return canvasBlob(c, 0.88);
+}
+
+// The album sheet: pictures made on the phone, an editable caption, then either the system share
+// sheet (pictures and caption go to Telegram together) or save + copy + post by hand.
+async function albumSheet(S) {
+  let lang = shareLang('telegram');
+  let d = await translatedData(S, lang);
+  const ver = Date.now().toString(36).slice(-5);
+  let files = [];
+  let urls = [];
+  let caption = '';
+  const introKey = () => `${S.saleId}:telegram:${lang}`;
+  const make = async () => {
+    const { sale, items } = d;
+    const list = openItems(items);
+    if (!list.length) {
+      toast(tr('还没有在售的东西', 'Nothing for sale yet'));
+      return false;
+    }
+    const stop = loading(tr('正在生成图片…', 'Making the pictures…'));
+    try {
+      const blobs = [await drawAlbumCover(sale, items, lang)];
+      for (const it of list.slice(0, ALBUM_MAX - 1)) blobs.push(await drawAlbumItem(sale, it, lang));
+      urls.forEach((u) => URL.revokeObjectURL(u));
+      files = blobs.map((b, i) => new File([b], `${i + 1}.jpg`, { type: 'image/jpeg' }));
+      urls = files.map((f) => URL.createObjectURL(f));
+      const intro = stripLinks(store.get('shareIntro', {})[introKey()]) || defaultIntro(sale, { lang, target: 'telegram' });
+      caption = albumCaption(sale, items, { prices: true, lang, target: 'telegram', link: tgLink(publicUrl(S), lang, ver), intro });
+      return true;
+    } finally {
+      stop();
+    }
+  };
+  if (!(await make())) return;
+  const canShareFiles = () => {
+    try {
+      return !!navigator.canShare?.({ files });
+    } catch {
+      return false;
+    }
+  };
+  const sh = openSheet(() => `<h2>${tr('Telegram 相册', 'Telegram album')}</h2>
+    <div class="seg small share-lang">${[['zh', '中文'], ['en', 'English']].map(([k, l]) => `<button class="${lang === k ? 'on' : ''}" data-act="lang" data-l="${k}">${l}</button>`).join('')}</div>
+    <div class="album-strip">${urls.map((u) => `<img src="${u}" alt="">`).join('')}</div>
+    <div class="hint" style="padding-top:0">${tr(`${files.length} 张：封面加 ${files.length - 1} 件东西${openItems(d.items).length > files.length - 1 ? '（相册最多 10 张，其余在配文和链接里）' : ''}。配文里的链接用来排队。`, `${files.length} pictures: a cover and ${files.length - 1} ${files.length - 1 === 1 ? 'item' : 'items'}${openItems(d.items).length > files.length - 1 ? ' (an album holds 10; the rest are in the caption and the link)' : ''}. The link in the caption is where people reserve.`)}</div>
+    <textarea class="inp boxed share-text" rows="8">${esc(caption)}</textarea>
+    <div class="actions" style="margin-top:12px">
+      ${canShareFiles() ? `<button class="btn primary block" data-act="share">${tr('发到 Telegram（图片和配文一起）', 'Send to Telegram (pictures and caption)')}</button>` : ''}
+      <button class="btn ${canShareFiles() ? '' : 'primary'} block" data-act="save">${tr('保存图片', 'Save the pictures')}</button>
+      <button class="btn block" data-act="copy">${tr('复制配文', 'Copy the caption')}</button>
+    </div>
+    <div class="group"><div class="cell small" style="display:block;line-height:1.9">${tr(
+      `${canShareFiles() ? '不能直接发的话：' : ''}1. 保存这 ${files.length} 张图<br>2. 复制配文<br>3. 在 Telegram 群里点 📎，选这几张图，粘贴配文，发送`,
+      `${canShareFiles() ? "If sending directly doesn't work: " : ''}1. Save the ${files.length} pictures<br>2. Copy the caption<br>3. In the Telegram group, tap 📎, pick the pictures, paste the caption, send`,
+    )}</div></div>`, async (act, el, s) => {
+    const t = s.el.querySelector('.share-text')?.value ?? caption;
+    const remember = () => {
+      const intro = stripLinks(t.split(listMark(lang))[0]).trim();
+      const all = store.get('shareIntro', {});
+      if (intro && intro !== defaultIntro(d.sale, { lang, target: 'telegram' })) all[introKey()] = intro;
+      else delete all[introKey()];
+      store.set('shareIntro', all);
+    };
+    if (act === 'lang') {
+      remember();
+      lang = el.dataset.l;
+      store.set('shareLangTg', lang);
+      d = await translatedData(S, lang, d);
+      if (await make()) s.refresh();
+    }
+    if (act === 'share') {
+      remember();
+      // Copied as well, for apps that drop the text when given pictures.
+      navigator.clipboard?.writeText(t).catch(() => {});
+      try {
+        await navigator.share({ files, text: t });
+      } catch {}
+    }
+    if (act === 'copy') {
+      remember();
+      copy(t, tr('已复制，发相册时粘贴', 'Copied, paste it as the caption'));
+    }
+    if (act === 'save') showImages(urls, 'album');
+  }, { onClose: () => setTimeout(() => urls.forEach((u) => URL.revokeObjectURL(u)), 60000) });
+  return sh;
 }
 
 // ---------- AI photo recognition ----------

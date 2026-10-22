@@ -163,7 +163,7 @@ img { display: block; max-width: 100%; }
 .logo-txt { display: flex; flex-direction: column; line-height: 1.15; }
 .logo-txt b { font-size: 17px; font-weight: 900; letter-spacing: .02em; }
 .logo-txt small { font-size: 11px; color: var(--sub); letter-spacing: .06em; }
-.appbar-my { color: var(--text); font-size: 14px; font-weight: 700; }
+.appbar-my { color: var(--text); font-size: 14px; font-weight: 700; white-space: nowrap; }
 .how-line { margin: 0 16px 12px; padding: 8px 12px; background: #f5f5f5; border-radius: 8px; font-size: 13px; color: #484848; line-height: 1.5; }
 .topbar { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 12px 12px 0; }
 .topbar .btn { white-space: nowrap; padding: 8px 10px; font-size: 14px; }
@@ -230,8 +230,11 @@ img { display: block; max-width: 100%; }
 .seg button { border: 1px solid var(--line); background: #fff; border-radius: 16px; padding: 4px 12px; font-size: 14px; cursor: pointer; }
 .seg button.on { border-color: var(--green); color: var(--green); background: #effaf3; }
 .hint { padding: 8px 16px; color: var(--sub); font-size: 13px; }
-.list-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 16px 8px 0; }
-.list-bar .hint { padding-top: 0; padding-bottom: 0; }
+.list-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; padding: 0 16px 8px 0; }
+.list-bar .hint { padding-top: 0; padding-bottom: 0; flex: 1 1 auto; min-width: 0; }
+/* The sort buttons stay on one line; when there's no room beside the counts they move below, on the right. */
+.list-bar .seg { flex-wrap: nowrap; flex: none; margin-left: auto; }
+.list-bar .seg button { white-space: nowrap; }
 .list-bar.end { justify-content: flex-end; }
 .seg.small button { padding: 2px 10px; font-size: 13px; }
 
@@ -447,3 +450,10 @@ img { display: block; max-width: 100%; }
 .contact > .btn + .row { margin-top: 12px; }
 .orig-text { margin-top: 8px; }
 .orig-text summary { cursor: pointer; }
+.lang-bar { display: flex; justify-content: flex-end; padding: 8px 12px 0; }
+.lang-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; font-size: 13px; background: #fff; }
+.lang-seg b, .lang-seg button { padding: 4px 12px; line-height: 1.4; }
+.lang-seg b { background: #111; color: #fff; font-weight: 700; }
+.lang-seg button { border: 0; background: none; color: var(--text); cursor: pointer; font: inherit; }
+.album-strip { display: flex; gap: 8px; overflow-x: auto; margin: 0 0 10px; padding-bottom: 4px; }
+.album-strip img { height: 150px; width: auto; border-radius: 6px; flex: none; }
