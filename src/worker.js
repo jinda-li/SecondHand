@@ -1283,15 +1283,17 @@ const AI_MAX_IMAGES = 3;
 const AI_BATCH_MAX_IMAGES = 8;
 const AI_BATCH_MAX_IMAGE_BYTES = 250_000;
 
-const AI_FIELDS = '"brand":"品牌","brand_en":"品牌英文","model":"型号","name":"物品叫法","name_en":"英文叫法","detail":"详情","detail_en":"英文详情","retail":"原价范围"';
+const AI_FIELDS = '"brand":"品牌","brand_en":"品牌英文","model":"型号","name":"物品叫法","name_en":"英文叫法","detail":"详情","detail_en":"英文详情","retail":"原价范围","price":"标价"';
 const aiFieldRules = (currency) => `- brand：看 logo、印的字或很有辨识度的外观认出的品牌，用中国人常用的叫法（例如「宜家」「戴森」「苹果」「无印良品」）；认不出就写空字符串。
 - model：型号或系列名，保持原文（例如「MALM」「Supersonic」「AirPods Pro」）。只在照片上印着、或外观独一无二、你非常确定时才写；同品牌有好几款长得像的，就写空字符串，写错比不写更糟。
 - name：2 到 8 个字，大家常用的叫法，不带品牌（例如「台灯」「吹风机」「抽屉柜」）。
 - detail：不超过 30 个字，写照片里看不出来、但买家想知道的信息：这一款的用途、功能、用法或关键规格（例如「1600W，三档风速，带负离子」「适合 140×200 床垫」「可放 13 寸笔记本」）。照片已经给买家看了，不要再描述颜色、外观、数量这些看得见的东西，也不要评价新旧成色。只写你有把握的；一看就懂的普通东西（杯子、衣架）写空字符串。
+  照片上印着或写着的字（例如卖家做的商品图、吊牌、包装盒上的尺寸、规格、附送的东西）是买家要的信息，优先照着写进 detail，不要编造。
 - brand_en：同一个品牌的英文原名（例如「IKEA」「Dyson」「Apple」「MUJI」）；认不出就写空字符串。
 - name_en：name 的英文常用叫法，1 到 4 个词，只有第一个词首字母大写，不带品牌（例如「Desk lamp」「Hair dryer」「Chest of drawers」）。
 - detail_en：detail 的英文，意思一样；detail 是空的就写空字符串。
-- retail：全新时的大概零售价范围，单位 ${currency}，只写数字，格式「30-40」。认出了品牌就估这一款的价；没认出品牌就估这类东西普通新品的常见价（例如无牌平板支架「10-20」）。范围尽量窄，完全没把握才写空字符串。`;
+- retail：全新时的大概零售价范围，单位 ${currency}，只写数字，格式「30-40」。认出了品牌就估这一款的价；没认出品牌就估这类东西普通新品的常见价（例如无牌平板支架「10-20」）。范围尽量窄，完全没把握才写空字符串。
+- price：照片上写明的二手售价（例如「标价：12 欧」「€5」「售价 20」），只写数字，单位 ${currency}；写明这件东西免费（例如「免费」「白送」「free」）就写 0，附送赠品（例如「+送烤签」）不算免费。原价、新品价不算；照片上没写售价，或写的是别的货币，就写空字符串。不要自己估价。`;
 
 const aiPrompt = (currency, n = 1) => `${n > 1 ? `这是 ${n} 张同一件物品的照片，准备在留学生二手群里出售。请结合所有照片识别这件物品` : '这是一张准备在留学生二手群里出售的物品照片。请识别照片里的主要物品'}。带 _en 的字段用英文，其他字段用简体中文。
 只输出一行 JSON，不要任何别的文字：{${AI_FIELDS}}
@@ -1343,7 +1345,7 @@ function parseAiReply(reply) {
   const model = clean(out.model, 20);
   const what = clean(out.name, 10);
   const whatEn = clean(out.name_en, 30);
-  if (!what) return { name: '', brand, model, note: '', nameEn: '', noteEn: '', retail: null };
+  if (!what) return { name: '', brand, model, note: '', nameEn: '', noteEn: '', retail: null, price: null };
   // 宜家台灯 / 戴森 Supersonic 吹风机: a Latin model name needs spaces around it.
   const name = model ? `${brand}${brand ? ' ' : ''}${model} ${what}` : `${brand}${what}`;
   // Brand and model also go into the details, where buyers look for them.
@@ -1355,7 +1357,15 @@ function parseAiReply(reply) {
   const noteEn = [bEn && `Brand: ${bEn}`, model && `Model: ${model}`, clean(out.detail_en, 120)].filter(Boolean).join('. ');
   // Without a brand the range is for the kind of item in general, and the UI says so.
   const retail = parseRetail(out.retail);
-  return { name: clean(name, 30), brand, model, note: clean(note, 100), nameEn: clean(nameEn, 60), noteEn: clean(noteEn, 200), retail: retail && { ...retail, generic: !brand } };
+  return { name: clean(name, 30), brand, model, note: clean(note, 100), nameEn: clean(nameEn, 60), noteEn: clean(noteEn, 200), retail: retail && { ...retail, generic: !brand }, price: parseAskPrice(out.price) };
+}
+
+// The asking price written on the photo ("12", "5.5", "0" for free) -> number, or null.
+function parseAskPrice(v) {
+  const m = String(v ?? '').replace(',', '.').match(/\d+(?:\.\d{1,2})?/);
+  if (!m) return null;
+  const n = Number(m[0]);
+  return n >= 0 && n < 100000 ? n : null;
 }
 
 // "30-40" / "30~40" / "35" -> { low, high } in whole currency units; anything odd -> null.

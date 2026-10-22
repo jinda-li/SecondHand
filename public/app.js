@@ -405,6 +405,110 @@ async function mosaicEditor(file) {
   });
 }
 
+// ---------- 裁剪: keep part of a photo, e.g. the item out of a seller's screenshot ----------
+
+// Resolves to the cropped JPEG file, or null when cancelled or the whole photo was kept.
+async function cropEditor(file) {
+  const url = URL.createObjectURL(file);
+  let im;
+  try {
+    im = await loadImage(url);
+  } catch {
+    toast(tr('这张照片打不开', "Can't open this photo"));
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  const s = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight));
+  const W = Math.round(im.naturalWidth * s);
+  const H = Math.round(im.naturalHeight * s);
+
+  const el = document.createElement('div');
+  el.className = 'mosaic-ed crop-ed';
+  el.innerHTML = `
+    <div class="mosaic-tip">${tr('拖动四个角，框出要留下的部分', 'Drag the corners around the part to keep')}</div>
+    <div class="mosaic-stage"><div class="crop-wrap"><canvas width="${W}" height="${H}"></canvas><div class="crop-box"><i data-h="nw"></i><i data-h="ne"></i><i data-h="sw"></i><i data-h="se"></i></div></div></div>
+    <div class="mosaic-bar">
+      <button class="pill" data-m="cancel">${tr('取消', 'Cancel')}</button>
+      <button class="pill" data-m="reset">${tr('还原', 'Reset')}</button>
+      <button class="pill dark" data-m="done">${tr('完成', 'Done')}</button>
+    </div>`;
+  document.body.appendChild(el);
+  const stage = el.querySelector('.mosaic-stage');
+  const wrap = el.querySelector('.crop-wrap');
+  const view = el.querySelector('canvas');
+  const box = el.querySelector('.crop-box');
+  view.getContext('2d').drawImage(im, 0, 0, W, H);
+
+  // The crop in photo pixels; k converts screen pixels to photo pixels.
+  let r = { x: 0, y: 0, w: W, h: H };
+  let k = 1;
+  const fit = () => {
+    const sw = stage.clientWidth - 16;
+    const sh = stage.clientHeight;
+    const z = Math.min(sw / W, sh / H);
+    k = 1 / z;
+    view.style.width = `${Math.round(W * z)}px`;
+    view.style.height = `${Math.round(H * z)}px`;
+    draw();
+  };
+  const draw = () => Object.assign(box.style, { left: `${r.x / k}px`, top: `${r.y / k}px`, width: `${r.w / k}px`, height: `${r.h / k}px` });
+  const ro = new ResizeObserver(fit);
+  ro.observe(stage);
+
+  // Dragging a corner moves that corner; dragging inside moves the whole frame.
+  let drag = null;
+  wrap.addEventListener('pointerdown', (e) => {
+    const h = e.target.dataset?.h || (e.target === box ? 'move' : null);
+    if (!h) return;
+    e.preventDefault();
+    wrap.setPointerCapture(e.pointerId);
+    drag = { h, x: e.clientX, y: e.clientY, r: { ...r } };
+  });
+  wrap.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dx = (e.clientX - drag.x) * k;
+    const dy = (e.clientY - drag.y) * k;
+    const o = drag.r;
+    const min = 48 * k;
+    if (drag.h === 'move') {
+      r = { ...o, x: Math.min(W - o.w, Math.max(0, o.x + dx)), y: Math.min(H - o.h, Math.max(0, o.y + dy)) };
+    } else {
+      let [x1, y1, x2, y2] = [o.x, o.y, o.x + o.w, o.y + o.h];
+      if (drag.h.includes('w')) x1 = Math.min(x2 - min, Math.max(0, x1 + dx));
+      else x2 = Math.max(x1 + min, Math.min(W, x2 + dx));
+      if (drag.h.includes('n')) y1 = Math.min(y2 - min, Math.max(0, y1 + dy));
+      else y2 = Math.max(y1 + min, Math.min(H, y2 + dy));
+      r = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+    }
+    draw();
+  });
+  const end = () => (drag = null);
+  wrap.addEventListener('pointerup', end);
+  wrap.addEventListener('pointercancel', end);
+  fit();
+
+  return new Promise((resolve) => {
+    el.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-m]');
+      if (!b) return;
+      if (b.dataset.m === 'reset') {
+        r = { x: 0, y: 0, w: W, h: H };
+        return draw();
+      }
+      ro.disconnect();
+      el.remove();
+      const cw = Math.round(r.w);
+      const ch = Math.round(r.h);
+      if (b.dataset.m !== 'done' || (cw >= W - 1 && ch >= H - 1)) return resolve(null);
+      const c = Object.assign(document.createElement('canvas'), { width: cw, height: ch });
+      c.getContext('2d').drawImage(view, Math.round(r.x), Math.round(r.y), cw, ch, 0, 0, cw, ch);
+      const blob = await canvasBlob(c, 0.9);
+      resolve(blob && new File([blob], 'photo.jpg', { type: 'image/jpeg' }));
+    });
+  });
+}
+
 // ---------- Google sign-in (sales follow the account) ----------
 
 const CFG = window.__CFG__ || {};
@@ -2002,8 +2106,9 @@ const NOTE_HINT = tr('详情（选填）：型号、尺寸、用了多久、有�
 
 // An AI answer in the seller's language, keeping the other language as the item's translation.
 function aiPick(r) {
-  if (LANG === 'en' && r.nameEn) return { name: r.nameEn, note: r.noteEn || '', nameAlt: r.name, noteAlt: r.note || '', retail: r.retail };
-  return { name: r.name, note: r.note || '', nameAlt: r.nameEn || '', noteAlt: r.noteEn || '', retail: r.retail };
+  const price = r.price == null ? '' : String(r.price);
+  if (LANG === 'en' && r.nameEn) return { name: r.nameEn, note: r.noteEn || '', nameAlt: r.name, noteAlt: r.note || '', retail: r.retail, price };
+  return { name: r.name, note: r.note || '', nameAlt: r.nameEn || '', noteAlt: r.noteEn || '', retail: r.retail, price };
 }
 
 function composer(S) {
@@ -2100,6 +2205,8 @@ function composer(S) {
     if (document.activeElement !== nameIn) nameIn.value = c.name;
     const noteIn = card.querySelector('[data-in=note]');
     if (document.activeElement !== noteIn) noteIn.value = c.note;
+    const priceIn = card.querySelector('[data-in=price]');
+    if (document.activeElement !== priceIn) priceIn.value = c.price;
     nameIn.placeholder = c.aiBusy ? tr('AI 识别中…', 'AI working…') : NAME_HINT;
     card.classList.toggle('bad', !!(c.error || (c.touched && !valid(c))));
     card.querySelector('.cstatus').outerHTML = statusHtml(c);
@@ -2119,6 +2226,8 @@ function composer(S) {
       c.retail = r.retail || null;
       if (force || !c.name.trim()) c.name = r.name;
       if ((force || !c.note.trim()) && r.note) c.note = r.note;
+      // A price written on the photo (a seller's own listing picture) only fills an empty box.
+      if (!c.price.trim() && r.price) c.price = r.price;
       c.ai = r;
       return true;
     } catch (err) {
@@ -2185,7 +2294,7 @@ function composer(S) {
         const c = newCard(it.photos.slice(0, MAX_PHOTOS).map((j) => batch[j]));
         if (it.name) {
           const r = aiPick(it);
-          Object.assign(c, { name: r.name, note: r.note, retail: it.retail || null, aiDone: true, ai: r });
+          Object.assign(c, { name: r.name, note: r.note, price: r.price, retail: it.retail || null, aiDone: true, ai: r });
         }
         added.push(c);
       }
@@ -2198,9 +2307,10 @@ function composer(S) {
     else if (sheet === 'busy') aiBusySheet();
   };
 
-  // Tapping a photo: mosaic part of it; on a card with several, also move it to its own card or drop it.
+  // Tapping a photo: crop or mosaic part of it; on a card with several, also move it to its own card or drop it.
   const photoSheet = (c, j) => openSheet(() => `
     <div class="actions">
+      <button class="btn block" data-act="crop">${tr('裁剪（比如从截图里抠出商品图）', 'Crop (e.g. the item out of a screenshot)')}</button>
       <button class="btn block" data-act="mosaic">${tr('打码（遮住门牌、快递单、人脸）', 'Blur parts (door numbers, labels, faces)')}</button>
       ${c.files.length > 1 ? `<button class="btn block" data-act="split">${tr('拆成单独一件', 'Make it a separate item')}</button>
       <button class="btn danger block" data-act="rm">${tr('删掉这张', 'Delete this photo')}</button>` : ''}
@@ -2208,9 +2318,9 @@ function composer(S) {
     </div>`, async (act, _el, s) => {
     s.close();
     if (!cards.includes(c) || !c.files[j]) return;
-    if (act === 'mosaic') {
+    if (act === 'mosaic' || act === 'crop') {
       const old = c.files[j];
-      const file = await mosaicEditor(old.file);
+      const file = await (act === 'crop' ? cropEditor : mosaicEditor)(old.file);
       if (!file || c.files[j] !== old) return;
       URL.revokeObjectURL(old.url);
       c.files[j] = { file, url: URL.createObjectURL(file) };

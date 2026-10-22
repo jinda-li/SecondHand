@@ -443,6 +443,14 @@ img { display: block; max-width: 100%; }
 .mosaic-ed .pill:not(.dark) { background: #333; color: #fff; border-color: #333; }
 .mosaic-ed .pill.dark { background: #ffdb00; color: #111; border-color: #ffdb00; }
 .mosaic-ed .pill:disabled { opacity: .4; }
+.crop-wrap { position: relative; overflow: hidden; touch-action: none; }
+.crop-wrap canvas { max-width: none; max-height: none; }
+.crop-box { position: absolute; box-sizing: border-box; border: 2px solid #fff; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .55); cursor: move; }
+.crop-box i { position: absolute; width: 28px; height: 28px; border: 0 solid #ffdb00; }
+.crop-box i[data-h=nw] { left: -4px; top: -4px; border-width: 4px 0 0 4px; cursor: nwse-resize; }
+.crop-box i[data-h=ne] { right: -4px; top: -4px; border-width: 4px 4px 0 0; cursor: nesw-resize; }
+.crop-box i[data-h=sw] { left: -4px; bottom: -4px; border-width: 0 0 4px 4px; cursor: nesw-resize; }
+.crop-box i[data-h=se] { right: -4px; bottom: -4px; border-width: 0 4px 4px 0; cursor: nwse-resize; }
 
 /* ---------- Telegram / English ---------- */
 .kind-seg, .share-target, .share-lang { justify-content: center; margin: 0 0 12px; }
