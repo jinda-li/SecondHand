@@ -1289,6 +1289,7 @@ const aiFieldRules = (currency) => `- brand：看 logo、印的字或很有辨�
 - name：2 到 8 个字，大家常用的叫法，不带品牌（例如「台灯」「吹风机」「抽屉柜」）。
 - detail：不超过 30 个字，写照片里看不出来、但买家想知道的信息：这一款的用途、功能、用法或关键规格（例如「1600W，三档风速，带负离子」「适合 140×200 床垫」「可放 13 寸笔记本」）。照片已经给买家看了，不要再描述颜色、外观、数量这些看得见的东西，也不要评价新旧成色。只写你有把握的；一看就懂的普通东西（杯子、衣架）写空字符串。
   照片上印着或写着的字（例如卖家做的商品图、吊牌、包装盒上的尺寸、规格、附送的东西）是买家要的信息，优先照着写进 detail，不要编造。
+  标题由 brand、model、name 拼成，detail 里不要再出现标题里已有的内容：不写品牌、型号，也不重复物品叫法。
 - brand_en：同一个品牌的英文原名（例如「IKEA」「Dyson」「Apple」「MUJI」）；认不出就写空字符串。
 - name_en：name 的英文常用叫法，1 到 4 个词，只有第一个词首字母大写，不带品牌（例如「Desk lamp」「Hair dryer」「Chest of drawers」）。
 - detail_en：detail 的英文，意思一样；detail 是空的就写空字符串。
@@ -1303,6 +1304,12 @@ const aiBatchPrompt = (currency, n) => `下面是同一个人准备在留学生�
 第一步：按编号顺序一张一张看，给每张照片标上它拍的是哪件物品，用字母 A、B、C… 表示，同一件物品用同一个字母。同类但不是同一件的东西（例如两个不同的杯子）用不同字母；一套东西（例如一套餐具）算一件。
 第二步：结合每件物品的所有照片识别它。带 _en 的字段用英文，其他字段用简体中文。
 只输出一行 JSON，不要任何别的文字。photos 按编号顺序正好 ${n} 个字母：{"photos":["A","B","A"],"items":[{"id":"A",${AI_FIELDS}}]}
+每件物品的字段：
+${aiFieldRules(currency)}`;
+
+// The seller already put the photos on cards: name every card, one call for all of them.
+const aiGroupedPrompt = (currency, n, ids) => `下面是同一个人准备在留学生二手群里出售的 ${ids.length} 件物品，共 ${n} 张照片，已经按物品分好，每张前面标了它属于哪件物品（${ids.join('、')}）。结合每件物品的所有照片分别识别。带 _en 的字段用英文，其他字段用简体中文。
+只输出一行 JSON，不要任何别的文字。items 按 ${ids.join('、')} 的顺序正好 ${ids.length} 件：{"items":[{"id":"A",${AI_FIELDS}}]}
 每件物品的字段：
 ${aiFieldRules(currency)}`;
 
@@ -1348,13 +1355,12 @@ function parseAiReply(reply) {
   if (!what) return { name: '', brand, model, note: '', nameEn: '', noteEn: '', retail: null, price: null };
   // 宜家台灯 / 戴森 Supersonic 吹风机: a Latin model name needs spaces around it.
   const name = model ? `${brand}${brand ? ' ' : ''}${model} ${what}` : `${brand}${what}`;
-  // Brand and model also go into the details, where buyers look for them.
-  const which = [brand && `品牌：${brand}`, model && `型号：${model}`].filter(Boolean).join('，');
-  const note = [which, clean(out.detail ?? out.note, 50)].filter(Boolean).join('。');
-  // English: "IKEA MALM Chest of drawers", details "Brand: IKEA. Model: MALM. …".
+  // Brand and model are in the name already, so the details leave them out.
+  const note = clean(out.detail ?? out.note, 50);
+  // English: "IKEA MALM Chest of drawers".
   const bEn = brandEn || (brand && !hasCJKText(brand) ? brand : '');
   const nameEn = whatEn ? [bEn, model, whatEn].filter(Boolean).join(' ') : '';
-  const noteEn = [bEn && `Brand: ${bEn}`, model && `Model: ${model}`, clean(out.detail_en, 120)].filter(Boolean).join('. ');
+  const noteEn = clean(out.detail_en, 120);
   // Without a brand the range is for the kind of item in general, and the UI says so.
   const retail = parseRetail(out.retail);
   return { name: clean(name, 30), brand, model, note: clean(note, 100), nameEn: clean(nameEn, 60), noteEn: clean(noteEn, 200), retail: retail && { ...retail, generic: !brand }, price: parseAskPrice(out.price) };
@@ -1406,7 +1412,10 @@ async function aiImages(req, max, maxBytes) {
   if (!files.length) fail('INVALID', ['没有收到照片', 'No photo received']);
   if (files.some((f) => f.size > maxBytes)) fail('INVALID', ['照片太大了', 'Photo too large']);
   const currency = /^[A-Z]{3}$/.test(form.get('currency') || '') ? form.get('currency') : 'EUR';
-  return { images: await Promise.all(files.map(imagePart)), currency };
+  // Card numbers 0..25, one per photo, non-decreasing; anything else is ignored.
+  const g = form.get('groups') ? String(form.get('groups')).split(',').map(Number) : [];
+  const groups = g.length === files.length && g.every((x, i) => Number.isInteger(x) && x >= 0 && x < 26 && (i === 0 || x >= g[i - 1])) ? g : null;
+  return { images: await Promise.all(files.map(imagePart)), currency, groups };
 }
 
 // Workers AI returns either { response } or an OpenAI-style { choices: [{ message }] }.
@@ -1453,7 +1462,8 @@ async function aiIdentify(env, req) {
 // The reply labels each photo, in order, with the letter of the item it shows. Photos with
 // the same letter become one item; a missing or unknown label makes a photo its own,
 // unrecognised item. Items come back ordered by their first photo, photos counted from 0.
-function parseBatch(reply, n) {
+// With given labels (photos the seller grouped) the grouping is kept even if the AI misses an item.
+function parseBatch(reply, n, given) {
   let out = {};
   if (reply && typeof reply === 'object') out = reply;
   else {
@@ -1464,15 +1474,15 @@ function parseBatch(reply, n) {
   }
   const info = new Map();
   for (const it of Array.isArray(out.items) ? out.items : []) if (it && typeof it === 'object') info.set(String(it.id ?? '').trim(), it);
-  const labels = Array.isArray(out.photos) ? out.photos : [];
+  const labels = given || (Array.isArray(out.photos) ? out.photos : []);
   const byLabel = new Map();
   const items = [];
   for (let i = 0; i < n; i++) {
     const label = String(labels[i] ?? '').trim();
-    const known = label && info.has(label);
+    const known = label && (given || info.has(label));
     if (known && byLabel.has(label)) byLabel.get(label).photos.push(i);
     else {
-      const item = { photos: [i], ...parseAiReply(known ? info.get(label) : {}) };
+      const item = { photos: [i], ...parseAiReply(info.get(label) || {}) };
       if (known) byLabel.set(label, item);
       items.push(item);
     }
@@ -1486,10 +1496,13 @@ function parseBatch(reply, n) {
 async function aiBatch(env, req) {
   const clientId = requireClient(req);
   const { q, day } = await aiGate(env, clientId);
-  const { images, currency } = await aiImages(req, AI_BATCH_MAX_IMAGES, AI_BATCH_MAX_IMAGE_BYTES);
-  const content = [{ type: 'text', text: aiBatchPrompt(currency, images.length) }];
-  images.forEach((im, i) => content.push({ type: 'text', text: `第 ${i + 1} 张：` }, im));
-  const items = parseBatch(await runAi(env, content, 120 + 170 * images.length), images.length);
+  const { images, currency, groups } = await aiImages(req, AI_BATCH_MAX_IMAGES, AI_BATCH_MAX_IMAGE_BYTES);
+  // groups: the card each photo is on ("0,0,1,2"), when the seller already sorted them.
+  const labels = groups && groups.length === images.length ? groups.map((g) => String.fromCharCode(65 + g)) : null;
+  const ids = labels && [...new Set(labels)];
+  const content = [{ type: 'text', text: labels ? aiGroupedPrompt(currency, images.length, ids) : aiBatchPrompt(currency, images.length) }];
+  images.forEach((im, i) => content.push({ type: 'text', text: labels ? `物品 ${labels[i]}：` : `第 ${i + 1} 张：` }, im));
+  const items = parseBatch(await runAi(env, content, 120 + 170 * images.length), images.length, labels);
 
   let uses = 0;
   let limited = false;

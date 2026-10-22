@@ -2215,20 +2215,23 @@ function composer(S) {
     el.querySelector('.footer .inner').innerHTML = footerHtml();
   };
 
-  // Ask the AI about one card using all its photos. Automatic runs only fill empty fields;
-  // a manual re-run (force) replaces name and details. Returns false on a quota/busy answer.
+  // Automatic runs only fill empty fields; a manual re-run (force) replaces name and details.
+  const applyAi = (c, r, force) => {
+    c.aiDone = true;
+    c.retail = r.retail || null;
+    if (force || !c.name.trim()) c.name = r.name;
+    if ((force || !c.note.trim()) && r.note) c.note = r.note;
+    // A price written on the photo (a seller's own listing picture) only fills an empty box.
+    if (!c.price.trim() && r.price) c.price = r.price;
+    c.ai = r;
+  };
+
+  // Ask the AI about one card using all its photos. Returns false on a quota/busy answer.
   const aiFill = async (c, force, onRegain) => {
     c.aiBusy = true;
     refreshCard(c);
     try {
-      const r = aiPick(await aiRecognize(c.files.map((f) => f.file), sale.currency));
-      c.aiDone = true;
-      c.retail = r.retail || null;
-      if (force || !c.name.trim()) c.name = r.name;
-      if ((force || !c.note.trim()) && r.note) c.note = r.note;
-      // A price written on the photo (a seller's own listing picture) only fills an empty box.
-      if (!c.price.trim() && r.price) c.price = r.price;
-      c.ai = r;
+      applyAi(c, aiPick(await aiRecognize(c.files.map((f) => f.file), sale.currency)), force);
       return true;
     } catch (err) {
       if (err.code === 'LIMIT') aiLimitSheet(onRegain);
@@ -2239,6 +2242,51 @@ function composer(S) {
       c.aiBusy = false;
       refreshCard(c);
     }
+  };
+
+  // The AI button: this card and every card the AI hasn't named yet, all photos at once,
+  // the seller's grouping kept. Only the tapped card has its name and details replaced.
+  const aiFillAll = async (c) => {
+    const list = cards.filter((d) => d === c || (!d.aiDone && !d.aiBusy && d.files.length));
+    if (list.length === 1) return aiFill(c, true, () => cards.includes(c) && el.isConnected && aiFill(c, true));
+    const chunks = [];
+    for (const d of list) {
+      const last = chunks[chunks.length - 1];
+      if (last && last.reduce((s, x) => s + x.files.length, 0) + d.files.length <= AI_BATCH_MAX) last.push(d);
+      else chunks.push([d]);
+    }
+    list.forEach((d) => {
+      d.aiBusy = true;
+      refreshCard(d);
+    });
+    let sheet = null;
+    try {
+      for (const chunk of chunks) {
+        const files = [];
+        const groups = [];
+        chunk.forEach((d, k) => d.files.forEach((f) => (files.push(f.file), groups.push(k))));
+        try {
+          const r = await aiBatch(files, sale.currency, groups);
+          for (const it of r.items) {
+            const d = chunk[groups[it.photos[0]]];
+            if (it.name && d && cards.includes(d)) applyAi(d, aiPick(it), d === c);
+          }
+          if (r.limited) sheet = 'limit';
+        } catch (err) {
+          if (err.code === 'LIMIT') sheet = 'limit';
+          else if (err.code === 'AI_BUSY') sheet = 'busy';
+          else return toast(err.message);
+        }
+        if (sheet) break;
+      }
+    } finally {
+      list.forEach((d) => {
+        d.aiBusy = false;
+        refreshCard(d);
+      });
+    }
+    if (sheet === 'limit') aiLimitSheet(() => cards.includes(c) && el.isConnected && aiFillAll(c));
+    else if (sheet === 'busy') aiBusySheet();
   };
 
   // Quota regained via survey or invite: pick up where we stopped (named cards are skipped).
@@ -2380,7 +2428,7 @@ function composer(S) {
         return addFiles();
       case 'reai':
         if (c.aiBusy) return;
-        return aiFill(c, true, () => cards.includes(c) && el.isConnected && aiFill(c, true));
+        return aiFillAll(c);
       case 'del':
         c.files.forEach((f) => URL.revokeObjectURL(f.url));
         cards.splice(cards.indexOf(c), 1);
@@ -3873,7 +3921,8 @@ const AI_BATCH_MAX = 8;
 
 // Sort photos picked together into items and recognise each one, in one call.
 // Returns { items: [{ photos: [indices into files], name, note, retail }], limited }.
-async function aiBatch(files, currency) {
+// groups: the card each file is on, when the seller already sorted them; the AI then keeps that.
+async function aiBatch(files, currency, groups) {
   buyerToken(true);
   const form = new FormData();
   for (const file of files) {
@@ -3886,6 +3935,7 @@ async function aiBatch(files, currency) {
     }
   }
   if (currency) form.append('currency', currency);
+  if (groups) form.append('groups', groups.join(','));
   return api('/ai/batch', { method: 'POST', form });
 }
 
