@@ -445,6 +445,5 @@ img { display: block; max-width: 100%; }
 .kind-tag.tg { background: #e3f2fd; color: #1976d2; }
 .kind-tag.wx { background: #e8f5e9; color: #2e7d32; }
 .contact > .btn + .row { margin-top: 12px; }
-.contact-safe { margin-top: 10px; }
 .orig-text { margin-top: 8px; }
 .orig-text summary { cursor: pointer; }

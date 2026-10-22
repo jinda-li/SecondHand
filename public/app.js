@@ -1220,7 +1220,6 @@ function bindTrackDots(root) {
 // add. The opening line names what they reserved, in the buyer's language.
 function contactHtml(c) {
   const note = c.items ? contactNote(c.items.map((i) => ({ no: i.no, name: itemT(i).name })), LANG) : c.note;
-  const safety = `<div class="small muted contact-safe">${tr('见面验货再付钱。别先付定金，别点陌生人发的付款链接。', 'Pay when you meet and see the item. No deposits up front, no payment links from strangers.')}</div>`;
   if (c.kind === 'telegram') {
     return `
     <div class="contact">
@@ -1233,7 +1232,6 @@ function contactHtml(c) {
         <li>${tr('把这句发过去（没自动填上就粘贴），卖家一看就知道你要哪件', "Send the line above (paste it if it isn't filled in) so the seller knows what you want")}</li>
         <li>${tr('时间地点和卖家直接约', 'Agree on a time and place with the seller')}</li>
       </ol>
-      ${safety}
     </div>`;
   }
   const wechat = c.value ?? c.wechat;
@@ -1248,7 +1246,6 @@ function contactHtml(c) {
         <li>${tr('好友申请里粘贴上面那句，卖家一看就知道你是谁、要哪件', 'Paste the line above into the request so the seller knows who you are and what you want')}</li>
         <li>${tr('加上后，时间地点和卖家直接约', 'Then agree on a time and place')}</li>
       </ol>
-      ${safety}
     </div>`;
 }
 
