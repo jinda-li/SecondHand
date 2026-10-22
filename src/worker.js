@@ -1,6 +1,6 @@
 import { money, contactNote, itemText, saleText, textLang, normTelegram, looksLikeTelegram, RULES } from '../public/lib.js';
 
-const VERSION = '43';
+const VERSION = '44';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 // An open list pauses this long after its last renewal: buyers can look but not queue,
@@ -650,6 +650,10 @@ async function api(req, env, url, ctx) {
     const item = await getItem(env, m[1]);
     return updateItem(env, ctx, await requireSeller(req, env, item.sale_id), item, await body(req));
   }
+  if ((m = p.match(/^\/item\/(\w+)\/translate$/)) && M === 'POST') {
+    const item = await getItem(env, m[1]);
+    return retranslateItem(env, await requireSeller(req, env, item.sale_id), item);
+  }
   if ((m = p.match(/^\/item\/(\w+)\/action$/)) && M === 'POST') {
     const item = await getItem(env, m[1]);
     return itemAction(env, await requireSeller(req, env, item.sale_id), item, await body(req));
@@ -911,7 +915,7 @@ async function updateItem(env, ctx, sale, item, b) {
   }
   else if (src !== itemSrc(item.name, item.note)) {
     Object.assign(f, { name_alt: null, note_alt: null, alt_src: null });
-    retranslate = true;
+    retranslate = await takeQuota(env, `tre:${sale.id}`, EDIT_TRANSLATE_DAILY);
   } else retranslate = !item.name_alt;
   const t = now();
   if ('price_cents' in f && f.price_cents !== item.price_cents) f.price_changed_at = t;
@@ -1157,6 +1161,34 @@ async function translateItem(env, itemId) {
   if (!r || !r[0]) return;
   await env.DB.prepare('UPDATE items SET name_alt = ?, note_alt = ?, alt_src = ? WHERE id = ? AND name = ? AND note = ?')
     .bind([...r[0]].slice(0, 60).join(''), [...r[1]].slice(0, 200).join(''), src, itemId, it.name, it.note).run();
+}
+
+// Translations a seller sets off by editing items or with the re-translate button, per list and per
+// item a day: enough to fix a list, too few to use the item page as a free translator. The text
+// translated is always the item's saved name and details, and the result is shown on the list.
+const EDIT_TRANSLATE_DAILY = 40;
+const RETRANSLATE_PER_ITEM = 3;
+
+// Counts one use of `key` today; false once more than `max` were used.
+async function takeQuota(env, key, max) {
+  const day = `${new Date().toISOString().slice(0, 10)}:${key}`;
+  const r = await env.DB.prepare('INSERT INTO ai_daily (day, count) VALUES (?1, 1) ON CONFLICT (day) DO UPDATE SET count = count + 1 RETURNING count').bind(day).first();
+  return (r?.count ?? 0) <= max;
+}
+
+// The seller's re-translate button: the saved name and details again, whatever was there before.
+async function retranslateItem(env, sale, item) {
+  if (item.status !== 'available' && item.status !== 'reserved') fail('CONFLICT', ['这件已经不在售了', 'This item is no longer for sale']);
+  if (!(await takeQuota(env, `rt:${item.id}`, RETRANSLATE_PER_ITEM)) || !(await takeQuota(env, `tre:${sale.id}`, EDIT_TRANSLATE_DAILY))) {
+    fail('RATE_LIMITED', ['今天重新翻译的次数用完了。译得不对的话，直接改就行', "That's enough re-translating for today. If it's still wrong, just edit it."], 429);
+  }
+  const r = await translateEach(env, [item.name, item.note]);
+  if (!r || !r[0]) fail('AI_FAILED', ['翻译没成功，过一会儿再试', "Translation didn't work, try again later"], 503);
+  const nameAlt = [...r[0]].slice(0, 60).join('');
+  const noteAlt = [...r[1]].slice(0, 200).join('');
+  await env.DB.prepare('UPDATE items SET name_alt = ?, note_alt = ?, alt_src = ? WHERE id = ? AND name = ? AND note = ?')
+    .bind(nameAlt, noteAlt, itemSrc(item.name, item.note), item.id, item.name, item.note).run();
+  return ok({ nameAlt, noteAlt });
 }
 
 // What a list's translation was made from: title, place and the rules a table can't translate.

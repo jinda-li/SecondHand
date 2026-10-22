@@ -458,5 +458,12 @@ img { display: block; max-width: 100%; }
 .lang-seg b, .lang-seg button { padding: 4px 12px; line-height: 1.4; }
 .lang-seg b { background: #111; color: #fff; font-weight: 700; }
 .lang-seg button { border: 0; background: none; color: var(--text); cursor: pointer; font: inherit; }
-.album-strip { display: flex; gap: 8px; overflow-x: auto; margin: 0 0 10px; padding-bottom: 4px; }
-.album-strip img { height: 150px; width: auto; border-radius: 6px; flex: none; }
+.post-preview { display: block; width: 100%; max-width: 320px; margin: 0 auto 10px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
+.switch-row { display: flex; align-items: center; gap: 8px; margin: 4px 4px 8px; font-size: 15px; cursor: pointer; }
+.switch-row input { width: 20px; height: 20px; margin: 0; flex: none; }
+
+/* Item sheet: the name in the other language, under the seller's own. */
+.alt-box { margin: 0 0 14px; padding: 10px 12px; border-radius: 8px; background: #f6f7f9; }
+.alt-box.missing { background: #fff6e0; }
+.alt-box .link-btn { margin-top: 4px; }
+.alt-group .field small { font-weight: 400; }

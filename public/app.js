@@ -2340,6 +2340,19 @@ function composer(S) {
 
 // ---------- 6.4 item sheet (seller view) ----------
 
+// The item's name and details in the seller's language first and the other language second,
+// whichever one the seller wrote them in.
+function itemPair(it) {
+  if (textLang(it.name) === LANG || !it.nameAlt) return { name: it.name, note: it.note, name2: it.nameAlt || '', note2: it.noteAlt || '' };
+  return { name: it.nameAlt, note: it.noteAlt || it.note, name2: it.name, note2: it.noteAlt ? it.note : '' };
+}
+
+// The second language: English is what Telegram and English-speaking buyers read, so a Chinese
+// seller is nudged when it is missing; Chinese is optional for an English seller.
+const OTHER_NAME = tr('英文名', 'Chinese name');
+const OTHER_NOTE = tr('英文详情', 'Chinese details');
+const AUTO_TAG = tr('自动翻译，不对可以改', 'Auto-translated · optional');
+
 function itemSheet(S, itemId) {
   const { sale } = S.data();
   let it = S.data().items.find((i) => i.id === itemId);
@@ -2355,8 +2368,6 @@ function itemSheet(S, itemId) {
   const sh = openSheet(() => {
     const open = it.status === 'available' || it.status === 'reserved';
     if (edit) {
-      // The translation the other-language buyers see, editable; it follows the original's language.
-      const altLabel = textLang(edit.name) === 'zh' ? tr('英文名', 'English name') : tr('中文名', 'Chinese name');
       return `<h2>${tr(`编辑 ${it.no} 号`, `Edit #${it.no}`)}</h2>
         <div class="group" style="padding:12px">
           <div class="photo-strip">
@@ -2370,23 +2381,30 @@ function itemSheet(S, itemId) {
           <label class="field"><span>${tr('原价（选填，会划掉显示在价格旁边）', 'Original price (optional, shown struck through)')}</span><input class="inp" name="orig" type="text" inputmode="decimal" maxlength="9" value="${edit.origPriceCents == null || Number.isNaN(edit.origPriceCents) ? '' : edit.origPriceCents / 100}"></label>
           <label class="field"><span>${tr('详情（选填）', 'Details (optional)')}</span><textarea class="inp" name="note" rows="3" maxlength="200" placeholder="${NOTE_HINT}">${esc(edit.note)}</textarea></label>
         </div>
-        <div class="group">
-          <label class="field"><span>${altLabel}${tr('（自动翻译，不对可以改）', ' (auto-translated, fix it if wrong)')}</span><input class="inp" name="nameAlt" maxlength="60" value="${esc(edit.nameAlt)}" placeholder="${tr('保存后自动翻译', 'Translated after saving')}"></label>
-          <label class="field"><span>${tr('翻译的详情', 'Translated details')}</span><textarea class="inp" name="noteAlt" rows="2" maxlength="200">${esc(edit.noteAlt)}</textarea></label>
+        <div class="group alt-group">
+          <label class="field"><span>${OTHER_NAME} <small class="muted">${AUTO_TAG}</small></span><input class="inp" name="name2" maxlength="60" value="${esc(edit.name2)}" placeholder="${tr('保存后自动翻译', 'Translated after saving')}"></label>
+          <label class="field"><span>${OTHER_NOTE}</span><textarea class="inp" name="note2" rows="2" maxlength="200">${esc(edit.note2)}</textarea></label>
+          <div class="cell"><button class="link-btn small" data-act="retranslate">↻ ${tr('重新翻译', 'Re-translate')}</button></div>
         </div>
         <div class="actions"><button class="btn primary block" data-act="save">${tr('保存', 'Save')}</button><button class="btn block" data-act="cancel-edit">${tr('取消', 'Cancel')}</button></div>`;
     }
     const q = it.queue;
+    const pair = itemPair(it);
     return `
       <div class="row" style="margin-bottom:12px">
         <img src="${img(it.photos[0])}" style="width:72px;height:72px;border-radius:8px;object-fit:cover" alt="">
         <div class="grow">
-          <div><span class="no">${it.no}</span> <b>${esc(it.name)}</b></div>
+          <div><span class="no">${it.no}</span> <b>${esc(pair.name)}</b></div>
           <div>${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)} · <span class="st ${it.status}">${statusText[it.status]}</span>${it.condition ? ` · ${conditionText(it.condition, LANG)}` : ''}</div>
-          ${it.note ? `<div class="small muted">${esc(it.note)}</div>` : ''}
-          ${it.nameAlt ? `<div class="small muted">${textLang(it.name) === 'zh' ? 'EN' : '中'}: ${esc(it.nameAlt)}</div>` : ''}
+          ${pair.note ? `<div class="small muted">${esc(pair.note)}</div>` : ''}
         </div>
         ${open ? `<button class="btn small" data-act="edit">${tr('编辑', 'Edit')}</button>` : ''}
+      </div>
+      <div class="alt-box ${!pair.name2 && LANG === 'zh' ? 'missing' : ''}">
+        <div class="small muted">${OTHER_NAME} · ${tr('自动翻译', 'Auto-translated')}</div>
+        ${pair.name2 ? `<div>${esc(pair.name2)}</div>${pair.note2 ? `<div class="small muted">${esc(pair.note2)}</div>` : ''}`
+          : `<div class="small">${tr('还没有英文名：Telegram 群和英文买家会看到中文', 'None yet')}</div>`}
+        ${open ? `<button class="link-btn small" data-act="retranslate">↻ ${pair.name2 ? tr('重新翻译', 'Re-translate') : tr('翻译成英文', 'Translate')}</button>` : ''}
       </div>
       ${open ? `
         <div class="small muted" style="margin:0 4px 6px">${tr(`排队名单（${q.length} 人）`, `In line (${q.length})`)}</div>
@@ -2445,8 +2463,31 @@ function itemSheet(S, itemId) {
       case 'tip':
         return tipSheet();
       case 'edit':
-        edit = { name: it.name, priceCents: it.priceCents, origPriceCents: it.origPriceCents ?? null, condition: it.condition, note: it.note, photos: [...it.photos], nameAlt: it.nameAlt || '', noteAlt: it.noteAlt || '' };
+        edit = { ...itemPair(it), priceCents: it.priceCents, origPriceCents: it.origPriceCents ?? null, condition: it.condition, photos: [...it.photos] };
         return s.refresh();
+      case 'retranslate': {
+        // Only the saved text is translated (the server takes no text from here), so an edited
+        // name is saved first and translated with the save.
+        if (edit) {
+          syncEdit(s);
+          const pair = itemPair(it);
+          if (edit.name !== pair.name || edit.note !== pair.note) return toast(tr('先保存，保存后会自动重新翻译', 'Save first: the new text is translated when saved'));
+        }
+        el.disabled = true;
+        const stop = loading(tr('正在翻译…', 'Translating…'));
+        try {
+          const r = await api(`/item/${it.id}/translate`, { method: 'POST', key: S.key, body: {} });
+          await S.reload();
+          it = S.data().items.find((i) => i.id === itemId) || it;
+          if (edit) Object.assign(edit, { name2: itemPair(it).name2, note2: itemPair(it).note2 });
+          toast(r.nameAlt ? tr('已重新翻译', 'Re-translated') : tr('没翻译出来', 'Nothing came back'));
+        } catch (err) {
+          toast(err.message);
+        } finally {
+          stop();
+        }
+        return s.refresh();
+      }
       case 'cancel-edit':
         edit = null;
         return s.refresh();
@@ -2473,12 +2514,12 @@ function itemSheet(S, itemId) {
         if (!Number.isFinite(edit.priceCents) || edit.priceCents < 0) return toast(tr('价格不对', 'Invalid price'));
         if (Number.isNaN(edit.origPriceCents)) return toast(tr('原价填数字，不填也行', 'Original price: a number, or leave it empty'));
         el.disabled = true;
-        const body = { ...edit };
-        // An untouched translation is left to the server, which redoes it if the text changed.
-        if (body.nameAlt === (it.nameAlt || '') && body.noteAlt === (it.noteAlt || '')) {
-          delete body.nameAlt;
-          delete body.noteAlt;
-        }
+        const { name, note, name2, note2, ...body } = edit;
+        const pair = itemPair(it);
+        // The text the seller sees first becomes the original. An untouched translation is left to
+        // the server, which keeps it, or redoes it when the text changed.
+        if (name2 !== pair.name2 || note2 !== pair.note2) Object.assign(body, { name, note, nameAlt: name2, noteAlt: note2 });
+        else if (name !== pair.name || note !== pair.note) Object.assign(body, { name, note });
         try {
           await api(`/item/${it.id}`, { method: 'PATCH', key: S.key, body });
           edit = null;
@@ -2499,8 +2540,8 @@ function itemSheet(S, itemId) {
     edit.priceCents = Math.round(parseFloat(v('price') || '0') * 100);
     edit.origPriceCents = parsePrice(v('orig'));
     edit.note = v('note').trim();
-    edit.nameAlt = v('nameAlt').trim();
-    edit.noteAlt = v('noteAlt').trim();
+    edit.name2 = v('name2').trim();
+    edit.note2 = v('note2').trim();
   }
 }
 
@@ -2686,8 +2727,8 @@ function shareSheet(S) {
     if (target === 'telegram') {
       return `<h2>${tr('分享到群', 'Share to groups')}</h2>${seg}
       <div class="share-step">
-        <button class="btn primary big block" data-act="album">${tr('发相册（推荐）', 'Post a photo album (recommended)')}</button>
-        <div class="small muted step-why">${tr('和群里大家一样直接发大图：一张封面加每件东西一张，配文带物品清单和预订链接。', 'Big photos like everyone else posts: a cover plus one per item, with the item list and the reservation link as the caption.')}</div>
+        <button class="btn primary big block" data-act="tgpost">${tr('发大图（推荐）', 'Post a picture (recommended)')}</button>
+        <div class="small muted step-why">${tr('和群里大家一样直接发大图：一张大图带小图的拼图，写着点链接预订；配文带预订链接，物品清单可带可不带。', 'A big picture like everyone else posts: one large photo with smaller ones, saying to tap the link to reserve. The caption has the link, and the item list if you want it.')}</div>
         <button class="btn big block" data-act="tgtext">${tr('只发文字和链接', 'Text and link only')}</button>
         <div class="small muted step-why">${tr('一条消息：开头一句、链接、物品清单，Telegram 会显示带图的预览。', 'One message with a line, the link and the item list; Telegram shows a preview with a picture.')}</div>
       </div>
@@ -2732,9 +2773,9 @@ function shareSheet(S) {
       s.close();
       return textSheet(S, target);
     }
-    if (act === 'album') {
+    if (act === 'tgpost') {
       s.close();
-      return albumSheet(S);
+      return tgPostSheet(S);
     }
     if (act === 'image') {
       s.close();
@@ -3037,6 +3078,18 @@ function fitText(g, text, maxW) {
   return chars.join('') + '…';
 }
 
+// Sets the largest font up to `size` (down to 60% of it) in which the text fits, so a whole
+// sentence shows instead of being cut; still too long, it is cut.
+function fitFont(g, text, maxW, size, weight) {
+  let px = size;
+  g.font = `${weight} ${px}px ${FONT}`;
+  while (px > size * 0.6 && g.measureText(text).width > maxW) {
+    px -= 2;
+    g.font = `${weight} ${px}px ${FONT}`;
+  }
+  return fitText(g, text, maxW);
+}
+
 async function loadAll(ids) {
   return Promise.all(ids.map((id) => loadImage(img(id)).catch(() => null)));
 }
@@ -3242,19 +3295,20 @@ function showImages(urls, name = tr('清单图', 'list')) {
   document.body.appendChild(el);
 }
 
-// ---------- Telegram album: photos people see full size, the list and link as the caption ----------
+// ---------- Telegram post: one big collage picture, the link (and the list) as the caption ----------
 
-// Telegram's limits: 10 pictures per album, 1024 characters of caption.
-const ALBUM_MAX = 10;
+// Telegram's caption limit.
 const CAPTION_MAX = 1024;
-// Portrait 4:5, the shape Telegram shows largest in an album.
-const ALBUM_W = 1080;
-const ALBUM_H = 1350;
+// Portrait 4:5, the shape Telegram shows largest.
+const POST_W = 1080;
+const POST_H = 1350;
 
 const openItems = (items) => [...items.filter((i) => i.status === 'available'), ...items.filter((i) => i.status === 'reserved')];
 
-// The Telegram post text with as many items as fit in a caption; the rest are "…and N more".
-function albumCaption(sale, items, opts) {
+// The post text: the intro and the link, then as many items as fit in a caption ("…and N more"),
+// or no items at all when the seller leaves the list out.
+function postCaption(sale, items, { withItems, ...opts }) {
+  if (!withItems) return [opts.intro ?? defaultIntro(sale, opts), opts.link].filter(Boolean).join('\n').slice(0, CAPTION_MAX);
   for (let n = 30; n >= 0; n--) {
     const t = shareText(sale, items, { ...opts, maxListed: n });
     if (t.length <= CAPTION_MAX) return t;
@@ -3262,141 +3316,151 @@ function albumCaption(sale, items, opts) {
   return shareText(sale, items, { ...opts, maxListed: 0 }).slice(0, CAPTION_MAX);
 }
 
-function albumCanvas() {
-  const c = document.createElement('canvas');
-  c.width = ALBUM_W;
-  c.height = ALBUM_H;
-  const g = c.getContext('2d');
-  g.fillStyle = '#fff';
-  g.fillRect(0, 0, ALBUM_W, ALBUM_H);
-  return [c, g];
+// Where the photos go in the area below the title, by how many there are: one large photo of the
+// first item, smaller ones beside and under it (at most 7; the last says "+N" when more are left).
+function collageCells(n, y, w, h) {
+  if (n === 1) return [[0, y, w, h]];
+  if (n === 2) return [[0, y, w / 2, h], [w / 2, y, w / 2, h]];
+  const bw = w * (2 / 3);
+  const sw = w - bw;
+  if (n === 3) return [[0, y, bw, h], [bw, y, sw, h / 2], [bw, y + h / 2, sw, h / 2]];
+  const bh = h * 0.62;
+  const rest = Math.min(n, 7) - 3;
+  return [
+    [0, y, bw, bh], [bw, y, sw, bh / 2], [bw, y + bh / 2, sw, bh / 2],
+    ...Array.from({ length: rest }, (_, k) => [(w / rest) * k, y + bh, w / rest, h - bh]),
+  ];
 }
 
-// First picture: title and place on top, four items with prices, how many are for sale.
-async function drawAlbumCover(sale, items, lang) {
+// The picture: title and place on top, the collage with prices, and a footer telling people to
+// open the link to reserve.
+async function drawCollage(sale, items, lang) {
   const L = (zh, en) => (lang === 'en' ? en : zh);
   const st = saleText(sale, lang);
-  const [c, g] = albumCanvas();
-  const pad = 40;
-  const head = 220;
-  const foot = 190;
-  g.fillStyle = BLUE;
-  g.fillRect(0, 0, ALBUM_W, head);
+  const c = document.createElement('canvas');
+  c.width = POST_W;
+  c.height = POST_H;
+  const g = c.getContext('2d');
   g.fillStyle = '#fff';
-  g.font = `800 64px ${FONT}`;
-  g.fillText(fitText(g, st.title, ALBUM_W - pad * 2), pad, 104);
+  g.fillRect(0, 0, POST_W, POST_H);
+  const pad = 40;
+  const head = 200;
+  const foot = 230;
+  g.fillStyle = BLUE;
+  g.fillRect(0, 0, POST_W, head);
+  g.fillStyle = '#fff';
+  g.font = `800 62px ${FONT}`;
+  g.fillText(fitText(g, st.title, POST_W - pad * 2), pad, 96);
   g.fillStyle = YELLOW;
-  g.font = `700 38px ${FONT}`;
+  g.font = `700 36px ${FONT}`;
   const until = sale.leaveDate ? L(` · ${dateText(sale.leaveDate, lang)}前出完`, ` · until ${dateText(sale.leaveDate, lang)}`) : '';
-  g.fillText(fitText(g, `📍 ${st.location}${until}`, ALBUM_W - pad * 2), pad, 172);
-  const pick = openItems(items).slice(0, 4);
-  const ims = await loadAll(pick.map((i) => i.photos[0]));
-  const gh = ALBUM_H - head - foot;
-  const cells = pick.length === 1 ? [[0, head, ALBUM_W, gh]]
-    : pick.length === 2 ? [[0, head, ALBUM_W / 2, gh], [ALBUM_W / 2, head, ALBUM_W / 2, gh]]
-    : [[0, head, ALBUM_W / 2, gh / 2], [ALBUM_W / 2, head, ALBUM_W / 2, gh / 2], [0, head + gh / 2, ALBUM_W / 2, gh / 2], [ALBUM_W / 2, head + gh / 2, ALBUM_W / 2, gh / 2]];
-  pick.forEach((it, k) => {
-    if (!cells[k]) return;
+  g.fillText(fitText(g, `📍 ${st.location}${until}`, POST_W - pad * 2), pad, 160);
+
+  const list = openItems(items);
+  const cells = collageCells(list.length, head, POST_W, POST_H - head - foot);
+  const shown = list.slice(0, cells.length);
+  const ims = await Promise.all(shown.map((it) => loadImage(img(it.photos[0], false)).catch(() => null)));
+  shown.forEach((it, k) => {
     const [x, y, w, h] = cells[k];
+    g.fillStyle = '#f2f2f2';
+    g.fillRect(x + 3, y + 3, w - 6, h - 6);
     if (ims[k]) drawCover(g, ims[k], x + 3, y + 3, w - 6, h - 6);
-    drawPriceTag(g, moneyIn(it.priceCents, sale.currency, lang), x + w - 18, y + h - 18, 44);
+    const big = k === 0;
+    const more = k === cells.length - 1 ? list.length - cells.length : 0;
+    if (more > 0) {
+      g.fillStyle = 'rgba(0,0,0,0.55)';
+      g.fillRect(x + 3, y + 3, w - 6, h - 6);
+      g.fillStyle = '#fff';
+      g.textAlign = 'center';
+      g.font = `900 72px ${FONT}`;
+      g.fillText(`+${more}`, x + w / 2, y + h / 2 + 10);
+      g.font = `600 30px ${FONT}`;
+      g.fillText(L('更多在链接里', 'more at the link'), x + w / 2, y + h / 2 + 56);
+      g.textAlign = 'left';
+      return;
+    }
+    if (it.status === 'reserved') drawStamp(g, L('已预订', 'Reserved'), x + w / 2, y + h / 2, big ? 64 : 38, '#111');
+    drawPriceTag(g, moneyIn(it.priceCents, sale.currency, lang), x + w - 16, y + h - 16, big ? 50 : 34);
+    if (big) {
+      // The large photo also carries its name, on a dark strip so it reads on any photo.
+      g.font = `800 40px ${FONT}`;
+      const name = fitText(g, itemText(it, lang).name, w * 0.55);
+      const nw = g.measureText(name).width;
+      g.fillStyle = 'rgba(0,0,0,0.6)';
+      g.fillRect(x + 3, y + h - 82, nw + 40, 66);
+      g.fillStyle = '#fff';
+      g.fillText(name, x + 23, y + h - 34);
+    }
   });
+
+  const top = POST_H - foot;
   g.fillStyle = YELLOW;
-  g.fillRect(0, ALBUM_H - foot, ALBUM_W, foot);
+  g.fillRect(0, top, POST_W, foot);
   const n = items.filter((i) => i.status === 'available').length;
   g.fillStyle = '#111';
-  g.font = `900 64px ${FONT}`;
-  g.fillText(L(`在售 ${n} 件`, `${n} for sale`), pad, ALBUM_H - foot + 86);
-  g.font = `400 34px ${FONT}`;
-  g.fillText(fitText(g, L('点配文里的链接预订 · 先到先得', 'Reserve at the link in the caption · first come, first served'), ALBUM_W - pad * 2), pad, ALBUM_H - foot + 146);
+  g.fillText(fitFont(g, L('要预订？点下面的链接 👇', 'To reserve, tap the link below 👇'), POST_W - pad * 2, 64, 900), pad, top + 92);
+  g.fillText(fitFont(g, L(`在售 ${n} 件 · 先到先得 · 链接里看全部照片和价格`, `${n} for sale · first come, first served · all photos and prices at the link`), POST_W - pad * 2, 34, 600), pad, top + 150);
   g.textAlign = 'right';
   g.fillStyle = BLUE;
-  g.font = `800 32px ${FONT}`;
-  g.fillText(L('二手清单', 'Secondhand List'), ALBUM_W - pad, ALBUM_H - foot + 84);
+  g.font = `800 30px ${FONT}`;
+  g.fillText(L('二手清单', 'Secondhand List'), POST_W - pad, top + 204);
   g.textAlign = 'left';
-  return canvasBlob(c, 0.88);
+  return canvasBlob(c, 0.9);
 }
 
-// One item: its main photo full size, name and price in a band at the bottom.
-async function drawAlbumItem(sale, it, lang) {
-  const [c, g] = albumCanvas();
-  const pad = 40;
-  const band = 170;
-  const im = await loadImage(img(it.photos[0], false)).catch(() => null);
-  g.fillStyle = '#f5f5f5';
-  g.fillRect(0, 0, ALBUM_W, ALBUM_H - band);
-  if (im) drawCover(g, im, 0, 0, ALBUM_W, ALBUM_H - band);
-  if (it.status === 'reserved') drawStamp(g, lang === 'en' ? 'Reserved' : '已预订', ALBUM_W / 2, (ALBUM_H - band) / 2, 72, '#111');
-  const price = moneyIn(it.priceCents, sale.currency, lang);
-  g.font = `900 52px ${FONT}`;
-  const priceW = g.measureText(price).width + 52 * 0.6;
-  drawPriceTag(g, price, ALBUM_W - pad, ALBUM_H - 50, 52);
-  g.fillStyle = '#111';
-  g.font = `800 50px ${FONT}`;
-  g.fillText(fitText(g, itemText(it, lang).name, ALBUM_W - pad * 3 - priceW), pad, ALBUM_H - 72);
-  if (it.origPriceCents > it.priceCents) {
-    g.font = `400 30px ${FONT}`;
-    const orig = `${lang === 'en' ? 'New ' : '原价 '}${moneyIn(it.origPriceCents, sale.currency, lang)}`;
-    g.fillStyle = '#888';
-    g.textAlign = 'right';
-    g.fillText(orig, ALBUM_W - pad, ALBUM_H - band + 44);
-    g.textAlign = 'left';
-  }
-  return canvasBlob(c, 0.88);
-}
-
-// The album sheet: pictures made on the phone, an editable caption, then either the system share
-// sheet (pictures and caption go to Telegram together) or save + copy + post by hand.
-async function albumSheet(S) {
+// The post sheet: the picture made on the phone and an editable caption, then either the system
+// share sheet (picture and caption go to Telegram together) or save + copy + post by hand.
+async function tgPostSheet(S) {
   let lang = shareLang('telegram');
+  let withItems = store.get('tgPostItems', true);
   let d = await translatedData(S, lang);
   const ver = Date.now().toString(36).slice(-5);
-  let files = [];
-  let urls = [];
+  let file = null;
+  let url = '';
   let caption = '';
   const introKey = () => `${S.saleId}:telegram:${lang}`;
+  const writeCaption = () => {
+    const intro = stripLinks(store.get('shareIntro', {})[introKey()]) || defaultIntro(d.sale, { lang, target: 'telegram' });
+    caption = postCaption(d.sale, d.items, { withItems, prices: true, lang, target: 'telegram', link: tgLink(publicUrl(S), lang, ver), intro });
+  };
   const make = async () => {
-    const { sale, items } = d;
-    const list = openItems(items);
-    if (!list.length) {
+    if (!openItems(d.items).length) {
       toast(tr('还没有在售的东西', 'Nothing for sale yet'));
       return false;
     }
-    const stop = loading(tr('正在生成图片…', 'Making the pictures…'));
+    const stop = loading(tr('正在生成图片…', 'Making the picture…'));
     try {
-      const blobs = [await drawAlbumCover(sale, items, lang)];
-      for (const it of list.slice(0, ALBUM_MAX - 1)) blobs.push(await drawAlbumItem(sale, it, lang));
-      urls.forEach((u) => URL.revokeObjectURL(u));
-      files = blobs.map((b, i) => new File([b], `${i + 1}.jpg`, { type: 'image/jpeg' }));
-      urls = files.map((f) => URL.createObjectURL(f));
-      const intro = stripLinks(store.get('shareIntro', {})[introKey()]) || defaultIntro(sale, { lang, target: 'telegram' });
-      caption = albumCaption(sale, items, { prices: true, lang, target: 'telegram', link: tgLink(publicUrl(S), lang, ver), intro });
+      const blob = await drawCollage(d.sale, d.items, lang);
+      if (url) URL.revokeObjectURL(url);
+      file = new File([blob], `${tr('二手清单', 'secondhand-list')}.jpg`, { type: 'image/jpeg' });
+      url = URL.createObjectURL(file);
+      writeCaption();
       return true;
     } finally {
       stop();
     }
   };
   if (!(await make())) return;
-  const canShareFiles = () => {
+  const canShareFile = () => {
     try {
-      return !!navigator.canShare?.({ files });
+      return !!navigator.canShare?.({ files: [file] });
     } catch {
       return false;
     }
   };
-  const sh = openSheet(() => `<h2>${tr('Telegram 相册', 'Telegram album')}</h2>
+  const sh = openSheet(() => `<h2>${tr('发到 Telegram 群', 'Post to a Telegram group')}</h2>
     <div class="seg small share-lang">${[['zh', '中文'], ['en', 'English']].map(([k, l]) => `<button class="${lang === k ? 'on' : ''}" data-act="lang" data-l="${k}">${l}</button>`).join('')}</div>
-    <div class="album-strip">${urls.map((u) => `<img src="${u}" alt="">`).join('')}</div>
-    <div class="hint" style="padding-top:0">${tr(`${files.length} 张：封面加 ${files.length - 1} 件东西${openItems(d.items).length > files.length - 1 ? '（相册最多 10 张，其余在配文和链接里）' : ''}。配文里的链接用来排队。`, `${files.length} pictures: a cover and ${files.length - 1} ${files.length - 1 === 1 ? 'item' : 'items'}${openItems(d.items).length > files.length - 1 ? ' (an album holds 10; the rest are in the caption and the link)' : ''}. The link in the caption is where people reserve.`)}</div>
-    <textarea class="inp boxed share-text" rows="8">${esc(caption)}</textarea>
+    <img class="post-preview" src="${url}" alt="${tr('要发的图', 'The picture to post')}">
+    <label class="switch-row"><input type="checkbox" data-act="items" ${withItems ? 'checked' : ''}><span>${tr('配文带物品清单和价格', 'Put the item list and prices in the caption')}</span></label>
+    <textarea class="inp boxed share-text" rows="${withItems ? 8 : 4}">${esc(caption)}</textarea>
     <div class="actions" style="margin-top:12px">
-      ${canShareFiles() ? `<button class="btn primary block" data-act="share">${tr('发到 Telegram（图片和配文一起）', 'Send to Telegram (pictures and caption)')}</button>` : ''}
-      <button class="btn ${canShareFiles() ? '' : 'primary'} block" data-act="save">${tr('保存图片', 'Save the pictures')}</button>
+      ${canShareFile() ? `<button class="btn primary block" data-act="share">${tr('发到 Telegram（图和配文一起）', 'Send to Telegram (picture and caption)')}</button>` : ''}
+      <button class="btn ${canShareFile() ? '' : 'primary'} block" data-act="save">${tr('保存图片', 'Save the picture')}</button>
       <button class="btn block" data-act="copy">${tr('复制配文', 'Copy the caption')}</button>
     </div>
     <div class="group"><div class="cell small" style="display:block;line-height:1.9">${tr(
-      `${canShareFiles() ? '不能直接发的话：' : ''}1. 保存这 ${files.length} 张图<br>2. 复制配文<br>3. 在 Telegram 群里点 📎，选这几张图，粘贴配文，发送`,
-      `${canShareFiles() ? "If sending directly doesn't work: " : ''}1. Save the ${files.length} pictures<br>2. Copy the caption<br>3. In the Telegram group, tap 📎, pick the pictures, paste the caption, send`,
+      `${canShareFile() ? '不能直接发的话：' : ''}1. 保存图片<br>2. 复制配文<br>3. 在 Telegram 群里点 📎，选这张图，粘贴配文，发送`,
+      `${canShareFile() ? "If sending directly doesn't work: " : ''}1. Save the picture<br>2. Copy the caption<br>3. In the Telegram group, tap 📎, pick the picture, paste the caption, send`,
     )}</div></div>`, async (act, el, s) => {
     const t = s.el.querySelector('.share-text')?.value ?? caption;
     const remember = () => {
@@ -3406,6 +3470,13 @@ async function albumSheet(S) {
       else delete all[introKey()];
       store.set('shareIntro', all);
     };
+    if (act === 'items') {
+      remember();
+      withItems = el.checked;
+      store.set('tgPostItems', withItems);
+      writeCaption();
+      return s.refresh();
+    }
     if (act === 'lang') {
       remember();
       lang = el.dataset.l;
@@ -3415,18 +3486,18 @@ async function albumSheet(S) {
     }
     if (act === 'share') {
       remember();
-      // Copied as well, for apps that drop the text when given pictures.
+      // Copied as well, for apps that drop the text when given a picture.
       navigator.clipboard?.writeText(t).catch(() => {});
       try {
-        await navigator.share({ files, text: t });
+        await navigator.share({ files: [file], text: t });
       } catch {}
     }
     if (act === 'copy') {
       remember();
-      copy(t, tr('已复制，发相册时粘贴', 'Copied, paste it as the caption'));
+      copy(t, tr('已复制，发图时粘贴', 'Copied, paste it as the caption'));
     }
-    if (act === 'save') showImages(urls, 'album');
-  }, { onClose: () => setTimeout(() => urls.forEach((u) => URL.revokeObjectURL(u)), 60000) });
+    if (act === 'save') showImages([url], 'telegram');
+  }, { onClose: () => setTimeout(() => URL.revokeObjectURL(url), 60000) });
   return sh;
 }
 
