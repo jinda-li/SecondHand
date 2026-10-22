@@ -2093,7 +2093,7 @@ function maybeCheck(S, beforeShare, then) {
         <div class="btns">
           <button class="btn primary" data-act="sell" data-id="${it.id}">${tr('卖掉了', 'Sold')}</button>
           <button class="btn" data-act="still" data-id="${it.id}">${tr('还没', 'Not yet')}</button>
-          <button class="btn" data-act="decline" data-id="${it.id}">${tr('他不要了', "They don't want it")}</button>
+          <button class="btn" data-act="decline" data-id="${it.id}">${tr('他不要了', 'Backed out')}</button>
         </div>
       </div>`).join('')}
     <div class="actions"><button class="btn block" data-act="later">${beforeShare ? tr('稍后再说，先分享', 'Later, share now') : tr('稍后再说', 'Later')}</button></div>`,
@@ -2523,18 +2523,12 @@ function composer(S) {
 
 // ---------- 6.4 item sheet (seller view) ----------
 
-// The item's name and details in the seller's language first and the other language second,
-// whichever one the seller wrote them in.
-function itemPair(it) {
-  if (textLang(it.name) === LANG || !it.nameAlt) return { name: it.name, note: it.note, name2: it.nameAlt || '', note2: it.noteAlt || '' };
-  return { name: it.nameAlt, note: it.noteAlt || it.note, name2: it.name, note2: it.noteAlt ? it.note : '' };
-}
-
-// The second language: English is what Telegram and English-speaking buyers read, so a Chinese
-// seller is nudged when it is missing; Chinese is optional for an English seller.
-const OTHER_NAME = tr('英文名', 'Chinese name');
-const OTHER_NOTE = tr('英文详情', 'Chinese details');
-const AUTO_TAG = tr('自动翻译，不对可以改', 'Auto-translated · optional');
+// The seller sees the item as written (the original, Chinese or English, whatever the UI language)
+// with the machine translation into the other language beside it. English is what Telegram and
+// English-speaking buyers read, so a Chinese original is nudged when it has none.
+const LANG_NAME = { zh: tr('中文', 'Chinese'), en: tr('英文', 'English') };
+const otherLang = (s) => (textLang(s) === 'zh' ? 'en' : 'zh');
+const altTag = (orig) => `${LANG_NAME[otherLang(orig)]} · ${tr('自动翻译', 'auto-translated')}`;
 
 function itemSheet(S, itemId) {
   const { sale } = S.data();
@@ -2559,35 +2553,35 @@ function itemSheet(S, itemId) {
           </div>
         </div>
         <div class="group">
-          <label class="field"><span>${tr('名字', 'Name')}</span><input class="inp" name="name" maxlength="60" value="${esc(edit.name)}"></label>
+          <div class="field"><span>${tr('名字', 'Name')} <small class="muted">${tr('原文', 'original')}</small></span><input class="inp" name="name" maxlength="60" value="${esc(edit.name)}">
+            <div class="alt-line"><span data-tag-of="name">${altTag(edit.name)}</span><input class="inp" name="name2" maxlength="60" value="${esc(edit.name2)}" placeholder="${tr('保存后自动翻译', 'Translated after saving')}"></div>
+          </div>
           <label class="field"><span>${tr(`价格（${esc(CURRENCIES[sale.currency].trim())}，0 = 免费送）`, `Price (${esc(CURRENCIES[sale.currency].trim())}, 0 = free)`)}</span><input class="inp" name="price" type="number" inputmode="decimal" min="0" step="0.01" value="${edit.priceCents / 100}"></label>
           <label class="field"><span>${tr('原价（选填，会划掉显示在价格旁边）', 'Original price (optional, shown struck through)')}</span><input class="inp" name="orig" type="text" inputmode="decimal" maxlength="9" value="${edit.origPriceCents == null || Number.isNaN(edit.origPriceCents) ? '' : edit.origPriceCents / 100}"></label>
-          <label class="field"><span>${tr('详情（选填）', 'Details (optional)')}</span><textarea class="inp" name="note" rows="3" maxlength="200" placeholder="${NOTE_HINT}">${esc(edit.note)}</textarea></label>
-        </div>
-        <div class="group alt-group">
-          <label class="field"><span>${OTHER_NAME} <small class="muted">${AUTO_TAG}</small></span><input class="inp" name="name2" maxlength="60" value="${esc(edit.name2)}" placeholder="${tr('保存后自动翻译', 'Translated after saving')}"></label>
-          <label class="field"><span>${OTHER_NOTE}</span><textarea class="inp" name="note2" rows="2" maxlength="200">${esc(edit.note2)}</textarea></label>
-          <div class="cell"><button class="link-btn small" data-act="retranslate">↻ ${tr('重新翻译', 'Re-translate')}</button></div>
+          <div class="field"><span>${tr('详情（选填）', 'Details (optional)')} <small class="muted">${tr('原文', 'original')}</small></span><textarea class="inp" name="note" rows="3" maxlength="200" placeholder="${NOTE_HINT}">${esc(edit.note)}</textarea>
+            <div class="alt-line"><span data-tag-of="note">${altTag(edit.note || edit.name)}</span><textarea class="inp" name="note2" rows="2" maxlength="200">${esc(edit.note2)}</textarea></div>
+          </div>
+          <div class="cell"><span class="small muted grow">${tr('翻译不对可以直接改', 'Fix a translation by editing it')}</span><button class="link-btn small" data-act="retranslate">↻ ${tr('重新翻译', 'Re-translate')}</button></div>
         </div>
         <div class="actions"><button class="btn primary block" data-act="save">${tr('保存', 'Save')}</button><button class="btn block" data-act="cancel-edit">${tr('取消', 'Cancel')}</button></div>`;
     }
     const q = it.queue;
-    const pair = itemPair(it);
+    const missing = !it.nameAlt && textLang(it.name) === 'zh';
     return `
       <div class="row" style="margin-bottom:12px">
         <img src="${img(it.photos[0])}" style="width:72px;height:72px;border-radius:8px;object-fit:cover" alt="">
         <div class="grow">
-          <div><span class="no">${it.no}</span> <b>${esc(pair.name)}</b></div>
+          <div><span class="no">${it.no}</span> <b>${esc(it.name)}</b></div>
           <div>${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)} · <span class="st ${it.status}">${statusText[it.status]}</span>${it.condition ? ` · ${conditionText(it.condition, LANG)}` : ''}</div>
-          ${pair.note ? `<div class="small muted">${esc(pair.note)}</div>` : ''}
+          ${it.note ? `<div class="small muted">${esc(it.note)}</div>` : ''}
         </div>
         ${open ? `<button class="btn small" data-act="edit">${tr('编辑', 'Edit')}</button>` : ''}
       </div>
-      <div class="alt-box ${!pair.name2 && LANG === 'zh' ? 'missing' : ''}">
-        <div class="small muted">${OTHER_NAME} · ${tr('自动翻译', 'Auto-translated')}</div>
-        ${pair.name2 ? `<div>${esc(pair.name2)}</div>${pair.note2 ? `<div class="small muted">${esc(pair.note2)}</div>` : ''}`
-          : `<div class="small">${tr('还没有英文名：Telegram 群和英文买家会看到中文', 'None yet')}</div>`}
-        ${open ? `<button class="link-btn small" data-act="retranslate">↻ ${pair.name2 ? tr('重新翻译', 'Re-translate') : tr('翻译成英文', 'Translate')}</button>` : ''}
+      <div class="alt-box ${missing ? 'missing' : ''}">
+        <div class="small muted">${altTag(it.name)}</div>
+        ${it.nameAlt ? `<div>${esc(it.nameAlt)}</div>${it.noteAlt ? `<div class="small muted">${esc(it.noteAlt)}</div>` : ''}`
+          : `<div class="small">${missing ? tr('还没有英文名：Telegram 群和英文买家会看到中文', 'No English name yet: Telegram groups and English-speaking buyers see the Chinese') : tr('还没有，选填', 'None yet, optional')}</div>`}
+        ${open ? `<button class="link-btn small" data-act="retranslate">↻ ${it.nameAlt ? tr('重新翻译', 'Re-translate') : tr(`翻译成${LANG_NAME[otherLang(it.name)]}`, `Translate to ${LANG_NAME[otherLang(it.name)]}`)}</button>` : ''}
       </div>
       ${open ? `
         <div class="small muted" style="margin:0 4px 6px">${tr(`排队名单（${q.length} 人）`, `In line (${q.length})`)}</div>
@@ -2599,7 +2593,7 @@ function itemSheet(S, itemId) {
                 <div>${r.telegram ? '<span class="kind-tag tg">TG</span> ' : r.wechat ? `<span class="kind-tag wx">${tr('微信', 'WeChat')}</span> ` : ''}<b>${esc(r.nickname)}</b>${r.addedBy === 'seller' ? ` <span class="small muted">${tr('（手动加）', '(added by you)')}</span>` : ''}
                   ${r.telegram ? ` <a class="link-btn small" href="${esc(tgChatUrl(r.telegram))}" target="_blank" rel="noopener">${tr('Telegram 发消息', 'Message')}</a>` : r.wechat ? ` <button class="link-btn small" data-copy="${esc(r.wechat)}">${tr('复制微信号', 'Copy WeChat ID')}</button>` : ''}</div>
                 <div class="small muted">${new Date(r.createdAt).toLocaleString(tr('zh-CN', 'en-GB'), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
-                ${i === 0 ? `<div class="acts"><button class="btn primary" data-act="sell">${tr('卖给他了', 'Sold to them')}</button><button class="btn" data-act="decline" data-seq="${r.seq}">${tr('他不要了', "They don't want it")}</button></div>` : ''}
+                ${i === 0 ? `<div class="acts"><button class="btn primary" data-act="sell">${tr('卖给他了', 'Sold')}</button><button class="btn" data-act="decline" data-seq="${r.seq}">${tr('他不要了', 'Backed out')}</button></div>` : ''}
               </div>
               ${i > 0 ? `<button class="btn small" data-act="rmq" data-seq="${r.seq}">${tr('移除', 'Remove')}</button>` : ''}
             </div>`).join('') : `<div class="cell muted small">${tr('还没人排队', 'Nobody in line yet')}</div>`}
@@ -2646,15 +2640,14 @@ function itemSheet(S, itemId) {
       case 'tip':
         return tipSheet();
       case 'edit':
-        edit = { ...itemPair(it), priceCents: it.priceCents, origPriceCents: it.origPriceCents ?? null, condition: it.condition, photos: [...it.photos] };
+        edit = { name: it.name, note: it.note, name2: it.nameAlt || '', note2: it.noteAlt || '', priceCents: it.priceCents, origPriceCents: it.origPriceCents ?? null, condition: it.condition, photos: [...it.photos] };
         return s.refresh();
       case 'retranslate': {
         // Only the saved text is translated (the server takes no text from here), so an edited
         // name is saved first and translated with the save.
         if (edit) {
           syncEdit(s);
-          const pair = itemPair(it);
-          if (edit.name !== pair.name || edit.note !== pair.note) return toast(tr('先保存，保存后会自动重新翻译', 'Save first: the new text is translated when saved'));
+          if (edit.name !== it.name || edit.note !== it.note) return toast(tr('先保存，保存后会自动重新翻译', 'Save first: the new text is translated when saved'));
         }
         el.disabled = true;
         const stop = loading(tr('正在翻译…', 'Translating…'));
@@ -2662,7 +2655,7 @@ function itemSheet(S, itemId) {
           const r = await api(`/item/${it.id}/translate`, { method: 'POST', key: S.key, body: {} });
           await S.reload();
           it = S.data().items.find((i) => i.id === itemId) || it;
-          if (edit) Object.assign(edit, { name2: itemPair(it).name2, note2: itemPair(it).note2 });
+          if (edit) Object.assign(edit, { name2: it.nameAlt || '', note2: it.noteAlt || '' });
           toast(r.nameAlt ? tr('已重新翻译', 'Re-translated') : tr('没翻译出来', 'Nothing came back'));
         } catch (err) {
           toast(err.message);
@@ -2698,11 +2691,9 @@ function itemSheet(S, itemId) {
         if (Number.isNaN(edit.origPriceCents)) return toast(tr('原价填数字，不填也行', 'Original price: a number, or leave it empty'));
         el.disabled = true;
         const { name, note, name2, note2, ...body } = edit;
-        const pair = itemPair(it);
-        // The text the seller sees first becomes the original. An untouched translation is left to
-        // the server, which keeps it, or redoes it when the text changed.
-        if (name2 !== pair.name2 || note2 !== pair.note2) Object.assign(body, { name, note, nameAlt: name2, noteAlt: note2 });
-        else if (name !== pair.name || note !== pair.note) Object.assign(body, { name, note });
+        // An untouched translation is left to the server, which keeps it, or redoes it when the text changed.
+        if (name2 !== (it.nameAlt || '') || note2 !== (it.noteAlt || '')) Object.assign(body, { name, note, nameAlt: name2, noteAlt: note2 });
+        else if (name !== it.name || note !== it.note) Object.assign(body, { name, note });
         try {
           await api(`/item/${it.id}`, { method: 'PATCH', key: S.key, body });
           edit = null;
@@ -2716,6 +2707,14 @@ function itemSheet(S, itemId) {
     }
   }, { onClose: () => S.tryRecommend?.() });
   bindCopy(sh.el);
+  // The translation's language follows the original as it is typed.
+  sh.el.addEventListener('input', (e) => {
+    const n = e.target.name;
+    if (n !== 'name' && n !== 'note') return;
+    const v = (k) => sh.el.querySelector(`[name=${k}]`).value;
+    sh.el.querySelector('[data-tag-of=name]').textContent = altTag(v('name'));
+    sh.el.querySelector('[data-tag-of=note]').textContent = altTag(v('note') || v('name'));
+  });
 
   function syncEdit(s) {
     const v = (n) => s.el.querySelector(`[name=${n}]`)?.value ?? '';
