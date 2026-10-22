@@ -42,8 +42,8 @@ test('shareText: default intro, then names of everything not sold', () => {
       '【物品清单】',
       '杯子碟子',
       '碗',
-      '拉蒜器',
       '揉面套装',
+      '拉蒜器',
     ].join('\n'),
   );
 });
@@ -57,8 +57,8 @@ test('shareText with prices lists name + price', () => {
       '【物品清单】',
       '杯子碟子 €3',
       '碗 €3',
-      '拉蒜器 €1',
       '揉面套装 €2',
+      '拉蒜器 €1',
     ].join('\n'),
   );
 });
@@ -69,8 +69,20 @@ test('shareText keeps a custom intro and regenerates the list', () => {
 });
 
 test('shareText compact joins the list with dots', () => {
-  assert.ok(shareText(SALE, ITEMS, { compact: true }).endsWith('【物品清单】\n杯子碟子 · 碗 · 拉蒜器 · 揉面套装'));
-  assert.ok(shareText(SALE, ITEMS, { compact: true, prices: true }).endsWith('\n杯子碟子 €3 · 碗 €3 · 拉蒜器 €1 · 揉面套装 €2'));
+  assert.ok(shareText(SALE, ITEMS, { compact: true }).endsWith('【物品清单】\n杯子碟子 · 碗 · 揉面套装 · 拉蒜器'));
+  assert.ok(shareText(SALE, ITEMS, { compact: true, prices: true }).endsWith('\n杯子碟子 €3 · 碗 €3 · 揉面套装 €2 · 拉蒜器 €1'));
+});
+
+test('shareText lists the newest day first, like the buyer page', () => {
+  const day = 86400_000;
+  const t = new Date(2026, 9, 20, 12).getTime();
+  const items = [
+    { no: 1, name: '杯子碟子', status: 'available', createdAt: t - 2 * day },
+    { no: 2, name: '碗', status: 'reserved', createdAt: t },
+    { no: 3, name: '拉蒜器', status: 'available', createdAt: t },
+    { no: 4, name: '揉面套装', status: 'available', createdAt: t - 3 * day, droppedAt: t + 3600_000 },
+  ];
+  assert.ok(shareText(SALE, items, { compact: true }).endsWith('\n拉蒜器 · 揉面套装 · 杯子碟子 · 碗'));
 });
 
 test('stripLinks removes URLs left in old saved intros', () => {

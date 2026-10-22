@@ -1,6 +1,6 @@
-import { money, contactNote, itemText, saleText, textLang, normTelegram, looksLikeTelegram, RULES } from '../public/lib.js';
+import { money, contactNote, byRecent, itemText, saleText, textLang, normTelegram, looksLikeTelegram, RULES } from '../public/lib.js';
 
-const VERSION = '49';
+const VERSION = '50';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 // An open list pauses this long after its last renewal: buyers can look but not queue,
@@ -280,7 +280,8 @@ async function salePage(env, url, saleId) {
   const lang = pageLang(url, textLang(sale.title));
   const en = lang === 'en';
   const st = saleText(sale, lang);
-  const avail = items.filter((i) => i.status === 'available');
+  // Newest first, as buyers see the list: the card's sample names and fallback picture.
+  const avail = items.filter((i) => i.status === 'available').sort(byRecent);
   const title = sale.paused
     ? `${st.title}${en ? ' | paused' : '｜暂停中'}`
     : `${st.title}${en ? ` | ${avail.length} for sale` : `｜在售 ${avail.length} 件`}`;

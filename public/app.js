@@ -1,4 +1,4 @@
-import { money as moneyIn, shareText, defaultIntro, stripLinks, listMark, conditionText, CURRENCIES, RULES, itemText, saleText, textLang, contactNote, normTelegram, looksLikeTelegram } from './lib.js';
+import { money as moneyIn, shareText, openItems, byRecent, defaultIntro, stripLinks, listMark, conditionText, CURRENCIES, RULES, itemText, saleText, textLang, contactNote, normTelegram, looksLikeTelegram } from './lib.js';
 import { LANG, tr, isWeChat, isTelegram, setLang } from './i18n.js';
 
 const $app = document.getElementById('app');
@@ -1373,12 +1373,9 @@ function sortItems(items, sort) {
   return [...items].sort((a, b) => (a.priceCents == null) - (b.priceCents == null) || dir * (a.priceCents - b.priceCents) || a.no - b.no);
 }
 
-// Buyers' default: the day an item was listed or last marked down, newest first, so a list
-// that keeps growing shows what's new at the top. Same day: by number, as the seller listed them.
-const freshAt = (it) => Math.max(it.createdAt || 0, it.droppedAt || 0);
-const dayOf = (t) => new Date(t).setHours(0, 0, 0, 0);
+// Buyers' default: newest first (see byRecent in lib.js); the shared text and pictures use it too.
 function sortRecent(items) {
-  return [...items].sort((a, b) => dayOf(freshAt(b)) - dayOf(freshAt(a)) || a.no - b.no);
+  return [...items].sort(byRecent);
 }
 
 // A marked-down item keeps its tag this long.
@@ -3286,7 +3283,7 @@ async function loadAll(ids) {
 async function uploadCover(S, lang = LANG, wide = false) {
   const { sale, items } = S.data();
   const L = (zh, en) => (lang === 'en' ? en : zh);
-  const pick = [...items.filter((i) => i.status === 'available'), ...items.filter((i) => i.status === 'reserved')].slice(0, 4);
+  const pick = openItems(items).slice(0, 4);
   if (!pick.length) return;
   const W = wide ? 1200 : 600;
   const H = wide ? 630 : 600;
@@ -3347,7 +3344,7 @@ async function saveSaleImage(S, lang = LANG) {
   const stop = loading(tr('正在生成清单图…', 'Making the list picture…'));
   try {
     const { sale, items } = S.data();
-    const list = [...items.filter((i) => i.status === 'available'), ...items.filter((i) => i.status === 'reserved')];
+    const list = openItems(items);
     if (!list.length) {
       toast(tr('还没有在售的东西', 'Nothing for sale yet'));
       return;
@@ -3497,8 +3494,6 @@ const CAPTION_MAX = 1024;
 // Portrait 4:5, the shape Telegram shows largest.
 const POST_W = 1080;
 const POST_H = 1350;
-
-const openItems = (items) => [...items.filter((i) => i.status === 'available'), ...items.filter((i) => i.status === 'reserved')];
 
 // The post text: the intro and the link, then as many items as fit in a caption ("…and N more"),
 // or no items at all when the seller leaves the list out.

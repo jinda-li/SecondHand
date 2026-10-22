@@ -126,11 +126,23 @@ export function stripLinks(s) {
   return String(s ?? '').replace(/\s*https?:\/\/\S+/g, '').trim();
 }
 
+// The order buyers see by default, and so the order of everything shared to a group: the day
+// an item was listed or last marked down, newest first, so a list that keeps growing shows
+// what's new at the top. Same day: by number, as the seller listed them.
+const freshDay = (it) => new Date(Math.max(it.createdAt || 0, it.droppedAt || 0)).setHours(0, 0, 0, 0);
+export const byRecent = (a, b) => freshDay(b) - freshDay(a) || a.no - b.no;
+
+// Everything not yet sold, in that order: available items first, then reserved ones.
+export function openItems(items) {
+  const pick = (st) => items.filter((i) => i.status === st).sort(byRecent);
+  return [...pick('available'), ...pick('reserved')];
+}
+
 // Group text: intro, the link (Telegram only), then a regenerated list of everything not yet
 // sold — names only unless prices is set, one per line or, when compact, joined with " · ".
-// Buyers don't see item numbers here; reserved items are listed like the rest.
+// Buyers don't see item numbers here; reserved items are listed like the rest, after the available ones.
 export function shareText(sale, items, { intro, maxListed = 30, prices = false, compact = false, lang = 'zh', target = 'wechat', link = '' } = {}) {
-  const open = items.filter((i) => i.status === 'available' || i.status === 'reserved').sort((a, b) => a.no - b.no);
+  const open = openItems(items);
   const names = open.slice(0, maxListed).map((i) => {
     const name = itemText(i, lang).name;
     return prices ? `${name} ${money(i.priceCents, sale.currency, lang)}` : name;
