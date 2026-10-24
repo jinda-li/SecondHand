@@ -1632,14 +1632,17 @@ function buyerItem(saleId, no) {
   reload().catch((e) => (e.code === 'NOT_FOUND' ? notFound() : toast(e.message)));
 }
 
-// Joining a queue asks for one contact, in a box that says which app it is for. Buyers pick WeChat
-// or Telegram, whatever apps the seller lists: a seller not on the buyer's app reaches out to them
-// there. The buyer's last choice, or the app they are in, comes first.
+// Joining a queue asks for one contact: a Telegram box and a WeChat box, fill either. A seller not
+// on the buyer's app reaches out to them there. The buyer's last choice, or the app they are in,
+// comes first.
 function joinSheet(sale, it, reload) {
   let result = null;
   const sellerOn = { telegram: !!sale.hasTelegram, wechat: sale.hasWechat !== false };
-  let kind = store.get('buyerKind', '') || (isTelegram || (LANG === 'en' && !isWeChat) ? 'telegram' : 'wechat');
+  const kind = store.get('buyerKind', '') || (isTelegram || (LANG === 'en' && !isWeChat) ? 'telegram' : 'wechat');
   const values = { wechat: store.get('buyerWechat', ''), telegram: store.get('buyerTelegram', '') };
+  const field = (k) => k === 'telegram'
+    ? `<label class="field"><span>${tr('Telegram 用户名', 'Telegram username')}</span><input class="inp" type="text" name="telegram" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="@username" value="${esc(values.telegram ? `@${values.telegram}` : '')}"></label>`
+    : `<label class="field"><span>${tr('微信号', 'WeChat ID')}</span><input class="inp" type="text" name="wechat" maxlength="30" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${tr('微信号', 'WeChat ID')}" value="${esc(values.wechat)}"></label>`;
   const sh = openSheet(() => {
     if (result) {
       const keep = keepWanted() ? keepBlockHtml(tr('以后你要出闲置，也能这样发', 'Selling your own stuff some day? Do it like this'), tr('拍照、填价格就上架。发到群里，大家点开自己排队。', 'Snap a photo, add a price, post the link; people get in line themselves.')) : '';
@@ -1651,46 +1654,47 @@ function joinSheet(sale, it, reload) {
         <div class="hint center">${tr('前面的人不要了，你会自动升到第 1 位。<br>到时回来这里或「我的排队」看卖家联系方式，现在不用联系卖家。', "If the people ahead drop out, you move up to first.<br>Then come back here or to My reservations for the seller's contact. No need to message the seller now.")}</div>${keep}
         <div class="actions"><button class="btn block" data-act="close">${tr('好的', 'OK')}</button></div>`;
     }
-    const tg = kind === 'telegram';
+    // When the seller is on one app only, say how a buyer on the other one gets reached.
+    const only = sellerOn.telegram && !sellerOn.wechat ? 'telegram' : sellerOn.wechat && !sellerOn.telegram ? 'wechat' : '';
     return `<h2>${esc(itemT(it).name)}</h2>
-      <div class="seg kind-seg">${['telegram', 'wechat'].map((k) => `<button class="${k === kind ? 'on' : ''}" data-act="kind" data-kind="${k}">${k === 'telegram' ? 'Telegram' : tr('微信', 'WeChat')}</button>`).join('')}</div>
-      <div class="group">
-        <label class="field"><span>${tg ? tr('你的 Telegram 用户名', 'Your Telegram username') : tr('你的微信号', 'Your WeChat ID')} <b class="req">*</b></span><input class="inp" type="text" name="contact" maxlength="${tg ? 64 : 30}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${tg ? '@username' : tr('微信号', 'WeChat ID')}" value="${esc(tg && values.telegram ? `@${values.telegram}` : values[kind])}"></label>
-      </div>
-      <div class="hint" style="padding-top:0">${!sellerOn[kind]
-        ? (tg ? tr('在 Telegram 的「设置」里能看到你的用户名（@ 开头）。卖家主要用微信，排到你时卖家会在 Telegram 上联系你。', "Find your username (it starts with @) in Telegram's Settings. The seller mostly uses WeChat and will message you on Telegram when you're first.")
-          : tr('填真实的微信号。卖家主要用 Telegram，排到你时卖家会在微信上加你。', "Use your real WeChat ID. The seller mostly uses Telegram and will add you on WeChat when you're first."))
-        : tg
-        ? tr('在 Telegram 的「设置」里能看到你的用户名（@ 开头）。排到你时，点一下就能给卖家发消息；卖家也能找到你。', "Find your username (it starts with @) in Telegram's Settings. When you're first, one tap opens a chat with the seller, and the seller can find you too.")
-        : tr('填真实的微信号。排到你时，由你去微信加卖家；万一你忘了，卖家也能联系到你。', "Use your real WeChat ID. When you're first, you add the seller on WeChat; if you forget, the seller can still reach you.")}</div>
+      <div class="hint" style="padding:0 0 8px">${tr('留个联系方式，<b>填一个就行</b>：', 'Leave a contact, <b>either one is enough</b>:')}</div>
+      <div class="group">${kind === 'telegram' ? field('telegram') + field('wechat') : field('wechat') + field('telegram')}</div>
+      <div class="hint" style="padding-top:0">${only === 'wechat'
+        ? tr('卖家主要用微信；只填 Telegram 也行，排到你时卖家会在 Telegram 上联系你。', "The seller mostly uses WeChat; Telegram alone is fine, the seller will message you there when you're first.")
+        : only === 'telegram'
+        ? tr('卖家主要用 Telegram；只填微信也行，排到你时卖家会在微信上加你。', "The seller mostly uses Telegram; WeChat alone is fine, the seller will add you there when you're first.")
+        : tr('排到你时，这里会显示卖家的联系方式；卖家也能找到你。', "When you're first, the seller's contact shows here, and the seller can find you too.")}
+        ${tr('Telegram 用户名在 Telegram 的「设置」里，@ 开头。', "Your Telegram username is in Telegram's Settings, starting with @.")}</div>
       <div class="actions"><button class="btn primary big block" data-act="go">${tr('排上', 'Get in line')}</button></div>`;
   }, async (act, el, s) => {
     if (act === 'close') return s.close();
-    const box = s.el.querySelector('[name=contact]');
-    if (box) values[kind] = kind === 'telegram' ? box.value.trim().replace(/^@/, '') : box.value.trim();
-    if (act === 'kind') {
-      kind = el.dataset.kind;
-      s.refresh();
-      return s.el.querySelector('[name=contact]')?.focus();
-    }
     if (act !== 'go') return;
-    const v = box.value.trim();
-    if (!v) return toast(kind === 'telegram' ? tr('填一下你的 Telegram 用户名', 'Add your Telegram username') : tr('填一下你的微信号', 'Add your WeChat ID'));
-    if (kind === 'wechat' && looksLikeTelegram(v)) {
-      kind = 'telegram';
-      values.telegram = normTelegram(v) || v.replace(/^@/, '');
+    const tgBox = s.el.querySelector('[name=telegram]');
+    const wxBox = s.el.querySelector('[name=wechat]');
+    values.telegram = tgBox.value.trim().replace(/^@/, '');
+    values.wechat = wxBox.value.trim();
+    if (!values.telegram && !values.wechat) return toast(tr('微信号和 Telegram 用户名，填一个就行', 'Add a Telegram username or a WeChat ID'));
+    // A Telegram username typed into the WeChat box moves over, when that box is still free.
+    if (looksLikeTelegram(values.wechat)) {
+      if (!values.telegram) values.telegram = normTelegram(values.wechat) || values.wechat.replace(/^@/, '');
+      values.wechat = '';
       s.refresh();
-      return toast(tr('这是 Telegram 用户名，已经切到 Telegram', 'That is a Telegram username, switched to Telegram'));
+      return toast(tr('这是 Telegram 用户名，已经挪到 Telegram 那一栏', 'That is a Telegram username, moved it to the Telegram box'));
     }
-    const username = kind === 'telegram' ? normTelegram(v) : null;
-    if (kind === 'telegram' && !username) return toast(tr('Telegram 用户名不对：5 到 32 位字母、数字或下划线，例如 @jinda_li', 'Not a Telegram username: 5–32 letters, digits or underscores, like @jinda_li'), 2600);
-    store.set('buyerKind', kind);
+    const username = values.telegram ? normTelegram(values.telegram) : null;
+    if (values.telegram && !username) {
+      tgBox.focus();
+      return toast(tr('Telegram 用户名不对：5 到 32 位字母、数字或下划线，例如 @jinda_li', 'Not a Telegram username: 5–32 letters, digits or underscores, like @jinda_li'), 2600);
+    }
+    // Both filled: the one the seller is on, then the one listed first.
+    const useTg = !!username && (!values.wechat || (sellerOn.telegram && (!sellerOn.wechat || kind === 'telegram')));
+    store.set('buyerKind', useTg ? 'telegram' : 'wechat');
     if (username) store.set('buyerTelegram', username);
-    else store.set('buyerWechat', v);
+    if (values.wechat) store.set('buyerWechat', values.wechat);
     buyerToken(true);
     el.disabled = true;
     try {
-      result = await api(`/item/${it.id}/join`, { method: 'POST', body: username ? { telegram: username } : { wechat: v } });
+      result = await api(`/item/${it.id}/join`, { method: 'POST', body: useTg ? { telegram: username } : { wechat: values.wechat } });
       s.refresh();
       reload();
     } catch (err) {
@@ -1699,7 +1703,7 @@ function joinSheet(sale, it, reload) {
     }
   });
   bindCopy(sh.el);
-  setTimeout(() => sh.el.querySelector('[name=contact]')?.focus(), 250);
+  setTimeout(() => sh.el.querySelector('.group input')?.focus(), 250);
 }
 
 // ---------- 7.4 my queues ----------
@@ -1835,15 +1839,12 @@ function manage(saleId) {
       ${ended ? '' : renewBannerHtml(sale, data.now)}
       ${linkSaved(saleId) ? '' : `<div class="banner">${tr('还没把管理入口发给自己：换手机或在微信里打开时，没有它就管理不了这份清单。', "You haven't sent yourself the management link yet: on a new phone or another app, you can't manage this list without it.")}<br><button class="btn small primary" style="margin-top:8px" data-act="savelink">${tr('发给自己', 'Send it to myself')}</button></div>`}
       <div class="stats">
-        <div><b>${count('available')}</b><span>${statusText.available}</span></div>
-        <div><b>${count('reserved')}</b><span>${statusText.reserved}</span></div>
-        <div><b>${count('sold')}</b><span>${statusText.sold}</span></div>
+        ${['available', 'reserved', 'sold'].map((st) => `<button class="stat ${tab === st || (tab === 'open' && st !== 'sold') ? 'on' : ''}" data-tab="${tab === st ? 'open' : st}"><b>${count(st)}</b><span>${statusText[st]}</span></button>`).join('')}
         <div class="stat-earned"><b>${esc(soldCents ? money(soldCents, sale.currency) : CURRENCIES[sale.currency].trim() + '0')}</b><span>${tr('已收回', 'Earned')}</span></div>
       </div>
-      <div class="chips">
-        ${[['open', tr('未出', 'Open')], ['available', statusText.available], ['reserved', statusText.reserved], ['sold', statusText.sold]].map(([k, l]) => `<button class="chip ${tab === k ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('')}
-      </div>
-      ${list.length > 1 ? `<div class="list-bar end">${sortSegHtml(sort)}</div>` : ''}
+      ${items.length ? `<div class="list-bar">${tab === 'open'
+        ? `<div class="hint">${tr(`未出：${statusText.available} + ${statusText.reserved}`, `Open: ${statusText.available.toLowerCase()} + ${statusText.reserved.toLowerCase()}`)}</div>`
+        : `<div class="hint">${tr(`只看${statusText[tab]}`, `${statusText[tab]} only`)} · <button class="link-btn" data-tab="open">${tr('看全部未出', 'Show all open')}</button></div>`}${list.length > 1 ? sortSegHtml(sort) : ''}</div>` : ''}
       ${items.length === 0 ? `<div class="empty">${tr('拍张照、填个价格，就上架了。', 'Snap a photo, add a price, and it is listed.')}<br><br><button class="btn primary" data-act="compose">${tr('选照片', 'Choose photos')}</button></div>`
         : list.length === 0 ? `<div class="empty">${tr('这里没有东西', 'Nothing here')}</div>`
         : `<div class="section">${list.map((it) => `
