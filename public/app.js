@@ -1329,6 +1329,11 @@ function bindTrackDots(root) {
 // add. The opening line names what they reserved, in the buyer's language.
 function contactHtml(c) {
   const note = c.items ? contactNote(c.items.map((i) => ({ no: i.no, name: itemT(i).name })), LANG) : c.note;
+  // The buyer left a contact on the other app: the seller can reach them there too.
+  const other = c.buyerKind && c.buyerKind !== c.kind
+    ? `<div class="hint" style="padding:8px 0 0">${c.buyerKind === 'telegram'
+      ? tr('没有微信也没关系：卖家会在 Telegram 上联系你。', "No WeChat? That's fine: the seller will message you on Telegram.")
+      : tr('没有 Telegram 也没关系：卖家会在微信上加你。', "No Telegram? That's fine: the seller will add you on WeChat.")}</div>` : '';
   if (c.kind === 'telegram') {
     return `
     <div class="contact">
@@ -1340,7 +1345,7 @@ function contactHtml(c) {
         <li>${tr('点上面的按钮，打开和卖家的对话', 'Tap the button to open a chat with the seller')}</li>
         <li>${tr('把这句发过去（没自动填上就粘贴），卖家一看就知道你要哪件', "Send the line above (paste it if it isn't filled in) so the seller knows what you want")}</li>
         <li>${tr('时间地点和卖家直接约', 'Agree on a time and place with the seller')}</li>
-      </ol>
+      </ol>${other}
     </div>`;
   }
   const wechat = c.value ?? c.wechat;
@@ -1354,7 +1359,7 @@ function contactHtml(c) {
         <li>${tr('回到微信 → 右上角「＋」→「添加朋友」→ 粘贴搜索', 'In WeChat: ＋ at the top right → Add Contacts → paste and search')}</li>
         <li>${tr('好友申请里粘贴上面那句，卖家一看就知道你是谁、要哪件', 'Paste the line above into the request so the seller knows who you are and what you want')}</li>
         <li>${tr('加上后，时间地点和卖家直接约', 'Then agree on a time and place')}</li>
-      </ol>
+      </ol>${other}
     </div>`;
 }
 
@@ -1627,14 +1632,13 @@ function buyerItem(saleId, no) {
   reload().catch((e) => (e.code === 'NOT_FOUND' ? notFound() : toast(e.message)));
 }
 
-// Joining a queue asks for one contact, in a box that says which app it is for. Only the apps the
-// seller uses are offered; the buyer's last choice, or the app they are in, comes first.
+// Joining a queue asks for one contact, in a box that says which app it is for. Buyers pick WeChat
+// or Telegram, whatever apps the seller lists: a seller not on the buyer's app reaches out to them
+// there. The buyer's last choice, or the app they are in, comes first.
 function joinSheet(sale, it, reload) {
   let result = null;
-  const kinds = [sale.hasTelegram && 'telegram', sale.hasWechat !== false && 'wechat'].filter(Boolean);
-  if (!kinds.length) kinds.push('wechat');
-  const preferred = store.get('buyerKind', '') || (isTelegram || (LANG === 'en' && !isWeChat) ? 'telegram' : 'wechat');
-  let kind = kinds.includes(preferred) ? preferred : kinds[0];
+  const sellerOn = { telegram: !!sale.hasTelegram, wechat: sale.hasWechat !== false };
+  let kind = store.get('buyerKind', '') || (isTelegram || (LANG === 'en' && !isWeChat) ? 'telegram' : 'wechat');
   const values = { wechat: store.get('buyerWechat', ''), telegram: store.get('buyerTelegram', '') };
   const sh = openSheet(() => {
     if (result) {
@@ -1649,12 +1653,14 @@ function joinSheet(sale, it, reload) {
     }
     const tg = kind === 'telegram';
     return `<h2>${esc(itemT(it).name)}</h2>
-      ${kinds.length > 1 ? `<div class="seg kind-seg">${kinds.map((k) => `<button class="${k === kind ? 'on' : ''}" data-act="kind" data-kind="${k}">${k === 'telegram' ? 'Telegram' : tr('微信', 'WeChat')}</button>`).join('')}</div>`
-        : `<div class="hint center" style="padding-top:0">${tg ? tr('卖家用 Telegram 联系', 'The seller uses Telegram') : tr('卖家用微信联系', 'The seller uses WeChat')}</div>`}
+      <div class="seg kind-seg">${['telegram', 'wechat'].map((k) => `<button class="${k === kind ? 'on' : ''}" data-act="kind" data-kind="${k}">${k === 'telegram' ? 'Telegram' : tr('微信', 'WeChat')}</button>`).join('')}</div>
       <div class="group">
         <label class="field"><span>${tg ? tr('你的 Telegram 用户名', 'Your Telegram username') : tr('你的微信号', 'Your WeChat ID')} <b class="req">*</b></span><input class="inp" type="text" name="contact" maxlength="${tg ? 64 : 30}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${tg ? '@username' : tr('微信号', 'WeChat ID')}" value="${esc(tg && values.telegram ? `@${values.telegram}` : values[kind])}"></label>
       </div>
-      <div class="hint" style="padding-top:0">${tg
+      <div class="hint" style="padding-top:0">${!sellerOn[kind]
+        ? (tg ? tr('在 Telegram 的「设置」里能看到你的用户名（@ 开头）。卖家主要用微信，排到你时卖家会在 Telegram 上联系你。', "Find your username (it starts with @) in Telegram's Settings. The seller mostly uses WeChat and will message you on Telegram when you're first.")
+          : tr('填真实的微信号。卖家主要用 Telegram，排到你时卖家会在微信上加你。', "Use your real WeChat ID. The seller mostly uses Telegram and will add you on WeChat when you're first."))
+        : tg
         ? tr('在 Telegram 的「设置」里能看到你的用户名（@ 开头）。排到你时，点一下就能给卖家发消息；卖家也能找到你。', "Find your username (it starts with @) in Telegram's Settings. When you're first, one tap opens a chat with the seller, and the seller can find you too.")
         : tr('填真实的微信号。排到你时，由你去微信加卖家；万一你忘了，卖家也能联系到你。', "Use your real WeChat ID. When you're first, you add the seller on WeChat; if you forget, the seller can still reach you.")}</div>
       <div class="actions"><button class="btn primary big block" data-act="go">${tr('排上', 'Get in line')}</button></div>`;
@@ -1671,7 +1677,6 @@ function joinSheet(sale, it, reload) {
     const v = box.value.trim();
     if (!v) return toast(kind === 'telegram' ? tr('填一下你的 Telegram 用户名', 'Add your Telegram username') : tr('填一下你的微信号', 'Add your WeChat ID'));
     if (kind === 'wechat' && looksLikeTelegram(v)) {
-      if (!kinds.includes('telegram')) return toast(tr('这是 Telegram 用户名。卖家只用微信，请填微信号', 'That is a Telegram username, but the seller uses WeChat: add your WeChat ID'), 2600);
       kind = 'telegram';
       values.telegram = normTelegram(v) || v.replace(/^@/, '');
       s.refresh();

@@ -484,12 +484,14 @@ async function loadPublic(env, saleId, buyerToken) {
 // The seller contact for a buyer first in line somewhere: Telegram when the buyer left a Telegram
 // username and the seller has one (or the seller has nothing else), else WeChat.
 // wechat + note are what clients from before Telegram support read (they label it 卖家联系方式).
+// buyerKind is the app the buyer left; when the seller isn't on it, the seller reaches out there.
 function contactFor(sale, buyerOnTelegram, rows) {
   const kind = sale.telegram && (buyerOnTelegram || !sale.wechat_id) ? 'telegram' : 'wechat';
   const value = kind === 'telegram' ? sale.telegram : sale.wechat_id;
   const items = rows.map((r) => ({ no: r.no, name: r.name, nameAlt: r.name_alt || '' }));
   const old = kind === 'wechat' ? value : `Telegram @${value}`;
-  return { kind, value, items, wechat: old, note: contactNote(items), nos: items.map((i) => i.no) };
+  const buyerKind = buyerOnTelegram ? 'telegram' : 'wechat';
+  return { kind, value, buyerKind, items, wechat: old, note: contactNote(items), nos: items.map((i) => i.no) };
 }
 
 async function buyerContact(env, saleRow, buyerToken) {
