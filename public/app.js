@@ -2764,6 +2764,7 @@ function settingsSheet(S) {
         : `<div class="login-card"><div class="small">${tr('用 Google 登录，清单跟着账号走', 'Sign in with Google so the list follows your account')}</div><div class="gbtn"></div></div>`) : ''}
       <button class="btn block" data-act="link">${tr('把管理入口发给自己（换手机、换浏览器用）', 'Send myself the management link (for a new phone or browser)')}</button>
       <button class="btn block" data-act="feedback">${tr('反馈问题 / 提建议', 'Feedback / ideas')}</button>
+      ${tipOn() ? `<button class="btn block" data-act="tip">☕ ${tr('打赏开发者', 'Tip the developer')}</button>` : ''}
       ${sale.status === 'active'
         ? `<button class="btn danger block" data-act="end">${tr('结束清单（对买家隐藏）', 'End the list (hide it from buyers)')}</button>`
         : `<button class="btn block" data-act="reopen">${tr('重新公开', 'Reopen')}</button>`}
@@ -2780,6 +2781,10 @@ function settingsSheet(S) {
     if (act === 'feedback') {
       s.close();
       return feedbackSheet();
+    }
+    if (act === 'tip') {
+      s.close();
+      return tipSheet();
     }
     if (act === 'link') {
       s.close();
