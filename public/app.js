@@ -2563,7 +2563,7 @@ function itemSheet(S, itemId) {
       return `<h2>${tr(`编辑 ${it.no} 号`, `Edit #${it.no}`)}</h2>
         <div class="group" style="padding:12px">
           <div class="photo-strip">
-            ${edit.photos.map((p, j) => `<div class="t"><img src="${img(p)}" alt="">${edit.photos.length > 1 ? `<button class="x" data-act="eph-rm" data-j="${j}">✕</button>` : ''}</div>`).join('')}
+            ${edit.photos.map((p, j) => `<div class="t"><img src="${img(p)}" alt="" data-act="eph" data-j="${j}">${edit.photos.length > 1 ? `<button class="x" data-act="eph-rm" data-j="${j}">✕</button>` : ''}</div>`).join('')}
             ${edit.photos.length < MAX_PHOTOS ? `<button class="addph" data-act="eph-add">＋</button>` : ''}
           </div>
         </div>
@@ -2682,6 +2682,9 @@ function itemSheet(S, itemId) {
       case 'cancel-edit':
         edit = null;
         return s.refresh();
+      case 'eph':
+        syncEdit(s);
+        return editPhotoSheet(s, Number(el.dataset.j));
       case 'eph-rm':
         syncEdit(s);
         edit.photos.splice(Number(el.dataset.j), 1);
@@ -2730,6 +2733,60 @@ function itemSheet(S, itemId) {
     sh.el.querySelector('[data-tag-of=name]').textContent = altTag(v('name'));
     sh.el.querySelector('[data-tag-of=note]').textContent = altTag(v('note') || v('name'));
   });
+
+  // Tapping a saved photo while editing: swap it for another, crop or blur it, make it the cover, or drop it.
+  // Every change uploads a new photo; the item keeps the old one until Save.
+  function editPhotoSheet(s, j) {
+    openSheet(() => `
+      <div class="actions">
+        <button class="btn block" data-act="replace">${tr('换一张（重拍或从相册选）', 'Replace (take a new one or pick)')}</button>
+        <button class="btn block" data-act="crop">${tr('裁剪', 'Crop')}</button>
+        <button class="btn block" data-act="mosaic">${tr('打码（遮住门牌、快递单、人脸）', 'Blur parts (door numbers, labels, faces)')}</button>
+        ${j > 0 ? `<button class="btn block" data-act="cover">${tr('设为第一张', 'Make it the first photo')}</button>` : ''}
+        ${edit.photos.length > 1 ? `<button class="btn danger block" data-act="rm">${tr('删掉这张', 'Delete this photo')}</button>` : ''}
+        <button class="btn block" data-act="cancel">${tr('取消', 'Cancel')}</button>
+      </div>`, async (act, _el, ps) => {
+      ps.close();
+      const p = edit?.photos[j];
+      if (!p) return;
+      if (act === 'cover') {
+        edit.photos.unshift(...edit.photos.splice(j, 1));
+        return s.refresh();
+      }
+      if (act === 'rm') {
+        edit.photos.splice(j, 1);
+        return s.refresh();
+      }
+      let file = null;
+      if (act === 'replace') file = (await pickFiles({ multiple: false }))[0];
+      else if (act === 'crop' || act === 'mosaic') {
+        const stop = loading(tr('打开照片…', 'Opening the photo…'));
+        let orig;
+        try {
+          const r = await fetch(img(p, false));
+          if (!r.ok) throw new Error();
+          orig = new File([await r.blob()], 'photo.jpg', { type: 'image/jpeg' });
+        } catch {
+          toast(tr('这张照片打不开', "Can't open this photo"));
+        } finally {
+          stop();
+        }
+        if (orig) file = await (act === 'crop' ? cropEditor : mosaicEditor)(orig);
+      }
+      if (!file) return;
+      const stop = loading(tr('上传照片…', 'Uploading photos…'));
+      try {
+        const id = await uploadPhoto(S.saleId, S.key, file);
+        if (edit?.photos[j] !== p) return;
+        edit.photos[j] = id;
+        s.refresh();
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        stop();
+      }
+    });
+  }
 
   function syncEdit(s) {
     const v = (n) => s.el.querySelector(`[name=${n}]`)?.value ?? '';

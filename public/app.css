@@ -269,7 +269,7 @@ img { display: block; max-width: 100%; }
 .qrow .acts .btn { flex: 1; }
 .photo-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
 .photo-strip .t { position: relative; flex: none; }
-.photo-strip img { width: 96px; height: 96px; border-radius: 6px; object-fit: cover; }
+.photo-strip img { width: 96px; height: 96px; border-radius: 6px; object-fit: cover; cursor: pointer; }
 .photo-strip .x { position: absolute; right: 4px; top: 4px; width: 22px; height: 22px; border-radius: 11px; border: 0; background: rgba(0,0,0,.6); color: #fff; font-size: 13px; padding: 0; cursor: pointer; }
 .photo-strip .addph { width: 96px; height: 96px; border: 1px dashed #bbb; border-radius: 6px; background: #fafafa; color: #999; font-size: 28px; cursor: pointer; flex: none; }
 
