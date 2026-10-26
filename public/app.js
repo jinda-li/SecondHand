@@ -1,5 +1,5 @@
 import { money as moneyIn, shareText, openItems, byRecent, defaultIntro, stripLinks, listMark, conditionText, CURRENCIES, RULES, itemText, saleText, textLang, contactNote, normTelegram, looksLikeTelegram } from './lib.js';
-import { LANG, chosenLang, tr, isWeChat, isTelegram, setLang } from './i18n.js';
+import { LANG, chosenLang, tr, isWeChat, isTelegram, setLang, movedHere } from './i18n.js';
 
 const $app = document.getElementById('app');
 const UI = new URLSearchParams(location.search).get('ui');
@@ -605,6 +605,7 @@ function boot() {
   // Any page that renders a .nearby-feed placeholder gets the live feed filled in.
   new MutationObserver(mountNearbyFeeds).observe($app, { childList: true, subtree: true });
   $app.insertAdjacentHTML('beforebegin', langBarHtml());
+  movedNotice();
   // The server titles pages for the share card (Chinese for WeChat); pages that don't set their own follow the UI.
   if (LANG === 'en' && textLang(document.title) === 'zh') document.title = APP_NAME;
   const path = location.pathname;
@@ -891,6 +892,30 @@ function intro() {
 }
 
 const ICON_STAR = `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`;
+
+// The first time a browser arrives from the old workers.dev address, ask it to save the new one.
+// It sits above $app, so page renders don't wipe it. Telegram links live in chats, not bookmarks.
+function movedNotice() {
+  if (!movedHere || store.get('movedNoticed', false)) return;
+  store.set('movedNoticed', true);
+  const el = document.createElement('div');
+  el.className = 'banner';
+  el.style.marginTop = '12px';
+  el.innerHTML = `${tr(`二手清单搬到新网址 <b>${esc(location.host)}</b> 了。${isTelegram ? '' : '收藏过旧网址的话，请重新收藏这一页。'}`,
+    `Secondhand List has moved to <b>${esc(location.host)}</b>.${isTelegram ? '' : ' If you saved the old address, please save this page again.'}`)}
+    <div class="row" style="margin-top:8px">
+      ${isTelegram ? '' : `<button class="btn small primary" data-act="how">${tr('怎么收藏', 'How to save it')}</button>`}
+      <button class="btn small" data-act="ok">${tr('知道了', 'Got it')}</button>
+    </div>`;
+  el.querySelector('[data-act=ok]').onclick = () => el.remove();
+  const how = el.querySelector('[data-act=how]');
+  if (how) how.onclick = () => {
+    el.remove();
+    if (isWeChat) return menuGuide('收藏');
+    toast(/Mobi/i.test(navigator.userAgent) ? tr('在浏览器菜单里选「添加书签」或「添加到主屏幕」', 'Use "Add bookmark" or "Add to Home Screen" in the browser menu') : tr('按 Ctrl+D（Mac 上 ⌘+D）加到书签', 'Press Ctrl+D (⌘+D on a Mac) to bookmark'), 3000);
+  };
+  $app.before(el);
+}
 
 // WeChat gives pages no way to bookmark or share themselves, so point at its ··· menu instead.
 function menuGuide(item) {
