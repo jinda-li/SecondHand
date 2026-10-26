@@ -9,6 +9,6 @@
     "migrate:local": "wrangler d1 migrations apply banjia --local",
     "migrate:remote": "wrangler d1 migrations apply banjia --remote",
     "test": "node --test",
-    "feedback": "wrangler d1 execute banjia --remote --command \"SELECT datetime(created_at/1000,'unixepoch','localtime') AS time, role, page, contact, text, (SELECT group_concat('https://ershouqingdan.jinda.workers.dev/img/' || value, ' ') FROM json_each(photos)) AS screenshots, ua FROM feedback ORDER BY id DESC LIMIT 30\""
+    "feedback": "wrangler d1 execute banjia --remote --command \"SELECT datetime(created_at/1000,'unixepoch','localtime') AS time, role, page, contact, text, (SELECT group_concat('https://secondhandlist.org/img/' || value, ' ') FROM json_each(photos)) AS screenshots, ua FROM feedback ORDER BY id DESC LIMIT 30\""
   }
 }

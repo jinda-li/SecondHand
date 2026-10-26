@@ -76,6 +76,24 @@ export default {
   },
 };
 
+// Browser storage belongs to one address, and it holds each seller's list keys and each buyer's
+// place in line. So a person's browser copies it into the link it follows to the new address,
+// in the #fragment, which never reaches a server (i18n.js takes it in). Crawlers and link
+// previews get a plain 301.
+function moved(req, to) {
+  if (/bot[/ (-]|crawler|spider|facebookexternalhit|WhatsApp/i.test(req.headers.get('user-agent') || '')) return Response.redirect(to, 301);
+  const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><link rel="canonical" href="${esc(to)}"><title>二手清单 Secondhand List</title>
+<p style="font:16px sans-serif;text-align:center;margin-top:40vh">二手清单搬到新网址了 · Secondhand List has moved<br><a href="${esc(to)}">${esc(to)}</a></p>
+<script>
+var data = {};
+try { for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); data[k] = localStorage.getItem(k); } } catch (e) {}
+var to = ${JSON.stringify(to).replace(/</g, '\\u003c')};
+location.replace(Object.keys(data).length ? to + '#migrate=' + encodeURIComponent(JSON.stringify({ data: data, hash: location.hash })) : to + location.hash);
+</script>`;
+  return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+}
+
 // Public client config, the same for every request in this isolate.
 let CLIENT_CFG = {};
 
@@ -95,6 +113,12 @@ async function route(req, env, ctx) {
   const url = new URL(req.url);
   const p = url.pathname;
   let m;
+  // Pages on the old workers.dev address (and www) move to SITE_ORIGIN. The API and photos stay
+  // reachable there for pages that are already open.
+  if (env.SITE_ORIGIN && url.origin !== env.SITE_ORIGIN && /\.workers\.dev$|^www\./.test(url.hostname)
+    && !p.startsWith('/api/') && !p.startsWith('/img/') && (req.method === 'GET' || req.method === 'HEAD')) {
+    return moved(req, env.SITE_ORIGIN + p + url.search);
+  }
   if (p.startsWith('/api/')) return api(req, env, url, ctx);
   if ((m = p.match(/^\/img\/([A-Za-z0-9]+)(\/t)?$/))) return image(req, env, ctx, m[1], !!m[2]);
   if ((m = p.match(/^\/s\/([A-Za-z0-9]+)\/i\/(\d+)\/?$/))) {

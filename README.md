@@ -2,7 +2,7 @@
 
 Sell your stuff without answering every message. Snap a photo, post one link to your groups, and buyers line up themselves.
 
-**Live:** https://ershouqingdan.jinda.workers.dev
+**Live:** https://secondhandlist.org
 
 出二手，不用一个个回消息：拍照上架，一个链接发到微信群、Telegram 群，想要的人自己排队预订。免费、不用注册、不用下载。
 
@@ -39,6 +39,7 @@ Then open the address wrangler prints (http://localhost:8787 by default). Tests 
 1. Create a D1 database (`npx wrangler d1 create <name>`) and put its name and ID in [wrangler.toml](wrangler.toml).
 2. Apply the migrations: `npx wrangler d1 migrations apply <name> --remote`.
 3. Optional settings in `wrangler.toml` under `[vars]`:
+   - `SITE_ORIGIN`: your own domain, which pages on workers.dev move to; empty to serve pages on every address. Change or remove the `routes` for `secondhandlist.org` too.
    - `TIP_URL`: your own tip page (Ko-fi, etc.), or empty to hide it.
    - `GOOGLE_CLIENT_ID`: a Google OAuth web client ID to turn on Google sign-in.
 4. Optional secret: `npx wrangler secret put INVITE_CODE` gives unlimited AI photo recognition to people who enter the code.

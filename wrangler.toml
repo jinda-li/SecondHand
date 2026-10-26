@@ -2,6 +2,14 @@ name = "ershouqingdan"
 main = "src/worker.js"
 compatibility_date = "2025-09-01"
 
+# The site's own domain. The workers.dev address stays on so old links keep working: its pages
+# move to SITE_ORIGIN (see [vars]), taking the browser's saved lists along.
+routes = [
+  { pattern = "secondhandlist.org", custom_domain = true },
+  { pattern = "www.secondhandlist.org", custom_domain = true },
+]
+workers_dev = true
+
 [assets]
 directory = "./public"
 binding = "ASSETS"
@@ -16,6 +24,8 @@ migrations_dir = "migrations"
 enabled = true
 
 [vars]
+# Where pages on workers.dev and www move to; empty keeps every address serving pages.
+SITE_ORIGIN = "https://secondhandlist.org"
 # OAuth Web client ID (Google Cloud project "ershouqingdan"):
 #   701807910613-h3753h0s5h1pljr88ovddvg9oc9uq6oi.apps.googleusercontent.com
 # Empty hides Google sign-in. Off for now: sharing happens inside WeChat, where Google sign-in is blocked.

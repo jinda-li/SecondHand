@@ -2,6 +2,29 @@
 // The language comes from ?lang= (remembered), else the viewer's earlier choice, else the phone's
 // language. WeChat is Chinese unless chosen otherwise. Telegram users get their phone's language.
 
+// The old workers.dev address hands over its browser storage in #migrate= (worker moved()):
+// keys this address doesn't have yet are copied, lists are merged, then the fragment is removed.
+// app.js imports this module before it reads storage, so this runs first.
+(function migrate() {
+  const m = location.hash.match(/^#migrate=(.+)$/);
+  if (!m) return;
+  let hash = '';
+  try {
+    const old = JSON.parse(decodeURIComponent(m[1]));
+    hash = typeof old.hash === 'string' ? old.hash : '';
+    for (const [k, v] of Object.entries(old.data || {})) {
+      const cur = localStorage.getItem(k);
+      if (cur == null) localStorage.setItem(k, v);
+      else if (k === 'mySales') {
+        const mine = JSON.parse(cur);
+        const ids = new Set(mine.map((s) => s.id));
+        localStorage.setItem(k, JSON.stringify([...mine, ...JSON.parse(v).filter((s) => !ids.has(s.id))]));
+      }
+    }
+  } catch {}
+  history.replaceState(null, '', location.pathname + location.search + hash);
+})();
+
 const q = new URLSearchParams(location.search);
 const ua = navigator.userAgent;
 
