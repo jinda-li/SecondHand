@@ -25,7 +25,7 @@ enabled = true
 
 [vars]
 # Where pages on workers.dev and www move to; empty keeps every address serving pages.
-SITE_ORIGIN = "https://secondhandlist.org"
+SITE_ORIGIN = ""
 # OAuth Web client ID (Google Cloud project "ershouqingdan"):
 #   701807910613-h3753h0s5h1pljr88ovddvg9oc9uq6oi.apps.googleusercontent.com
 # Empty hides Google sign-in. Off for now: sharing happens inside WeChat, where Google sign-in is blocked.
