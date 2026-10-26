@@ -744,6 +744,46 @@ function buyerTokenOf(req) {
   return /^[A-Za-z0-9]{16,64}$/.test(t) ? t : null;
 }
 
+// ---------- abuse limits ----------
+
+// Free D1 databases stop taking writes at 500 MB. New photos stop a little before that, so lists,
+// queues and edits keep working when space runs low.
+const DB_PHOTO_LIMIT = 400_000_000;
+// Uploaded photos and feedback screenshots per day, in KB: everyone together, and per network.
+const UPLOAD_KB_DAILY = 150_000;
+const UPLOAD_KB_PER_IP = 60_000;
+const PHOTOS_PER_SALE = 300;
+// Per network per day. Campus networks put many people behind one address, so these are generous.
+const SALES_PER_IP = 20;
+const FEEDBACK_PER_IP = 20;
+const AI_CALLS_PER_IP = 150;
+
+// The visitor's network for today's counters, hashed with the day so no IP address is stored.
+async function ipKey(req) {
+  const ip = req.headers.get('cf-connecting-ip') || 'local';
+  const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${new Date().toISOString().slice(0, 10)}|${ip}`));
+  return [...new Uint8Array(h).slice(0, 8)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Counts n uses of `what` from this network today; fails past max. Now and then clears earlier days.
+async function limitIp(env, req, what, max, n = 1) {
+  if (Math.random() < 0.01) {
+    await env.DB.prepare("DELETE FROM ai_daily WHERE day LIKE '%:ip:%' AND day < ?").bind(new Date().toISOString().slice(0, 10)).run();
+  }
+  if (!(await takeQuota(env, `ip:${what}:${await ipKey(req)}`, max, n))) {
+    fail('RATE_LIMITED', ['这个网络今天的请求太多了，明天再试吧', 'Too many requests from this network today, try again tomorrow'], 429);
+  }
+}
+
+// Before storing uploaded bytes: room left in the database, then today's allowance for everyone and for this network.
+async function takeUploadRoom(env, req, bytes) {
+  const { meta } = await env.DB.prepare('SELECT 1').run();
+  if (meta?.size_after > DB_PHOTO_LIMIT) fail('FULL', ['照片存储空间快满了，开发者正在处理。先不传照片也能上架', 'Photo storage is nearly full and the developer is on it. You can list things without photos for now'], 507);
+  const kb = Math.ceil(bytes / 1000);
+  if (!(await takeQuota(env, 'upload', UPLOAD_KB_DAILY, kb))) fail('RATE_LIMITED', ['今天大家传的照片太多了，明天再传吧', 'Too many photos uploaded today, try again tomorrow'], 429);
+  await limitIp(env, req, 'upload', UPLOAD_KB_PER_IP, kb);
+}
+
 function touchSale(env, saleId, t) {
   return env.DB.prepare('UPDATE sales SET seller_active_at = ?1, updated_at = ?1 WHERE id = ?2').bind(t, saleId);
 }
@@ -767,7 +807,10 @@ async function api(req, env, url, ctx) {
   if (p === '/auth/google' && M === 'POST') return googleLogin(env, await body(req));
   if (p === '/auth/logout' && M === 'POST') return logout(req, env);
   if (p === '/me' && M === 'GET') return me(req, env);
-  if (p === '/sale' && M === 'POST') return createSale(env, ctx, await body(req), await currentUser(req, env), requestCity(req, url));
+  if (p === '/sale' && M === 'POST') {
+    await limitIp(env, req, 'sale', SALES_PER_IP);
+    return createSale(env, ctx, await body(req), await currentUser(req, env), requestCity(req, url));
+  }
   if ((m = p.match(/^\/sale\/(\w+)$/))) {
     if (M === 'GET') {
       const data = await loadPublic(env, m[1], buyerTokenOf(req));
@@ -966,8 +1009,12 @@ async function uploadPhoto(env, sale, req, cover) {
   if (!full || typeof full === 'string') fail('INVALID', ['没有收到照片', 'No photo received']);
   if (full.size > MAX_PHOTO_BYTES) fail('INVALID', ['照片太大了', 'Photo too large']);
   if (thumb && typeof thumb !== 'string' && thumb.size > MAX_THUMB_BYTES) fail('INVALID', ['缩略图太大了', 'Thumbnail too large']);
+  // Photos a list keeps, whether on items or uploaded and never used; a replaced cover is deleted.
+  const kept = await env.DB.prepare('SELECT COUNT(*) AS n FROM photos WHERE sale_id = ?').bind(sale.id).first();
+  if (kept.n >= PHOTOS_PER_SALE && !(cover && sale[cover])) fail('LIMIT', [`一份清单最多 ${PHOTOS_PER_SALE} 张照片，删掉一些再传吧`, `A list holds up to ${PHOTOS_PER_SALE} photos. Delete some first`]);
   const fullBuf = await full.arrayBuffer();
   const thumbBuf = thumb && typeof thumb !== 'string' ? await thumb.arrayBuffer() : null;
+  await takeUploadRoom(env, req, fullBuf.byteLength + (thumbBuf?.byteLength ?? 0));
   const id = rid(12);
   const t = now();
   const stmts = [
@@ -1246,10 +1293,7 @@ async function translateTexts(env, texts, to) {
   const idx = texts.map((t, i) => (String(t ?? '').trim() ? i : -1)).filter((i) => i >= 0);
   const out = texts.map(() => '');
   if (!idx.length) return out;
-  const day = `${new Date().toISOString().slice(0, 10)}:tr`;
-  const used = await env.DB.prepare('SELECT count FROM ai_daily WHERE day = ?').bind(day).first();
-  if ((used?.count ?? 0) >= TRANSLATE_DAILY_CAP) return null;
-  await env.DB.prepare('INSERT INTO ai_daily (day, count) VALUES (?1, 1) ON CONFLICT (day) DO UPDATE SET count = count + 1').bind(day).run();
+  if (!(await takeQuota(env, 'tr', TRANSLATE_DAILY_CAP))) return null;
   // Glossary names are swapped in before and after the call, so the model can't get them wrong.
   const swap = (t, from, into) => GLOSSARY.reduce((x, g) => x.split(g[from]).join(g[into]), String(t));
   const src = idx.map((i) => (to === 'en' ? swap(texts[i], 0, 1) : texts[i]));
@@ -1311,10 +1355,10 @@ async function translateItem(env, itemId) {
 const EDIT_TRANSLATE_DAILY = 40;
 const RETRANSLATE_PER_ITEM = 3;
 
-// Counts one use of `key` today; false once more than `max` were used.
-async function takeQuota(env, key, max) {
+// Counts n uses of `key` today in one atomic step; false once more than `max` were used.
+async function takeQuota(env, key, max, n = 1) {
   const day = `${new Date().toISOString().slice(0, 10)}:${key}`;
-  const r = await env.DB.prepare('INSERT INTO ai_daily (day, count) VALUES (?1, 1) ON CONFLICT (day) DO UPDATE SET count = count + 1 RETURNING count').bind(day).first();
+  const r = await env.DB.prepare('INSERT INTO ai_daily (day, count) VALUES (?1, ?2) ON CONFLICT (day) DO UPDATE SET count = count + ?2 RETURNING count').bind(day, n).first();
   return (r?.count ?? 0) <= max;
 }
 
@@ -1533,14 +1577,17 @@ async function imagePart(file) {
   return { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${btoa(bin)}` } };
 }
 
-// Quota and daily-cap checks shared by single and batch recognition.
-async function aiGate(env, clientId) {
+// Quota check shared by single and batch recognition, then the model calls counted against the
+// network's and today's caps before they run, so failed and simultaneous calls count too.
+// Invite-code users may go past the daily cap, up to twice it.
+async function aiGate(env, req, clientId, calls) {
   const q = await aiQuota(env, clientId);
   if (!q.unlimited && q.left <= 0) fail('LIMIT', q.surveyDone ? ['送的次数用完了', 'Your free tries are used up'] : ['送的 3 次用完了', 'Your 3 free tries are used up'], 429);
+  await limitIp(env, req, 'ai', AI_CALLS_PER_IP, calls);
   const day = new Date().toISOString().slice(0, 10);
-  const daily = await env.DB.prepare('SELECT count FROM ai_daily WHERE day = ?').bind(day).first();
-  if (!q.unlimited && (daily?.count ?? 0) >= AI_DAILY_CAP) fail('AI_BUSY', ['今天的 AI 免费额度用完了，先打字也很快', 'Today\’s free AI budget is used up. Typing is quick too'], 503);
-  return { q, day };
+  const daily = await env.DB.prepare('INSERT INTO ai_daily (day, count) VALUES (?1, ?2) ON CONFLICT (day) DO UPDATE SET count = count + ?2 RETURNING count').bind(day, calls).first();
+  if (daily.count > (q.unlimited ? 2 * AI_DAILY_CAP : AI_DAILY_CAP)) fail('AI_BUSY', ['今天的 AI 免费额度用完了，先打字也很快', 'Today\’s free AI budget is used up. Typing is quick too'], 503);
+  return q;
 }
 
 async function aiImages(req, max, maxBytes) {
@@ -1579,24 +1626,21 @@ async function runAi(env, content, maxTokens) {
   return reply?.response || reply?.choices?.[0]?.message?.content;
 }
 
-// uses: recognised items, charged to the seller; calls: rough work done, for our daily cap.
-function chargeAi(env, clientId, day, uses, calls) {
-  return env.DB.batch([
-    ...(uses ? upsertQuota(env, clientId, `used = used + ${uses}`) : []),
-    env.DB.prepare('INSERT INTO ai_daily (day, count) VALUES (?1, ?2) ON CONFLICT (day) DO UPDATE SET count = count + ?2').bind(day, calls),
-  ]);
+// uses: recognised items, charged to the seller (the daily cap was charged in aiGate).
+function chargeAi(env, clientId, uses) {
+  return uses ? env.DB.batch(upsertQuota(env, clientId, `used = used + ${uses}`)) : null;
 }
 
 async function aiIdentify(env, req) {
   const clientId = requireClient(req);
-  const { day } = await aiGate(env, clientId);
   // Up to AI_MAX_IMAGES shots of the same item; one call, one use of the quota.
   const { images, currency } = await aiImages(req, AI_MAX_IMAGES, AI_MAX_IMAGE_BYTES);
+  await aiGate(env, req, clientId, 1);
   const result = parseAiReply(await runAi(env, [{ type: 'text', text: aiPrompt(currency, images.length) }, ...images], 380));
   if (!result.name) fail('AI_ERROR', ['没认出来是什么，直接打字吧', 'Couldn\’t tell what this is, just type it'], 502);
 
-  // Only successful recognitions count against the quota.
-  await chargeAi(env, clientId, day, 1, 1);
+  // Only successful recognitions count against the seller's quota.
+  await chargeAi(env, clientId, 1);
   const after = await aiQuota(env, clientId);
   return ok({ ...result, left: after.left, unlimited: after.unlimited });
 }
@@ -1637,8 +1681,9 @@ function parseBatch(reply, n, given) {
 // grouped but unnamed, with limited set.
 async function aiBatch(env, req) {
   const clientId = requireClient(req);
-  const { q, day } = await aiGate(env, clientId);
   const { images, currency, groups } = await aiImages(req, AI_BATCH_MAX_IMAGES, AI_BATCH_MAX_IMAGE_BYTES);
+  // Roughly one photo call's work per three photos.
+  const q = await aiGate(env, req, clientId, Math.ceil(images.length / 3));
   // groups: the card each photo is on ("0,0,1,2"), when the seller already sorted them.
   const labels = groups && groups.length === images.length ? groups.map((g) => String.fromCharCode(65 + g)) : null;
   const ids = labels && [...new Set(labels)];
@@ -1656,7 +1701,7 @@ async function aiBatch(env, req) {
       limited = true;
     }
   }
-  await chargeAi(env, clientId, day, uses, Math.max(uses, Math.ceil(images.length / 3)));
+  await chargeAi(env, clientId, uses);
   const after = await aiQuota(env, clientId);
   return ok({ items, limited, left: after.left, unlimited: after.unlimited });
 }
@@ -1688,7 +1733,7 @@ const FEEDBACK_MAX_SHOTS = 3;
 
 // Multipart: text fields plus up to FEEDBACK_MAX_SHOTS screenshots named "shot".
 async function sendFeedback(env, req) {
-  const clientId = buyerTokenOf(req);
+  const clientId = requireClient(req);
   let form;
   try {
     form = await req.formData();
@@ -1706,10 +1751,10 @@ async function sendFeedback(env, req) {
   const role = ['seller', 'buyer'].includes(b.role) ? b.role : '';
   const ua = `${(req.headers.get('user-agent') || '').slice(0, 300)} · ${Number(b.width) || 0}px`;
   const t = now();
-  if (clientId) {
-    const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM feedback WHERE client_id = ? AND created_at > ?').bind(clientId, t - 24 * HOUR).first();
-    if (n.n >= FEEDBACK_PER_DAY) fail('LIMIT', ['今天已经收到你好多条反馈了，明天再发吧', 'That\’s a lot of feedback today, send more tomorrow']);
-  }
+  const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM feedback WHERE client_id = ? AND created_at > ?').bind(clientId, t - 24 * HOUR).first();
+  if (n.n >= FEEDBACK_PER_DAY) fail('LIMIT', ['今天已经收到你好多条反馈了，明天再发吧', 'That\’s a lot of feedback today, send more tomorrow']);
+  await limitIp(env, req, 'feedback', FEEDBACK_PER_IP);
+  if (shots.length) await takeUploadRoom(env, req, shots.reduce((s, f) => s + f.size, 0));
   const ids = shots.map(() => rid(16));
   const stmts = await Promise.all(shots.map(async (f, i) =>
     env.DB.prepare("INSERT INTO photos (id, sale_id, full, thumb, created_at) VALUES (?, '', ?, NULL, ?)").bind(ids[i], await f.arrayBuffer(), t)));
