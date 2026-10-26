@@ -296,7 +296,6 @@ img { display: block; max-width: 100%; }
 .share-text { font-size: 15px; line-height: 1.6; resize: vertical; min-height: 220px; }
 .share-step { display: flex; flex-direction: column; gap: 6px; }
 .share-step .step-why { margin: 0 4px 6px; }
-.step-no { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 12px; background: #fff; color: var(--green); font-size: 14px; font-weight: 800; margin-right: 8px; }
 .share-or { display: flex; align-items: center; gap: 10px; margin: 14px 0 10px; color: var(--sub); font-size: 13px; }
 .share-or::before, .share-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .intro-steps { background: var(--card); margin: 0 0 10px; }
@@ -477,7 +476,7 @@ img { display: block; max-width: 100%; }
 .lang-seg b, .lang-seg button { padding: 4px 12px; line-height: 1.4; }
 .lang-seg b { background: #111; color: #fff; font-weight: 700; }
 .lang-seg button { border: 0; background: none; color: var(--text); cursor: pointer; font: inherit; }
-.post-preview { display: block; width: 100%; max-width: 320px; margin: 0 auto 10px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
+.post-preview { display: block; width: auto; max-width: min(100%, 320px); max-height: 52vh; margin: 0 auto 10px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
 .switch-row { display: flex; align-items: center; gap: 8px; margin: 4px 4px 8px; font-size: 15px; cursor: pointer; }
 .switch-row input { width: 20px; height: 20px; margin: 0; flex: none; }
 

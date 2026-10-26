@@ -2977,17 +2977,12 @@ function shareSheet(S) {
   const sh = openSheet(() => {
     const seg = `<div class="seg share-target">${[['wechat', tr('发到微信群', 'WeChat groups')], ['telegram', tr('发到 Telegram 群', 'Telegram groups')]]
       .map(([k, l]) => `<button class="${target === k ? 'on' : ''}" data-act="target" data-t="${k}">${l}</button>`).join('')}</div>`;
-    const imageBtn = `<div class="share-or"><span>${tr('或者', 'or')}</span></div>
-    <div class="actions">
-      <button class="btn big block" data-act="image">${tr('直接发清单图', 'Post a picture of the list')}</button>
-      <div class="small muted center">${tr('一张长图，所有东西和价格都在上面，扫码进来预订', 'One long picture with every item and price, and a QR code to reserve')}</div>
-    </div>`;
     const multi = `<div class="small muted" style="margin:10px 4px 0">${tr('可以发到好几个群（微信、Telegram 都行）：大家排的是同一个队，先到先得，不会撞单。', 'Post it to as many groups as you like, WeChat and Telegram alike: everyone joins the same line, first come first served, no double-selling.')}</div>`;
     if (target === 'telegram') {
       return `<h2>${tr('分享到群', 'Share to groups')}</h2>${seg}
       <div class="share-step">
-        <button class="btn primary big block" data-act="tgpost">${tr('发大图（推荐）', 'Post a picture (recommended)')}</button>
-        <div class="small muted step-why">${tr('和群里大家一样直接发大图：一张大图带小图的拼图，写着点链接预订；配文带预订链接，物品清单可带可不带。', 'A big picture like everyone else posts: one large photo with smaller ones, saying to tap the link to reserve. The caption has the link, and the item list if you want it.')}</div>
+        <button class="btn primary big block" data-act="post">${tr('发长图（推荐）', 'Post the long picture (recommended)')}</button>
+        <div class="small muted step-why">${tr('一条消息就够：一张长图，照片、每件的价格和二维码都在上面；下面配两三行字和预订链接。', 'One message does it: a long picture with the photos, every price and a QR code, and two or three lines with the link under it.')}</div>
         <button class="btn big block" data-act="tgtext">${tr('只发文字和链接', 'Text and link only')}</button>
         <div class="small muted step-why">${tr('一条消息：开头一句、链接、物品清单，Telegram 会显示带图的预览。', 'One message with a line, the link and the item list; Telegram shows a preview with a picture.')}</div>
       </div>
@@ -2995,14 +2990,17 @@ function shareSheet(S) {
     }
     return `<h2>${tr('分享到群', 'Share to groups')}</h2>${seg}
     <div class="share-step">
-      <div class="small muted">${tr('推荐：按顺序发两条', 'Best: send these two, in order')}</div>
-      <button class="btn primary big block" data-act="card"><span class="step-no">1</span>${tr('发卡片', 'Send the card')}</button>
-      <div class="small muted step-why">${tr('群友点卡片就能看大图、预订', 'People tap the card to see photos and reserve')}</div>
-      <button class="btn primary big block" data-act="text"><span class="step-no">2</span>${tr('发文字', 'Send the text')}</button>
-      <div class="small muted step-why">${tr('接着粘贴物品清单，不点开也知道有什么、多少钱', "Then paste the item list, so people see what's there and the prices without opening it")}</div>
+      <div class="small muted">${tr('两种发法，选一种', 'Two ways, pick one')}</div>
+      <button class="btn primary big block" data-act="card">${tr('发卡片', 'Send the card')}</button>
+      <div class="small muted step-why">${tr('群友点卡片就能看大图、预订。发完可以接着点下面的「发文字」，贴上物品和价格。', 'People tap the card to see photos and reserve. Then you can tap "Send the text" below to paste the items and prices.')}</div>
+      <button class="btn primary big block" data-act="post">${tr('发长图', 'Send the long picture')}</button>
+      <div class="small muted step-why">${tr('一张图：照片、每件的价格和二维码。群友长按识别二维码就能打开预订，不用扫码转卡片。', 'One picture with the photos, every price and a QR code. People long-press the QR code to open the list and reserve.')}</div>
+    </div>
+    <div class="actions" style="margin-top:4px">
+      <button class="btn block" data-act="text">${tr('发文字（物品和价格）', 'Send the text (items and prices)')}</button>
+      <button class="link-btn small" data-act="image" style="margin:4px auto 0">${tr('东西很多？发整份清单图（每件一张照片）', 'Lots of items? Post the full list picture (a photo for each)')}</button>
     </div>
     ${multi}
-    ${imageBtn}
     <div class="share-help">
       <div class="survey-title">${tr('怎么分享图文卡片出去？', 'How do I send a card in WeChat?')}</div>
       <div class="group"><div class="cell small" style="display:block;line-height:1.9">
@@ -3032,9 +3030,9 @@ function shareSheet(S) {
       s.close();
       return textSheet(S, target);
     }
-    if (act === 'tgpost') {
+    if (act === 'post') {
       s.close();
-      return tgPostSheet(S);
+      return postSheet(S, target);
     }
     if (act === 'image') {
       s.close();
@@ -3563,13 +3561,15 @@ function showImages(urls, name = tr('清单图', 'list')) {
   document.body.appendChild(el);
 }
 
-// ---------- Telegram post: one big collage picture, the link (and the list) as the caption ----------
+// ---------- The long picture: photos, every price and a QR code in one picture ----------
+// Telegram posts it with a short caption carrying the link; WeChat groups get it on its own, and
+// long-pressing the QR code there opens the list (as a page that forwards as a card).
 
 // Telegram's caption limit.
 const CAPTION_MAX = 1024;
-// Portrait 4:5, the shape Telegram shows largest.
 const POST_W = 1080;
-const POST_H = 1350;
+// Items named in the list under the photos; any more are "and N more" at the QR code.
+const POST_LISTED = 20;
 
 // The post text: the intro and the link, then as many items as fit in a caption ("…and N more"),
 // or no items at all when the seller leaves the list out.
@@ -3607,20 +3607,30 @@ function collageCells(n, y, w, h) {
   return m.map(([cx, cy, cw, ch]) => [cx * uw, y + cy * uh, cw * uw, ch * uh]);
 }
 
-// The picture: title and place on top, the mosaic with prices, and a footer telling people to
-// reserve at the link.
-async function drawCollage(sale, items, lang) {
+// The picture, top to bottom: title and place, the photo mosaic with prices, every item by name
+// and price in two columns, and a footer with the QR code (link) telling people to reserve there.
+// Its height follows the number of items: about 1080×1600 for a few, 1080×2200 for twenty.
+async function drawPoster(sale, items, lang, { link, target }) {
   const L = (zh, en) => (lang === 'en' ? en : zh);
   const st = saleText(sale, lang);
-  const c = document.createElement('canvas');
-  c.width = POST_W;
-  c.height = POST_H;
-  const g = c.getContext('2d');
-  g.fillStyle = '#fff';
-  g.fillRect(0, 0, POST_W, POST_H);
+  const list = openItems(items);
   const pad = 40;
   const head = 180;
-  const foot = 300;
+  const mosaic = POST_W * (5 / 6); // square grid units
+  const rowH = 62;
+  const listed = list.slice(0, POST_LISTED);
+  const rows = Math.ceil(listed.length / 2);
+  const more = list.length - listed.length;
+  const listH = 40 + (rows + (more > 0 ? 1 : 0)) * rowH + 24;
+  const foot = 420;
+  const H = head + mosaic + listH + foot;
+  const qr = await qrMatrix(link);
+  const c = document.createElement('canvas');
+  c.width = POST_W;
+  c.height = H;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, POST_W, H);
   g.fillStyle = BLUE;
   g.fillRect(0, 0, POST_W, head);
   g.fillStyle = '#fff';
@@ -3629,11 +3639,10 @@ async function drawCollage(sale, items, lang) {
   const until = sale.leaveDate ? L(` · ${dateText(sale.leaveDate, lang)}前出完`, ` · until ${dateText(sale.leaveDate, lang)}`) : '';
   g.fillText(fitFont(g, `📍 ${st.location}${until}`, POST_W - pad * 2, 34, 700), pad, 146);
 
-  const list = openItems(items);
-  const cells = collageCells(list.length, head, POST_W, POST_H - head - foot);
-  const more = list.length - cells.length;
+  const cells = collageCells(list.length, head, POST_W, mosaic);
+  const extra = list.length - cells.length;
   // The dearest items get the larger tiles; a "+N" tile takes the last, smallest place.
-  const shown = list.slice(0, more > 0 ? cells.length - 1 : cells.length).sort((a, b) => b.priceCents - a.priceCents);
+  const shown = list.slice(0, extra > 0 ? cells.length - 1 : cells.length).sort((a, b) => b.priceCents - a.priceCents);
   const ims = await Promise.all(shown.map((it) => loadImage(img(it.photos[0], false)).catch(() => null)));
   cells.forEach(([x, y, w, h], k) => {
     const it = shown[k];
@@ -3646,9 +3655,9 @@ async function drawCollage(sale, items, lang) {
       g.fillStyle = '#fff';
       g.textAlign = 'center';
       g.font = `900 ${Math.round(side * 0.34)}px ${FONT}`;
-      g.fillText(`+${more + 1}`, x + w / 2, y + h / 2 + side * 0.06);
+      g.fillText(`+${extra + 1}`, x + w / 2, y + h / 2 + side * 0.06);
       g.font = `700 ${Math.round(side * 0.12)}px ${FONT}`;
-      g.fillText(L('链接里看', 'at the link'), x + w / 2, y + h / 2 + side * 0.26);
+      g.fillText(L('更多', 'more'), x + w / 2, y + h / 2 + side * 0.26);
       g.textAlign = 'left';
       return;
     }
@@ -3658,45 +3667,89 @@ async function drawCollage(sale, items, lang) {
     drawPriceTag(g, moneyIn(it.priceCents, sale.currency, lang), x + w - 10, y + h - 10, tag);
   });
 
-  const top = POST_H - foot;
+  // Names and prices, down the left column first; reserved items in grey.
+  const y0 = head + mosaic + 40;
+  const gap = 48;
+  const colW = (POST_W - pad * 2 - gap) / 2;
+  listed.forEach((it, k) => {
+    const x = pad + (k < rows ? 0 : colW + gap);
+    const y = y0 + (k % rows) * rowH;
+    const reserved = it.status === 'reserved';
+    const price = reserved ? L('已预订', 'Reserved') : moneyIn(it.priceCents, sale.currency, lang);
+    g.font = `800 30px ${FONT}`;
+    const pw = g.measureText(price).width;
+    g.textAlign = 'right';
+    g.fillStyle = reserved ? '#999' : '#111';
+    g.fillText(price, x + colW, y + 40);
+    g.textAlign = 'left';
+    g.font = `400 30px ${FONT}`;
+    g.fillStyle = reserved ? '#999' : '#111';
+    g.fillText(fitText(g, itemText(it, lang).name, colW - pw - 20), x, y + 40);
+    g.fillStyle = '#ececec';
+    g.fillRect(x, y + rowH - 2, colW, 2);
+  });
+  if (more > 0) {
+    g.font = `700 30px ${FONT}`;
+    g.fillStyle = BLUE;
+    g.fillText(L(`…还有 ${more} 件，扫码看全部`, `…and ${more} more: scan to see them all`), pad, y0 + rows * rowH + 40);
+  }
+
+  const top = H - foot;
   g.fillStyle = YELLOW;
   g.fillRect(0, top, POST_W, foot);
+  const qs = 300;
+  let tx = pad;
+  if (qr) {
+    g.fillStyle = '#fff';
+    g.fillRect(pad, top + 40, qs + 40, qs + 40);
+    const m = qs / qr.n;
+    g.fillStyle = '#111';
+    for (let r = 0; r < qr.n; r++) for (let col = 0; col < qr.n; col++) if (qr.dark(r, col)) g.fillRect(pad + 20 + col * m, top + 60 + r * m, Math.ceil(m), Math.ceil(m));
+    tx = pad + qs + 40 + 36;
+  }
+  const tw = POST_W - tx - pad;
   const n = items.filter((i) => i.status === 'available').length;
   g.fillStyle = '#111';
-  g.fillText(fitFont(g, L('预订请点下面的链接 👇', 'Reserve at the link below 👇'), POST_W - pad * 2, 66, 900), pad, top + 92);
-  g.fillText(fitFont(g, L('多个群同时发，回复不算占位，链接里排队先到先得', "Posted in several groups: replies don't hold a spot, the link keeps one line"), POST_W - pad * 2, 34, 700), pad, top + 156);
-  g.fillText(fitFont(g, L(`在售 ${n} 件 · 全部照片、价格和排队情况都在链接里`, `${n} for sale · every photo, price and the line are at the link`), POST_W - pad * 2, 32, 400), pad, top + 208);
-  g.textAlign = 'right';
+  g.fillText(fitFont(g, !qr ? L('点链接预订', 'Reserve at the link') : target === 'telegram' ? L('扫码或点链接', 'Scan or tap the link') : L('长按识别二维码', 'Long-press the QR code'), tw, 54, 900), tx, top + 112);
+  g.fillText(fitFont(g, L('预订 · 先到先得', 'to reserve, first come'), tw, 54, 900), tx, top + 178);
+  g.fillText(fitFont(g, L('回复不算占位，几个群排同一个队', "Replies don't hold a spot"), tw, 30, 700), tx, top + 240);
+  g.fillText(fitFont(g, L(`在售 ${n} 件 · 页面实时更新`, `${n} for sale · the page is always live`), tw, 28, 400), tx, top + 286);
   g.fillStyle = BLUE;
   g.font = `800 30px ${FONT}`;
-  g.fillText(L('二手清单', 'Secondhand List'), POST_W - pad, top + 270);
+  g.textAlign = 'right';
+  g.fillText(L('二手清单', 'Secondhand List'), POST_W - pad, H - 36);
   g.textAlign = 'left';
   return canvasBlob(c, 0.9);
 }
 
-// The post sheet: the picture made on the phone and an editable caption, then either the system
-// share sheet (picture and caption go to Telegram together) or save + copy + post by hand.
-async function tgPostSheet(S) {
-  let lang = shareLang('telegram');
-  let withItems = store.get('tgPostItems', true);
+// The post sheet: the long picture made on the phone, then for Telegram an editable caption and the
+// system share sheet (picture and caption go together) or save + copy + post by hand; for WeChat,
+// save the picture and send it to the group.
+async function postSheet(S, target = 'telegram') {
+  const tg = target === 'telegram';
+  let lang = shareLang(target);
+  let withItems = tg && store.get('tgPostItems', false);
   let d = await translatedData(S, lang);
   const ver = Date.now().toString(36).slice(-5);
+  // WeChat: c=1 marks a page opened from our QR code, which forwards as a card.
+  const link = () => (tg ? tgLink(publicUrl(S), lang, ver) : `${publicUrl(S)}?c=1`);
   let file = null;
   let url = '';
   let caption = '';
   const introKey = () => `${S.saleId}:telegram:${lang}`;
   const writeCaption = () => {
+    if (!tg) return;
     const intro = stripLinks(store.get('shareIntro', {})[introKey()]) || defaultIntro(d.sale, { lang, target: 'telegram' });
-    caption = postCaption(d.sale, d.items, { withItems, prices: true, lang, target: 'telegram', link: tgLink(publicUrl(S), lang, ver), intro });
+    caption = postCaption(d.sale, d.items, { withItems, prices: true, lang, target: 'telegram', link: link(), intro });
   };
   const make = async () => {
     if (!openItems(d.items).length) {
       toast(tr('还没有在售的东西', 'Nothing for sale yet'));
       return false;
     }
-    const stop = loading(tr('正在生成图片…', 'Making the picture…'));
+    const stop = loading(tr('正在生成长图…', 'Making the picture…'));
     try {
-      const blob = await drawCollage(d.sale, d.items, lang);
+      const blob = await drawPoster(d.sale, d.items, lang, { link: link(), target });
       if (url) URL.revokeObjectURL(url);
       file = new File([blob], `${tr('二手清单', 'secondhand-list')}.jpg`, { type: 'image/jpeg' });
       url = URL.createObjectURL(file);
@@ -3714,10 +3767,8 @@ async function tgPostSheet(S) {
       return false;
     }
   };
-  const sh = openSheet(() => `<h2>${tr('发到 Telegram 群', 'Post to a Telegram group')}</h2>
-    <div class="seg small share-lang">${[['zh', '中文'], ['en', 'English']].map(([k, l]) => `<button class="${lang === k ? 'on' : ''}" data-act="lang" data-l="${k}">${l}</button>`).join('')}</div>
-    <img class="post-preview" src="${url}" alt="${tr('要发的图', 'The picture to post')}">
-    <label class="switch-row"><input type="checkbox" data-act="items" ${withItems ? 'checked' : ''}><span>${tr('配文带物品清单和价格', 'Put the item list and prices in the caption')}</span></label>
+  const tgBody = () => `
+    <label class="switch-row"><input type="checkbox" data-act="items" ${withItems ? 'checked' : ''}><span>${tr('配文也带物品清单和价格', 'Put the item list and prices in the caption too')}</span></label>
     <textarea class="inp boxed share-text" rows="${withItems ? 8 : 4}">${esc(caption)}</textarea>
     <div class="actions" style="margin-top:12px">
       ${canShareFile() ? `<button class="btn primary block" data-act="share">${tr('发到 Telegram（图和配文一起）', 'Send to Telegram (picture and caption)')}</button>` : ''}
@@ -3727,9 +3778,22 @@ async function tgPostSheet(S) {
     <div class="group"><div class="cell small" style="display:block;line-height:1.9">${tr(
       `${canShareFile() ? '不能直接发的话：' : ''}1. 保存图片<br>2. 复制配文<br>3. 在 Telegram 群里点 📎，选这张图，粘贴配文，发送`,
       `${canShareFile() ? "If sending directly doesn't work: " : ''}1. Save the picture<br>2. Copy the caption<br>3. In the Telegram group, tap 📎, pick the picture, paste the caption, send`,
-    )}</div></div>`, async (act, el, s) => {
+    )}</div></div>`;
+  const wxBody = () => `
+    <div class="actions">
+      <button class="btn primary block" data-act="save">${isWeChat ? tr('打开大图', 'Open the picture') : tr('保存图片', 'Save the picture')}</button>
+      ${canShareFile() && !isWeChat ? `<button class="btn block" data-act="share">${tr('分享图片到微信', 'Share the picture…')}</button>` : ''}
+    </div>
+    <div class="group"><div class="cell small" style="display:block;line-height:1.9">${isWeChat
+      ? tr('1. 点「打开大图」，在大图上<b>长按</b> →「发送给朋友」→ 选群<br>2. 群友长按图里的二维码 →「识别图中二维码」，就打开了预订页', '1. Tap "Open the picture", <b>long-press</b> it → Send to Chat → pick the group<br>2. People long-press the QR code in it → Scan QR Code in Image to open the list')
+      : tr('1. 保存图片<br>2. 在微信群里点 ＋ →「相册」，选这张图发送<br>3. 群友长按图里的二维码 →「识别图中二维码」，就打开了预订页', '1. Save the picture<br>2. In the WeChat group, tap ＋ → Album and send it<br>3. People long-press the QR code in it → Scan QR Code in Image to open the list')}</div></div>`;
+  const sh = openSheet(() => `<h2>${tg ? tr('发到 Telegram 群', 'Post to a Telegram group') : tr('发长图到微信群', 'Post the picture to a WeChat group')}</h2>
+    <div class="seg small share-lang">${[['zh', '中文'], ['en', 'English']].map(([k, l]) => `<button class="${lang === k ? 'on' : ''}" data-act="lang" data-l="${k}">${l}</button>`).join('')}</div>
+    <img class="post-preview" src="${url}" alt="${tr('要发的图', 'The picture to post')}">
+    ${tg ? tgBody() : wxBody()}`, async (act, el, s) => {
     const t = s.el.querySelector('.share-text')?.value ?? caption;
     const remember = () => {
+      if (!tg) return;
       const intro = stripLinks(t.split(listMark(lang))[0]).trim();
       const all = store.get('shareIntro', {});
       if (intro && intro !== defaultIntro(d.sale, { lang, target: 'telegram' })) all[introKey()] = intro;
@@ -3746,16 +3810,16 @@ async function tgPostSheet(S) {
     if (act === 'lang') {
       remember();
       lang = el.dataset.l;
-      store.set('shareLangTg', lang);
+      store.set(tg ? 'shareLangTg' : 'shareLangWx', lang);
       d = await translatedData(S, lang, d);
       if (await make()) s.refresh();
     }
     if (act === 'share') {
       remember();
       // Copied as well, for apps that drop the text when given a picture.
-      navigator.clipboard?.writeText(t).catch(() => {});
+      if (tg) navigator.clipboard?.writeText(t).catch(() => {});
       try {
-        await navigator.share({ files: [file], text: t });
+        await navigator.share(tg ? { files: [file], text: t } : { files: [file] });
       } catch {}
     }
     if (act === 'copy') {
@@ -3763,7 +3827,7 @@ async function tgPostSheet(S) {
       copy(t, tr('已复制，发图时粘贴', 'Copied, paste it as the caption'));
     }
     // A data: URL, like the list pictures: WeChat's long-press save can't read blob: URLs.
-    if (act === 'save') showImages([await fileDataUrl(file)], 'telegram');
+    if (act === 'save') showImages([await fileDataUrl(file)], tr('二手清单', 'secondhand-list'));
   }, { onClose: () => setTimeout(() => URL.revokeObjectURL(url), 60000) });
   return sh;
 }
