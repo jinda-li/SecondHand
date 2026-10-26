@@ -1,6 +1,6 @@
 import { money, contactNote, byRecent, itemText, saleText, textLang, normTelegram, looksLikeTelegram, RULES } from '../public/lib.js';
 
-const VERSION = '53';
+const VERSION = '54';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 // An open list pauses this long after its last renewal: buyers can look but not queue,
@@ -49,6 +49,7 @@ function json(data, status = 200) {
   });
 }
 const ok = (data) => json({ ok: true, data });
+const textFile = (body, type) => new Response(body, { headers: { 'content-type': `${type}; charset=utf-8`, 'cache-control': 'public, max-age=3600' } });
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -105,11 +106,37 @@ async function route(req, env, ctx) {
     return salePage(env, url, m[1]);
   }
   if ((m = p.match(/^\/manage\/([A-Za-z0-9]+)\/?$/))) return managePage(env, url, m[1]);
+  if (p === '/robots.txt') return textFile(`User-agent: *\nDisallow: /manage/\nDisallow: /api/\nSitemap: ${url.origin}/sitemap.xml\n`, 'text/plain');
+  if (p === '/sitemap.xml') {
+    return textFile(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>${url.origin}/</loc></url>
+  <url><loc>${url.origin}/en</loc></url>
+</urlset>
+`, 'application/xml');
+  }
+  // The landing page: / in Chinese, /en in English, rendered here so search engines read it.
+  // People who already have lists get their home over it (app.js).
+  if (p === '/' || p === '/en') {
+    const l = p === '/en' ? 'en' : 'zh';
+    return page({
+      title: APP_TITLE[l],
+      desc: APP_DESC[l],
+      image: `${url.origin}/icon-300.png`,
+      imageSize: 300,
+      url,
+      lang: l,
+      jsonLd: { '@context': 'https://schema.org', '@graph': [appJsonLd(url, l), faqJsonLd(l)] },
+      alternates: { 'zh-CN': `${url.origin}/`, en: `${url.origin}/en`, 'x-default': `${url.origin}/` },
+      body: landingHtml(l),
+      data: { landing: l },
+    });
+  }
   const lang = pageLang(url);
   const T = (zh, en) => (lang === 'en' ? en : zh);
   // /new is the public "what is this" page buyers reach from 我也有二手要出, and the one people
   // save or forward, so its card says what the app does.
-  if (p === '/' || p === '/new') {
+  if (p === '/new') {
     return page({ title: APP_TITLE[lang], desc: APP_DESC[lang], image: `${url.origin}/icon-300.png`, imageSize: 300, url, lang, jsonLd: appJsonLd(url, lang) });
   }
   if (p === '/my' || p === '/nearby') {
@@ -189,8 +216,114 @@ const appJsonLd = (url, lang) => ({
   offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
 });
 
+const REPO_URL = 'https://github.com/jinda-li/SecondHand';
+
+// Questions people ask before trying it; shown on the landing page and given to search engines as FAQPage.
+const FAQ = {
+  zh: [
+    ['要钱吗？', '完全免费，没有广告，也不抽成。服务器和域名是开发者自己掏钱，靠大家打赏撑着。'],
+    ['要下载 App 或者注册吗？', '都不用。在微信、Telegram 或者任何浏览器里打开就能用。卖家的管理权限存在这台手机上，把「我的清单」页面收藏起来，换手机也能找回。'],
+    ['买家怎么联系我？', '买家点「预订」排队，留下微信号或 Telegram 用户名。只有排第 1 位的人能看到你的联系方式；他不要了，下一位自动顶上，不会两个人约同一件。'],
+    ['AI 识图是什么？', '拍一张照片，AI 认出这是什么，帮你写好名字。每人有免费次数，用完了自己打字也一样能上架。'],
+    ['在哪些城市能用？', '任何城市都能用，价格可以用欧元、美元、英镑、人民币或瑞典克朗。打开「附近的二手」，同城的人也能刷到你的东西。'],
+    ['外国同学能看懂吗？', '能。页面有中文和英文，物品名和说明会自动翻译，卖家可以修改译文。'],
+    ['我的信息安全吗？', '只收集让清单运转需要的最少信息，不卖给任何人，也不经手付款。代码在 GitHub 上开源，谁都可以查。'],
+  ],
+  en: [
+    ['Does it cost anything?', 'No. It is free, with no ads and no commission. The developer pays for the server and the domain, and tips keep it running.'],
+    ['Do I need an app or an account?', 'Neither. It opens in WeChat, Telegram or any browser. Your management access lives on your phone: bookmark the "My lists" page to get it back on a new phone.'],
+    ['How do buyers reach me?', 'Buyers tap Reserve and leave a WeChat ID or Telegram username. Only the first in line sees your contact; if they drop out, the next in line moves up, so two people never come for the same thing.'],
+    ['What is the AI photo recognition?', 'Snap a photo and the AI works out what it is and names it for you. Everyone gets free tries, and once they run out you can still type the name yourself.'],
+    ['Which cities does it work in?', 'Any city. Prices can be in euros, US dollars, pounds, yuan or Swedish kronor. Turn on "Nearby" and people in your city see your things too.'],
+    ['Can people who don\'t read Chinese use it?', 'Yes. Every page is in English and Chinese, and item names and details are translated automatically; the seller can edit the translation.'],
+    ['Is my information safe?', 'It keeps only what a list needs to work, sells nothing to anyone and never handles payments. The code is open source on GitHub for anyone to check.'],
+  ],
+};
+
+const faqJsonLd = (lang) => ({
+  '@type': 'FAQPage',
+  inLanguage: lang === 'en' ? 'en' : 'zh-CN',
+  mainEntity: FAQ[lang].map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })),
+});
+
+// The landing page body (/ and /en). Plain HTML so it reads without JavaScript; app.js wires the
+// feedback and tip buttons, and swaps in the seller's home for people who already have lists.
+function landingHtml(lang) {
+  const T = (zh, en) => (lang === 'en' ? en : zh);
+  const home = T('/', '/en');
+  const mock = [['🪑', '€20', false], ['💡', '€5', true], ['🍳', '€6', false], ['🚲', '€80', false]];
+  const steps = T([
+    ['📷', '拍照，填个价格', 'AI 自动认出是什么，名字不用打'],
+    ['💬', '一个链接，发几个群都行', '群友点开就能看图、预订'],
+    ['🙋', '自动排队，不撞单', '第 1 位才看到你的联系方式'],
+    ['📍', '附近的人也能刷到', '也会出现在附近别人的清单下面，卖得更快'],
+  ], [
+    ['📷', 'Snap a photo, add a price', 'The AI names the item, no typing'],
+    ['💬', 'One link, as many groups as you like', 'People tap it to see photos and reserve'],
+    ['🙋', 'A queue, no double-selling', 'Only the first in line sees your contact'],
+    ['📍', 'People nearby see it too', 'Your things also show under lists nearby'],
+  ]);
+  const who = T([
+    '搬家、毕业、回国、换城市，走之前要清一屋子闲置',
+    '在海外的留学生、交换生、上班族，东西卖给同城的华人和外国同学',
+    '在微信群、Telegram 群里出二手，懒得一条条回消息',
+  ], [
+    'Moving out, graduating, going home or changing cities, with a flat to clear first',
+    'Students and workers abroad selling to people in the same city',
+    'Anyone selling in WeChat or Telegram groups who is tired of answering one message at a time',
+  ]);
+  const why = T([
+    ['不用一遍遍回「还在吗」', '卖了没卖、几个人在排，链接里都写着'],
+    ['不会两个人约同一件', '先到先得，排第 1 的人才拿到你的联系方式'],
+    ['一处改，所有群都更新', '改价、标已出只在一个地方，发出去的链接自动是最新的'],
+    ['中英文自动翻译', '外国同学、室友也看得懂'],
+  ], [
+    ['No more "is this still available?"', 'The link shows what is sold and how many are in line'],
+    ['Nobody double-books', 'First come, first served: only the first in line gets your contact'],
+    ['Change it once, every group sees it', 'Edit a price or mark it sold in one place; every link you posted is up to date'],
+    ['Translated automatically', 'Chinese and English, so flatmates and classmates can read it'],
+  ]);
+  return `
+<header class="appbar lp-bar"><a class="logo" href="${home}"><img src="/icon.svg" alt="" width="34" height="34"><span class="logo-txt"><b>${APP_NAME[lang]}</b><small>${T('AI识别 · 多群同步', 'AI photos · all your groups')}</small></span></a><a class="appbar-my" href="/my">${T('我的排队', 'My reservations')}</a></header>
+<main class="lp">
+  <section class="intro">
+    <h1 class="intro-title">${T('出二手，<br>不用一个个回消息', 'Sell your stuff<br>without answering every message')}</h1>
+    <p class="intro-sub">${T('拍照上架，发一个链接到群里，想要的人自己排队预订', 'List it with a photo, post one link to your groups, and buyers line up themselves')}</p>
+    <div class="intro-mock" aria-hidden="true">${mock.map(([e, price, reserved]) => `
+      <div class="mock-tile"><div class="mock-ph">${e}${reserved ? `<span class="mock-stamp">${T('已预订', 'Reserved')}</span>` : ''}</div><span class="mock-price">${price}</span><span class="mock-btn ${reserved ? 'off' : ''}">${reserved ? T('排候补', 'Waitlist') : T('预订', 'Reserve')}</span></div>`).join('')}
+    </div>
+    <a class="btn primary big lp-cta" href="/new?go=1">${T('免费发布我的清单', 'Post my list, free')}</a>
+    <div class="intro-free">${T('免费 · 不用注册 · 不用下载 App', 'Free · no sign-up · no app')}</div>
+  </section>
+  <section class="lp-sec" id="how">
+    <h2>${T('怎么用', 'How it works')}</h2>
+    <div class="intro-steps2">${steps.map(([i, t, d]) => `
+      <div class="intro-step2"><span class="intro-icon">${i}</span><div><b>${t}</b><div class="small muted">${d}</div></div></div>`).join('')}
+    </div>
+  </section>
+  <section class="lp-sec">
+    <h2>${T('为什么不直接在群里发', 'Why not just post in the group?')}</h2>
+    <dl class="lp-why">${why.map(([t, d]) => `<div><dt>${t}</dt><dd>${d}</dd></div>`).join('')}</dl>
+  </section>
+  <section class="lp-sec">
+    <h2>${T('适合谁', 'Who it is for')}</h2>
+    <ul class="lp-who">${who.map((w) => `<li>${w}</li>`).join('')}</ul>
+  </section>
+  <section class="lp-sec" id="faq">
+    <h2>${T('常见问题', 'Questions')}</h2>
+    <div class="lp-faq">${FAQ[lang].map(([q, a]) => `<details><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join('')}</div>
+  </section>
+  <footer class="lp-foot">
+    <p>${T('一个人独立开发的免费小工具，代码开源。', 'A free tool built independently by one developer. The code is open source.')}</p>
+    <p><a href="/privacy${T('', '#en')}">${T('隐私政策', 'Privacy')}</a> · <a href="/terms${T('', '#en')}">${T('服务条款', 'Terms')}</a> · <a href="${REPO_URL}" rel="noopener">GitHub</a> · <button class="link-btn small" data-feedback>${T('反馈', 'Feedback')}</button><span data-tip hidden> · <button class="link-btn small">${T('打赏开发者', 'Tip the developer')}</button></span></p>
+  </footer>
+</main>
+<div class="bottom-bar"><div class="inner"><a class="btn primary big" href="/new?go=1">${T('开始发布', 'Get started')}</a></div></div>`;
+}
+
 // wide: the image is the 1200×630 Telegram card, shown large under the message.
-function page({ title, desc = '', image = '', imageSize = 600, wide = false, url, lang = 'zh', data = {}, status = 200, robots = false, keepQuery = false, jsonLd = null }) {
+// body: HTML rendered into #app before app.js runs; alternates: hreflang → URL of each language version.
+function page({ title, desc = '', image = '', imageSize = 600, wide = false, url, lang = 'zh', data = {}, status = 200, robots = false, keepQuery = false, jsonLd = null, body = '', alternates = null }) {
   const canonical = url.origin + url.pathname + (keepQuery ? url.search : '');
   const dataJson = JSON.stringify(data).replace(/</g, '\\u003c');
   const html = `<!doctype html>
@@ -207,6 +340,8 @@ ${robots ? '<meta name="robots" content="noindex"><meta name="referrer" content=
 <meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(desc)}">
 <meta property="og:url" content="${esc(canonical)}">
+${alternates ? `<link rel="canonical" href="${esc(canonical)}">
+${Object.entries(alternates).map(([l, href]) => `<link rel="alternate" hreflang="${l}" href="${esc(href)}">`).join('\n')}` : ''}
 ${image ? `<meta property="og:image" content="${esc(image)}">
 <meta property="og:image:width" content="${wide ? 1200 : imageSize}">
 <meta property="og:image:height" content="${wide ? 630 : imageSize}">
@@ -226,7 +361,7 @@ ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(
 </head>
 <body>
 ${image && !wide ? `<div class="wx-thumb" aria-hidden="true"><img src="${esc(image)}" width="300" height="300" alt=""></div>` : ''}
-<div id="app"></div>
+<div id="app">${body}</div>
 <script>window.__DATA__=${dataJson};window.__CFG__=${JSON.stringify(CLIENT_CFG)}</script>
 <script type="module" src="/app.js?v=${VERSION}"></script>
 </body>

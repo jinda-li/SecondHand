@@ -1,5 +1,5 @@
 import { money as moneyIn, shareText, openItems, byRecent, defaultIntro, stripLinks, listMark, conditionText, CURRENCIES, RULES, itemText, saleText, textLang, contactNote, normTelegram, looksLikeTelegram } from './lib.js';
-import { LANG, tr, isWeChat, isTelegram, setLang } from './i18n.js';
+import { LANG, chosenLang, tr, isWeChat, isTelegram, setLang } from './i18n.js';
 
 const $app = document.getElementById('app');
 const UI = new URLSearchParams(location.search).get('ui');
@@ -618,7 +618,21 @@ function boot() {
   if (path === '/keep') return keepPage();
   if (path === '/lists') return listsPage();
   if (path === '/new') return new URLSearchParams(location.search).has('go') ? createSale() : intro();
+  if (BOOT.landing) return landing();
   return home();
+}
+
+// / and /en arrive with the landing page already rendered by the server. People who already have
+// lists get their home instead; someone who chose English is sent to /en.
+function landing() {
+  if (store.get('mySales', []).length || store.get('signedIn', false)) return home();
+  if (BOOT.landing === 'zh' && chosenLang === 'en') return location.replace('/en');
+  $app.querySelector('[data-feedback]').onclick = feedbackSheet;
+  const tip = $app.querySelector('[data-tip]');
+  if (tipOn()) {
+    tip.hidden = false;
+    tip.querySelector('button').onclick = () => tipSheet();
+  }
 }
 
 // The seller's own key for this sale, if this browser has one.

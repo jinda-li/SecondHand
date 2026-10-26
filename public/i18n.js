@@ -25,15 +25,24 @@ function save(l) {
   } catch {}
 }
 
-function pick() {
+// The language this viewer picked: ?lang= (remembered) or an earlier choice; null if never.
+function chosen() {
   const forced = q.get('lang');
   if (forced === 'zh' || forced === 'en') {
     save(forced);
     return forced;
   }
-  const s = saved();
-  if (s) return s;
-  if (isWeChat) return 'zh';
+  return saved();
+}
+
+export const chosenLang = chosen();
+
+function pick() {
+  // The landing page has a URL per language: /en is English, / Chinese unless the viewer chose English.
+  const landing = window.__DATA__?.landing;
+  if (landing === 'en') return 'en';
+  if (chosenLang) return chosenLang;
+  if (landing === 'zh' || isWeChat) return 'zh';
   return /^zh/i.test(navigator.language || '') ? 'zh' : 'en';
 }
 
@@ -47,5 +56,6 @@ export function setLang(l) {
   save(l);
   const u = new URL(location.href);
   u.searchParams.delete('lang');
+  if (window.__DATA__?.landing) u.pathname = l === 'en' ? '/en' : '/';
   location.replace(u.href);
 }
