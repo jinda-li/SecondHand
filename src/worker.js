@@ -1,6 +1,6 @@
 import { money, contactNote, byRecent, itemText, saleText, textLang, normTelegram, looksLikeTelegram, RULES } from '../public/lib.js';
 
-const VERSION = '54';
+const VERSION = '55';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 // An open list pauses this long after its last renewal: buyers can look but not queue,
@@ -640,15 +640,16 @@ async function loadPublic(env, saleId, buyerToken) {
   return data;
 }
 
-// The seller contact for a buyer first in line somewhere: Telegram when the buyer left a Telegram
-// username and the seller has one (or the seller has nothing else), else WeChat.
+// The seller contact for a buyer first in line somewhere. Buyers mostly find the seller in the group
+// the list was posted to; this is the fallback: Telegram when the buyer left a Telegram username and
+// the seller has one (or the seller has nothing else), else WeChat, and '' when the seller left none.
 // wechat + note are what clients from before Telegram support read (they label it 卖家联系方式).
 // buyerKind is the app the buyer left; when the seller isn't on it, the seller reaches out there.
 function contactFor(sale, buyerOnTelegram, rows) {
   const kind = sale.telegram && (buyerOnTelegram || !sale.wechat_id) ? 'telegram' : 'wechat';
-  const value = kind === 'telegram' ? sale.telegram : sale.wechat_id;
+  const value = (kind === 'telegram' ? sale.telegram : sale.wechat_id) || '';
   const items = rows.map((r) => ({ no: r.no, name: r.name, nameAlt: r.name_alt || '' }));
-  const old = kind === 'wechat' ? value : `Telegram @${value}`;
+  const old = kind === 'wechat' || !value ? value : `Telegram @${value}`;
   const buyerKind = buyerOnTelegram ? 'telegram' : 'wechat';
   return { kind, value, buyerKind, items, wechat: old, note: contactNote(items), nos: items.map((i) => i.no) };
 }
@@ -876,7 +877,8 @@ function saleFields(b, partial) {
   const out = {};
   if (!partial || 'title' in b) out.title = str(b.title, { max: 60, min: 1, name: ['标题', 'Title'] });
   // Seller contacts: a WeChat ID, a Telegram username, or both. At least one is checked by the caller,
-  // which knows what is already stored. Only the first in line ever sees them.
+  // which knows what is already stored. Buyers mostly find the seller in the group; only the first in
+  // line sees these, for when they can't.
   if (!partial || 'wechatId' in b) {
     out.wechat_id = str(b.wechatId, { max: 60, name: ['微信号', 'WeChat ID'] });
     if (looksLikeTelegram(out.wechat_id)) fail('INVALID', ['微信号那一栏填的像是 Telegram 用户名，请填到 Telegram 那一栏', 'That looks like a Telegram username: put it in the Telegram box']);
@@ -937,7 +939,8 @@ async function createSale(env, ctx, b, user, city) {
 // b.alt { title, location }: the seller's own correction of the translation.
 async function updateSale(env, ctx, sale, b, city) {
   const f = saleFields(b, true);
-  if (('wechat_id' in f ? f.wechat_id : sale.wechat_id) === '' && ('telegram' in f ? f.telegram : sale.telegram) === '') needContact();
+  const has = (col) => !!(col in f ? f[col] : sale[col]);
+  if (!has('wechat_id') && !has('telegram')) needContact();
   if (f.public_nearby && !sale.city && city) f.city = city;
   if (b.alt && typeof b.alt === 'object') {
     // Rule translations follow their rule's text, since the rules themselves may change in this save.

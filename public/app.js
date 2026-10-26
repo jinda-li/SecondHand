@@ -745,7 +745,7 @@ function saleFormHtml(s, { create = false } = {}) {
   const tgField = `<label class="field"><span>${tr('Telegram 用户名', 'Telegram username')}</span><input type="text" name="telegram" maxlength="64" value="${esc(s.telegram ? `@${s.telegram}` : '')}" placeholder="@username" autocomplete="off" autocapitalize="off" spellcheck="false"></label>`;
   const wxField = `<label class="field"><span>${tr('微信号', 'WeChat ID')}</span><input type="text" name="wechatId" maxlength="60" value="${esc(s.wechatId)}" placeholder="${tr('你的微信号', 'Your WeChat ID')}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>`;
   const contact = `<div class="field"><span>${tr('联系方式', 'How buyers reach you')} <b class="req">*</b></span>
-        <div class="help">${tr('至少填一个，只给排第 1 位的人看。用微信的买家看到你的微信，用 Telegram 的看到你的 Telegram。', 'Fill in at least one. Only the first in line sees it: Telegram buyers get your Telegram, WeChat buyers your WeChat.')}</div></div>
+        <div class="help">${tr('至少填一个：发到微信群要填微信号，发到 Telegram 群要填 Telegram。买家一般在群里直接私聊你；排第 1 位又找不到你的人，才会看到这里填的。', 'Fill in at least one: your WeChat ID for WeChat groups, your Telegram for Telegram groups. Buyers usually message you in the group; only the first in line sees these, for when they can’t find you there.')}</div></div>
       ${LANG === 'en' || isTelegram ? tgField + wxField : wxField + tgField}
       <label class="field"><span>${tr('取货地点', 'Pick-up place')} <b class="req">*</b></span><input type="text" name="location" maxlength="60" value="${esc(s.location)}" placeholder="${tr('例：地铁站附近自提', 'e.g. near the metro station')}"></label>`;
   const more = `<label class="field"><span>${tr('货币', 'Currency')}</span><select name="currency">${Object.keys(CURRENCIES).map((c) => `<option value="${c}" ${c === s.currency ? 'selected' : ''}>${c} ${CURRENCIES[c].trim()}</option>`).join('')}</select></label>
@@ -831,7 +831,7 @@ function intro() {
   const steps = tr([
     ['📷', '拍照，填个价格', 'AI 自动认出是什么，名字不用打'],
     ['💬', '一个链接，发几个群都行', '群友点开就能看图、预订'],
-    ['🙋', '自动排队，不撞单', '第 1 位才看到你的联系方式'],
+    ['🙋', '自动排队，不撞单', '排到第 1 位的人来找你'],
     ['📍', '附近的人也能刷到', '也会出现在附近别人的清单下面，卖得更快'],
   ], [
     ['📷', 'Snap a photo, add a price', 'The AI names the item, no typing'],
@@ -1339,41 +1339,38 @@ function bindTrackDots(root) {
   }, { capture: true, passive: true });
 }
 
-// The seller's contact for a buyer who is first in line: a Telegram chat button, or the WeChat ID to
-// add. The opening line names what they reserved, in the buyer's language.
+// What a buyer who is first in line does next. Most found the list in a group the seller posted it
+// to, so the seller is right there: tap their name and send the opening line, which names what they
+// reserved, in the buyer's language. The seller's own WeChat ID or Telegram, when they left one, is
+// folded below for anyone who isn't in that group.
 function contactHtml(c) {
   const note = c.items ? contactNote(c.items.map((i) => ({ no: i.no, name: itemT(i).name })), LANG) : c.note;
-  // The buyer left a contact on the other app: the seller can reach them there too.
-  const other = c.buyerKind && c.buyerKind !== c.kind
-    ? `<div class="hint" style="padding:8px 0 0">${c.buyerKind === 'telegram'
-      ? tr('没有微信也没关系：卖家会在 Telegram 上联系你。', "No WeChat? That's fine: the seller will message you on Telegram.")
-      : tr('没有 Telegram 也没关系：卖家会在微信上加你。', "No Telegram? That's fine: the seller will add you on WeChat.")}</div>` : '';
-  if (c.kind === 'telegram') {
-    return `
-    <div class="contact">
-      <div class="contact-title">${tr('你排第 1 位，去 Telegram 找卖家吧', "You're first in line: message the seller on Telegram")}</div>
-      <a class="btn primary block" href="${esc(tgChatUrl(c.value, note))}" target="_blank" rel="noopener">${tr(`在 Telegram 给 @${esc(c.value)} 发消息`, `Message @${esc(c.value)} on Telegram`)}</a>
-      <div class="row"><div class="grow"><div class="k">${tr('卖家的 Telegram', "Seller's Telegram")}</div><div class="v">@${esc(c.value)}</div></div><button class="btn small" data-copy="@${esc(c.value)}">${tr('复制', 'Copy')}</button></div>
-      <div class="row"><div class="grow"><div class="k">${tr('发这句', 'Send this')}</div><div class="v">${esc(note)}</div></div><button class="btn small" data-copy="${esc(note)}">${tr('复制', 'Copy')}</button></div>
-      <ol class="contact-steps">
-        <li>${tr('点上面的按钮，打开和卖家的对话', 'Tap the button to open a chat with the seller')}</li>
-        <li>${tr('把这句发过去（没自动填上就粘贴），卖家一看就知道你要哪件', "Send the line above (paste it if it isn't filled in) so the seller knows what you want")}</li>
-        <li>${tr('时间地点和卖家直接约', 'Agree on a time and place with the seller')}</li>
-      </ol>${other}
-    </div>`;
-  }
-  const wechat = c.value ?? c.wechat;
+  const value = c.value ?? c.wechat ?? '';
+  const tg = c.kind === 'telegram' && value;
+  const row = (k, v, copyText = v) => `<div class="row"><div class="grow"><div class="k">${k}</div><div class="v">${esc(v)}</div></div><button class="btn small" data-copy="${esc(copyText)}">${tr('复制', 'Copy')}</button></div>`;
+  const direct = !value ? '' : tg
+    ? `<a class="btn primary block" href="${esc(tgChatUrl(value, note))}" target="_blank" rel="noopener">${tr(`在 Telegram 给 @${esc(value)} 发消息`, `Message @${esc(value)} on Telegram`)}</a>
+      ${row(tr('卖家的 Telegram', "Seller's Telegram"), `@${value}`)}`
+    : `${row(tr('卖家微信号', "Seller's WeChat ID"), value)}
+      <div class="hint" style="padding:6px 0 0">${tr('微信右上角「＋」→「添加朋友」→ 粘贴搜索，好友申请里写上面那句。', 'In WeChat: ＋ at the top right → Add Contacts → paste and search, with the line above in the request.')}</div>`;
+  // No seller contact, or one on an app the buyer didn't leave: the seller reaches out to the buyer instead.
+  const other = (!value ? tr('卖家没留联系方式，不过', "The seller left no contact here, but ") : tr('另外，', 'Also, ')) + (c.buyerKind === 'telegram'
+    ? tr('卖家能在排队名单里看到你的 Telegram，会来找你。', 'the seller sees your Telegram in the line and can message you.')
+    : tr('卖家能在排队名单里看到你的微信号，会来加你。', 'the seller sees your WeChat ID in the line and can add you.'));
   return `
     <div class="contact">
-      <div class="contact-title">${tr('你排第 1 位，去微信加卖家吧', "You're first in line: add the seller on WeChat")}</div>
-      <div class="row"><div class="grow"><div class="k">${tr('卖家微信号', "Seller's WeChat ID")}</div><div class="v">${esc(wechat)}</div></div><button class="btn small primary" data-copy="${esc(wechat)}">${tr('复制', 'Copy')}</button></div>
-      <div class="row"><div class="grow"><div class="k">${tr('好友申请里写这句', 'Put this in the friend request')}</div><div class="v">${esc(note)}</div></div><button class="btn small primary" data-copy="${esc(note)}">${tr('复制', 'Copy')}</button></div>
+      <div class="contact-title">${tr('你排第 1 位，去群里私聊卖家吧', "You're first in line: message the seller from the group")}</div>
+      ${row(tr('发这句', 'Send this'), note)}
       <ol class="contact-steps">
-        <li>${tr('复制卖家微信号', "Copy the seller's WeChat ID")}</li>
-        <li>${tr('回到微信 → 右上角「＋」→「添加朋友」→ 粘贴搜索', 'In WeChat: ＋ at the top right → Add Contacts → paste and search')}</li>
-        <li>${tr('好友申请里粘贴上面那句，卖家一看就知道你是谁、要哪件', 'Paste the line above into the request so the seller knows who you are and what you want')}</li>
-        <li>${tr('加上后，时间地点和卖家直接约', 'Then agree on a time and place')}</li>
-      </ol>${other}
+        <li>${tr('在你看到这份清单的群里，点卖家（发清单的人）的头像，加好友或私聊', 'In the group where you saw this list, tap the seller (who posted it) to add or message them')}</li>
+        <li>${tr('把上面这句发过去，卖家一看就知道你要哪件', 'Send the line above so the seller knows what you want')}</li>
+        <li>${tr('时间地点和卖家直接约', 'Agree on a time and place with the seller')}</li>
+      </ol>
+      <details class="contact-more">
+        <summary>${tr('不在群里，或者找不到卖家？', "Not in the group, or can't find the seller?")}</summary>
+        ${direct}
+        <div class="hint" style="padding:8px 0 0">${other}</div>
+      </details>
     </div>`;
 }
 
@@ -1484,7 +1481,7 @@ function buyerSale(saleId) {
       </div>
       ${ended ? `<div class="banner">${tr('这份清单已结束', 'This list has ended')}</div>` : ''}
       ${sale.paused ? `<div class="banner">${tr('卖家暂停了这份清单，暂时不能排队', 'The seller paused this list; reservations are closed for now')}</div>` : ''}
-      ${isOwner ? ownerBanner(sale) : ''}${contact || ended || sale.paused ? '' : `<div class="how-line">${tr('点「预订」排队，排到第 1 位就能看到卖家联系方式。显示「预订」的都还在。', "Tap Reserve to get in line; when you're first, you'll see how to reach the seller. Anything showing Reserve is still available.")}</div>`}
+      ${isOwner ? ownerBanner(sale) : ''}${contact || ended || sale.paused ? '' : `<div class="how-line">${tr('点「预订」排队，排到第 1 位就能联系卖家。显示「预订」的都还在。', "Tap Reserve to get in line; when you're first, you'll see how to reach the seller. Anything showing Reserve is still available.")}</div>`}
       ${contact ? contactHtml(contact) : ''}
       <div class="list-bar"><div class="hint">${statusText.available} ${avail.length} · ${statusText.reserved} ${reserved.length}${newCount ? ` · <b class="new-count">${tr(`上次来过后新增 ${newCount} 件`, `${newCount} new since last visit`)}</b>` : ''}</div>
         ${list.length > 1 ? sortSegHtml(sort) : ''}</div>
@@ -1604,8 +1601,8 @@ function buyerItem(saleId, no) {
           ? it.maybeSold ? tr('预订中，可能已出', 'Reserved, maybe sold') : tr(`已预订 · ${it.queueCount} 人在排`, `Reserved · ${it.queueCount} in line`)
           : statusText[it.status]} · 📍 ${esc(st.location)}</div>
       </div>
-      ${!my && !closed ? `<div class="how-to" style="margin-top:10px">${tr('点「预订」排队，排到第 1 位这里会显示卖家联系方式。页面是实时的，能预订就是还在。', "Tap Reserve to get in line. When you're first, the seller's contact shows up here. The page is live: if you can reserve, it's still available.")}</div>` : ''}
-      ${my && my.position > 1 ? `<div class="hint">${tr('前面的人不要了，你会自动升到第 1 位，到时回来这里看卖家联系方式。', "If the people ahead drop out you move up to first; come back here then for the seller's contact.")}</div>` : ''}
+      ${!my && !closed ? `<div class="how-to" style="margin-top:10px">${tr('点「预订」排队，排到第 1 位就去群里私聊卖家。页面是实时的，能预订就是还在。', "Tap Reserve to get in line. When you're first, message the seller from the group. The page is live: if you can reserve, it's still available.")}</div>` : ''}
+      ${my && my.position > 1 ? `<div class="hint">${tr('前面的人不要了，你会自动升到第 1 位，到时再联系卖家。', "If the people ahead drop out you move up to first; message the seller then.")}</div>` : ''}
       ${my && my.position === 1 && contact ? contactHtml(contact) : ''}
       ${nearbyEntryHtml(sale.id)}
       <div class="bottom-bar"><div class="inner">${btn}</div></div>`;
@@ -1665,19 +1662,13 @@ function joinSheet(sale, it, reload) {
           <div class="actions"><button class="btn block" data-act="close">${tr('好的', 'OK')}</button></div>`;
       }
       return `<h2>${tr(`排上了，你排第 ${result.position} 位`, `You're in line: #${result.position}`)}</h2>
-        <div class="hint center">${tr('前面的人不要了，你会自动升到第 1 位。<br>到时回来这里或「我的排队」看卖家联系方式，现在不用联系卖家。', "If the people ahead drop out, you move up to first.<br>Then come back here or to My reservations for the seller's contact. No need to message the seller now.")}</div>${keep}
+        <div class="hint center">${tr('前面的人不要了，你会自动升到第 1 位。<br>到时回来这里或「我的排队」看怎么联系卖家，现在不用联系。', "If the people ahead drop out, you move up to first.<br>Then come back here or to My reservations to see how to reach the seller. No need to message the seller now.")}</div>${keep}
         <div class="actions"><button class="btn block" data-act="close">${tr('好的', 'OK')}</button></div>`;
     }
-    // When the seller is on one app only, say how a buyer on the other one gets reached.
-    const only = sellerOn.telegram && !sellerOn.wechat ? 'telegram' : sellerOn.wechat && !sellerOn.telegram ? 'wechat' : '';
     return `<h2>${esc(itemT(it).name)}</h2>
       <div class="hint" style="padding:0 0 8px">${tr('留个联系方式，<b>填一个就行</b>：', 'Leave a contact, <b>either one is enough</b>:')}</div>
       <div class="group">${kind === 'telegram' ? field('telegram') + field('wechat') : field('wechat') + field('telegram')}</div>
-      <div class="hint" style="padding-top:0">${only === 'wechat'
-        ? tr('卖家主要用微信；只填 Telegram 也行，排到你时卖家会在 Telegram 上联系你。', "The seller mostly uses WeChat; Telegram alone is fine, the seller will message you there when you're first.")
-        : only === 'telegram'
-        ? tr('卖家主要用 Telegram；只填微信也行，排到你时卖家会在微信上加你。', "The seller mostly uses Telegram; WeChat alone is fine, the seller will add you there when you're first.")
-        : tr('排到你时，这里会显示卖家的联系方式；卖家也能找到你。', "When you're first, the seller's contact shows here, and the seller can find you too.")}
+      <div class="hint" style="padding-top:0">${tr('排到你时，去群里私聊卖家就行；卖家也能在名单里看到你留的联系方式。', "When you're first, message the seller from the group; the seller sees the contact you leave here too.")}
         ${tr('Telegram 用户名在 Telegram 的「设置」里，@ 开头。', "Your Telegram username is in Telegram's Settings, starting with @.")}</div>
       <div class="actions"><button class="btn primary big block" data-act="go">${tr('排上', 'Get in line')}</button></div>`;
   }, async (act, el, s) => {
@@ -2984,6 +2975,20 @@ function tgLink(url, lang, v = '') {
   return `${url}?src=tg${lang === 'zh' ? '&cl=zh' : ''}${v ? `&v=${v}` : ''}`;
 }
 
+// Posting to an app the seller left no contact for: asked for before any way to post shows, so a
+// buyer from that group who can't find the seller there still has a way to reach them.
+function contactGateHtml(sale, target) {
+  const tg = target === 'telegram';
+  if (tg ? sale.hasTelegram : sale.hasWechat) return '';
+  return `<div class="share-nudge">
+      <div class="small">${tg
+        ? tr('发到 Telegram 群之前，先填你的 Telegram 用户名，不然在群里找不到你的买家没法联系你。', "Before posting to Telegram groups, add your Telegram username, so buyers who can't find you in the group can still reach you.")
+        : tr('发到微信群之前，先填你的微信号，不然在群里找不到你的买家没法加你。', "Before posting to WeChat groups, add your WeChat ID, so buyers who can't find you in the group can still add you.")}</div>
+      <div class="share-nudge-row"><input class="inp boxed grow" name="nudge" placeholder="${tg ? '@username' : tr('你的微信号', 'Your WeChat ID')}" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <button class="btn small primary" data-act="nudgesave">${tr('保存', 'Save')}</button></div>
+    </div>`;
+}
+
 function shareSheet(S) {
   const { sale } = S.data();
   const here = isCardHere(publicUrl(S));
@@ -2991,6 +2996,8 @@ function shareSheet(S) {
   const sh = openSheet(() => {
     const seg = `<div class="seg share-target">${[['wechat', tr('发到微信群', 'WeChat groups')], ['telegram', tr('发到 Telegram 群', 'Telegram groups')]]
       .map(([k, l]) => `<button class="${target === k ? 'on' : ''}" data-act="target" data-t="${k}">${l}</button>`).join('')}</div>`;
+    const gate = contactGateHtml(sale, target);
+    if (gate) return `<h2>${tr('分享到群', 'Share to groups')}</h2>${seg}${gate}`;
     const multi = `<div class="small muted" style="margin:10px 4px 0">${tr('可以发到好几个群（微信、Telegram 都行）：大家排的是同一个队，先到先得，不会撞单。', 'Post it to as many groups as you like, WeChat and Telegram alike: everyone joins the same line, first come first served, no double-selling.')}</div>`;
     if (target === 'telegram') {
       return `<h2>${tr('分享到群', 'Share to groups')}</h2>${seg}
@@ -3039,6 +3046,26 @@ function shareSheet(S) {
       target = el.dataset.t;
       store.set('shareTarget', target);
       return s.refresh();
+    }
+    if (act === 'nudgesave') {
+      const v = s.el.querySelector('[name=nudge]').value.trim();
+      const tg = target === 'telegram';
+      const bad = tg ? contactError({ telegram: v }) : contactError({ wechatId: v });
+      if (!v || bad) return toast(!v ? tr('先填一下', 'Fill it in first') : bad, 2600);
+      el.disabled = true;
+      try {
+        await api(`/sale/${S.saleId}`, { method: 'PATCH', key: S.key, body: tg ? { telegram: v } : { wechatId: v } });
+        if (tg) store.set('sellerTelegram', normTelegram(v));
+        else store.set('sellerWechat', v);
+        sale[tg ? 'hasTelegram' : 'hasWechat'] = true;
+        toast(tr('已保存', 'Saved'));
+        s.refresh();
+        S.reload?.();
+      } catch (err) {
+        toast(err.message);
+        el.disabled = false;
+      }
+      return;
     }
     if (act === 'text' || act === 'tgtext') {
       s.close();

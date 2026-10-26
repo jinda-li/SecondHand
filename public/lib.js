@@ -159,10 +159,10 @@ export function shareText(sale, items, { intro, maxListed = 30, prices = false, 
 }
 
 // What a head-of-queue buyer says when contacting the seller:
-// "我预订了 1号 笔记本支架、3号 台灯" / "Hi! I reserved #1 laptop stand, #3 desk lamp from your list".
+// "我在你的清单上预订了 1号 笔记本支架、3号 台灯" / "Hi! I reserved #1 laptop stand, #3 desk lamp from your list".
 // Names are already in the buyer's language.
 export function contactNote(items, lang = 'zh') {
   const sorted = [...items].sort((a, b) => a.no - b.no);
   if (lang === 'en') return `Hi! I reserved ${sorted.map((i) => `#${i.no} ${cut(i.name, 24)}`).join(', ')} from your list`;
-  return `我预订了 ${sorted.map((i) => `${i.no}号 ${cut(i.name, 10)}`).join('、')}`;
+  return `我在你的清单上预订了 ${sorted.map((i) => `${i.no}号 ${cut(i.name, 10)}`).join('、')}`;
 }

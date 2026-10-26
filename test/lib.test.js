@@ -102,9 +102,9 @@ test('shareText keeps full names and truncates long lists', () => {
 test('contactNote lists numbers and names in order', () => {
   assert.equal(
     contactNote([{ no: 3, name: '台灯' }, { no: 1, name: '笔记本支架' }]),
-    '我预订了 1号 笔记本支架、3号 台灯',
+    '我在你的清单上预订了 1号 笔记本支架、3号 台灯',
   );
-  assert.equal(contactNote([{ no: 2, name: '一二三四五六七八九十十一' }]), '我预订了 2号 一二三四五六七八九十…');
+  assert.equal(contactNote([{ no: 2, name: '一二三四五六七八九十十一' }]), '我在你的清单上预订了 2号 一二三四五六七八九十…');
 });
 
 import { normTelegram, looksLikeTelegram, itemText, saleText, defaultIntro, listMark, conditionText } from '../public/lib.js';

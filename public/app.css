@@ -296,6 +296,9 @@ img { display: block; max-width: 100%; }
 .share-text { font-size: 15px; line-height: 1.6; resize: vertical; min-height: 220px; }
 .share-step { display: flex; flex-direction: column; gap: 6px; }
 .share-step .step-why { margin: 0 4px 6px; }
+.share-nudge { margin: 12px 0 16px; padding: 12px; border-radius: var(--radius); background: var(--card); border: 1px solid var(--line); }
+.share-nudge-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.share-nudge-row .inp { min-width: 0; }
 .share-or { display: flex; align-items: center; gap: 10px; margin: 14px 0 10px; color: var(--sub); font-size: 13px; }
 .share-or::before, .share-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .intro-steps { background: var(--card); margin: 0 0 10px; }
@@ -482,6 +485,10 @@ img { display: block; max-width: 100%; }
 .kind-tag.tg { background: #e3f2fd; color: #1976d2; }
 .kind-tag.wx { background: #e8f5e9; color: #2e7d32; }
 .contact > .btn + .row { margin-top: 12px; }
+.contact-more { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.contact-more summary { cursor: pointer; font-size: 13px; color: var(--sub); }
+.contact-more[open] summary { margin-bottom: 10px; }
+.contact-more > .btn + .row { margin-top: 12px; }
 .orig-text { margin-top: 8px; }
 .orig-text summary { cursor: pointer; }
 .lang-bar { display: flex; justify-content: flex-end; padding: 8px 12px 0; }
