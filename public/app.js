@@ -3641,8 +3641,6 @@ function showImages(urls, name = tr('清单图', 'list')) {
 // Telegram's caption limit.
 const CAPTION_MAX = 1024;
 const POST_W = 1080;
-// Items named in the list under the photos; any more are "and N more" at the QR code.
-const POST_LISTED = 20;
 
 // The post text: the intro and the link, then as many items as fit in a caption ("…and N more"),
 // or no items at all when the seller leaves the list out.
@@ -3682,7 +3680,8 @@ function collageCells(n, y, w, h) {
 
 // The picture, top to bottom: title and place, the photo mosaic with prices, every item by name
 // and price in two columns, and a footer with the QR code (link) telling people to reserve there.
-// Its height follows the number of items: about 1080×1600 for a few, 1080×2200 for twenty.
+// Every item is listed, so nobody has to open the link just to see what's there; the height
+// follows the number of items: about 1080×1600 for a few, 1080×2200 for twenty, 1080×3400 for sixty.
 async function drawPoster(sale, items, lang, { link, target }) {
   const L = (zh, en) => (lang === 'en' ? en : zh);
   const st = saleText(sale, lang);
@@ -3691,10 +3690,8 @@ async function drawPoster(sale, items, lang, { link, target }) {
   const head = 180;
   const mosaic = POST_W * (5 / 6); // square grid units
   const rowH = 62;
-  const listed = list.slice(0, POST_LISTED);
-  const rows = Math.ceil(listed.length / 2);
-  const more = list.length - listed.length;
-  const listH = 40 + (rows + (more > 0 ? 1 : 0)) * rowH + 24;
+  const rows = Math.ceil(list.length / 2);
+  const listH = 40 + rows * rowH + 24;
   const foot = 420;
   const H = head + mosaic + listH + foot;
   const qr = await qrMatrix(link);
@@ -3730,7 +3727,7 @@ async function drawPoster(sale, items, lang, { link, target }) {
       g.font = `900 ${Math.round(side * 0.34)}px ${FONT}`;
       g.fillText(`+${extra + 1}`, x + w / 2, y + h / 2 + side * 0.06);
       g.font = `700 ${Math.round(side * 0.12)}px ${FONT}`;
-      g.fillText(L('更多', 'more'), x + w / 2, y + h / 2 + side * 0.26);
+      g.fillText(L('见下方', 'see below'), x + w / 2, y + h / 2 + side * 0.26);
       g.textAlign = 'left';
       return;
     }
@@ -3744,7 +3741,7 @@ async function drawPoster(sale, items, lang, { link, target }) {
   const y0 = head + mosaic + 40;
   const gap = 48;
   const colW = (POST_W - pad * 2 - gap) / 2;
-  listed.forEach((it, k) => {
+  list.forEach((it, k) => {
     const x = pad + (k < rows ? 0 : colW + gap);
     const y = y0 + (k % rows) * rowH;
     const reserved = it.status === 'reserved';
@@ -3761,11 +3758,6 @@ async function drawPoster(sale, items, lang, { link, target }) {
     g.fillStyle = '#ececec';
     g.fillRect(x, y + rowH - 2, colW, 2);
   });
-  if (more > 0) {
-    g.font = `700 30px ${FONT}`;
-    g.fillStyle = BLUE;
-    g.fillText(L(`…还有 ${more} 件，扫码看全部`, `…and ${more} more: scan to see them all`), pad, y0 + rows * rowH + 40);
-  }
 
   const top = H - foot;
   g.fillStyle = YELLOW;
