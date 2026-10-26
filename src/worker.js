@@ -1172,6 +1172,18 @@ async function itemAction(env, sale, item, b) {
       stmts.push(db.prepare("UPDATE items SET status = 'sold', status_changed_at = ?1, status_checked_at = ?1, updated_at = ?1 WHERE id = ?2").bind(t, item.id));
       break;
     }
+    case 'relist': {
+      // Undoes a sale marked by mistake: the line closed by that tap comes back as it was.
+      if (item.status !== 'sold') fail('CONFLICT', ['这件不是已出状态', 'This item is not marked sold']);
+      stmts.push(db.prepare(
+        "UPDATE queues SET status = 'waiting', closed_at = NULL WHERE item_id = ? AND status IN ('sold', 'removed') AND closed_at = ?",
+      ).bind(item.id, item.status_changed_at));
+      stmts.push(db.prepare(
+        `UPDATE items SET status = CASE WHEN EXISTS (SELECT 1 FROM queues WHERE item_id = ?2 AND status = 'waiting') THEN 'reserved' ELSE 'available' END,
+         status_changed_at = ?1, status_checked_at = ?1, updated_at = ?1 WHERE id = ?2`,
+      ).bind(t, item.id));
+      break;
+    }
     case 'still': {
       stmts.push(db.prepare('UPDATE items SET status_checked_at = ? WHERE id = ?').bind(t, item.id));
       break;

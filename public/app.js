@@ -2649,7 +2649,11 @@ function itemSheet(S, itemId) {
           <button class="btn block" data-act="share-item">${tr('发这件的卡片', 'Share this item')}</button>
           <button class="btn danger block" data-act="remove">${tr('下架', 'Take down')}</button>
         </div>` : it.status === 'sold'
-        ? `<div class="hint center">${tr('卖出去了！', 'Sold!')}${tipOn() ? ` ${tr('觉得好用？', 'Was it handy?')}<button class="link-btn small" data-act="tip">${tr('请开发者喝杯咖啡', 'Buy the developer a coffee')}</button>` : ''}</div>`
+        ? `<div class="sold-done">
+            <b>${tr('卖出去了！🎉', 'Sold! 🎉')}</b>
+            ${tipOn() ? `<div class="small">${tr('觉得好用？', 'Was it handy?')}</div><button class="btn block" data-act="tip">☕ ${tr('请开发者喝杯咖啡', 'Buy the developer a coffee')}</button>` : ''}
+          </div>
+          <div class="actions"><button class="btn block" data-act="relist">${tr('点错了？重新上架', 'Not sold after all? Put it back up')}</button></div>`
         : `<div class="hint center">${tr(`这件${statusText[it.status]}了`, `This item is ${statusText[it.status].toLowerCase()}`)}</div>`}`;
   }, async (act, el, s) => {
     const run = async (body, msg) => {
@@ -2666,6 +2670,9 @@ function itemSheet(S, itemId) {
     switch (act) {
       case 'sell':
         return run({ action: 'sell' }, tr('已标记为已出', 'Marked as sold'));
+      case 'relist':
+        if (!(await ask({ title: tr(`把 ${it.no} 号重新上架？`, `Put #${it.no} back up?`), text: tr('标已出时排队的人会回到队里。', 'Whoever was in line when you marked it sold is back in line.'), ok: tr('重新上架', 'Put back up') }))) return;
+        return run({ action: 'relist' }, tr('已重新上架', 'Back up for sale'));
       case 'decline':
         return run({ action: 'decline', seq: Number(el.dataset.seq) }, it.queue.length > 1 ? tr('下一位顶上了', 'Next in line moves up') : tr('回到在售', 'Back on sale'));
       case 'rmq':
