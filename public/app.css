@@ -457,6 +457,11 @@ img { display: block; max-width: 100%; }
 .kind-tag { display: inline-block; font-size: 11px; font-weight: 700; line-height: 1; padding: 3px 5px; border-radius: 4px; vertical-align: 1px; }
 .kind-tag.tg { background: #e3f2fd; color: #1976d2; }
 .kind-tag.wx { background: #e8f5e9; color: #2e7d32; }
+.kind-tag.fb { background: #e7f0fd; color: #1b5fc1; }
+.fb-pics { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 10px; scroll-snap-type: x mandatory; }
+.fb-pics img { flex: 0 0 auto; width: 42%; max-width: 200px; aspect-ratio: 1; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.15); scroll-snap-align: start; }
+.field .fb-help { display: block; font-size: 12px; color: var(--sub); margin-top: 6px; font-weight: 400; }
+.fb-field .fb-v { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
 .contact > .btn + .row { margin-top: 12px; }
 .contact-more { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
 .contact-more summary { cursor: pointer; font-size: 13px; color: var(--sub); }

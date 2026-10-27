@@ -34,6 +34,8 @@ export const isWeChat = /MicroMessenger/i.test(ua);
 // Telegram's in-app browser exposes TelegramWebviewProxy (and says Telegram in its user agent on
 // Android); the links we share to Telegram carry src=tg, which also covers the system browser.
 export const isTelegram = !isWeChat && (q.get('src') === 'tg' || typeof window.TelegramWebviewProxy !== 'undefined' || /Telegram/i.test(ua));
+// Facebook's in-app browser (FBAN/FBAV/FB_IAB in its user agent), or a link we shared to a Facebook group.
+export const isFacebook = !isWeChat && !isTelegram && (q.get('src') === 'fb' || /FBAN|FBAV|FB_IAB/.test(ua));
 
 function saved() {
   try {

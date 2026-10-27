@@ -63,6 +63,18 @@ export function normTelegram(v) {
   return /^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(s) ? s : null;
 }
 
+// A Facebook buyer leaves the name Facebook shows (what the seller sees when they DM), or pastes
+// their profile link. A link becomes a clean https URL the seller can open; anything else is null.
+export function fbProfileUrl(v) {
+  const m = String(v ?? '').trim().match(/^(?:https?:\/\/)?(?:(?:www|m|web)\.)?(facebook\.com|fb\.com|m\.me)(\/[^\s#]*)$/i);
+  if (!m) return null;
+  const u = new URL(`https://x${m[2]}`);
+  const id = u.pathname === '/profile.php' && u.searchParams.get('id');
+  if (u.pathname === '/profile.php' && !/^\d+$/.test(id || '')) return null;
+  if (u.pathname.length < 2) return null;
+  return `https://${m[1].toLowerCase() === 'm.me' ? 'm.me' : 'www.facebook.com'}${u.pathname}${id ? `?id=${id}` : ''}`;
+}
+
 // Typed into a WeChat box but clearly a Telegram handle.
 export const looksLikeTelegram = (v) => /^\s*@|t(?:elegram)?\.me\//i.test(String(v ?? ''));
 
@@ -111,6 +123,11 @@ export const listMark = (lang = 'zh') => (lang === 'en' ? LIST_MARK_EN : LIST_MA
 // Telegram: one message, the link follows this line and Telegram turns it into a preview.
 export function defaultIntro(sale, { lang = 'zh', target = 'wechat' } = {}) {
   const where = saleText(sale, lang).location;
+  if (target === 'facebook') {
+    return lang === 'en'
+      ? `Moving out, selling my stuff 📍 ${where}\nTo reserve, open the link and tap Reserve on what you want: first come, first served. Questions? Just DM me here.`
+      : `搬家出二手，${where}。想要的话打开链接，在想要的东西上点「预订」，先到先得；有问题直接私信我。`;
+  }
   if (target === 'telegram') {
     return lang === 'en'
       ? `Selling my stuff 📍 ${where}\nPlease reserve at the link, not by replying: I post in several groups and the link keeps one line, first come first served 👇`
@@ -156,6 +173,33 @@ export function shareText(sale, items, { intro, maxListed = 30, prices = false, 
     lines.push(lang === 'en' ? `…and ${more} more, ${where}` : `还有 ${more} 件，${where}`);
   }
   return lines.join('\n');
+}
+
+// A Facebook "Sell something" listing for the whole list: the form takes one title, one price and a
+// description, so the description carries every item. Price is the cheapest open item ("from"),
+// since Facebook shows that one number on the post. The link goes right under the opening, where
+// the post is cut off with "See more".
+export function fbListing(sale, items, { intro, lang = 'zh', link = '' } = {}) {
+  const st = saleText(sale, lang);
+  const open = openItems(items);
+  const en = lang === 'en';
+  const blocks = open.map((i) => {
+    const t = itemText(i, lang);
+    const price = money(i.priceCents, sale.currency, lang);
+    const line = `${t.name} – ${price}${i.status === 'reserved' ? (en ? ' (reserved, waitlist open)' : '（已有人预订，可排候补）') : ''}`;
+    return t.note ? `${line}\n${t.note}` : line;
+  });
+  const prices = open.map((i) => i.priceCents).filter((c) => c != null);
+  const tail = [`📍 ${en ? 'Pick-up' : '自提'}: ${st.location}`];
+  if (st.rules.length) tail.push(st.rules.join(' · '));
+  const description = [intro ?? defaultIntro(sale, { lang, target: 'facebook' }), link, '', ...blocks.flatMap((b) => [b, '']), ...tail]
+    .filter((l, k, a) => l !== '' || a[k - 1] !== '').join('\n').trim();
+  return {
+    title: st.title,
+    price: prices.length ? String(Math.min(...prices) / 100) : '0',
+    location: st.location,
+    description,
+  };
 }
 
 // What a head-of-queue buyer says when contacting the seller:

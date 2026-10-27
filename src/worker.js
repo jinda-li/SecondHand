@@ -1,4 +1,4 @@
-import { money, contactNote, byRecent, itemText, saleText, textLang, normTelegram, looksLikeTelegram, RULES } from '../public/lib.js';
+import { money, contactNote, byRecent, itemText, saleText, textLang, normTelegram, looksLikeTelegram, fbProfileUrl, RULES } from '../public/lib.js';
 import { landingHtml } from './landing.js';
 
 const VERSION = '63';
@@ -121,7 +121,7 @@ function pageLang(url, fallback = 'zh') {
   // cl: the card language of a link shared to a Chinese-speaking Telegram group.
   const l = url.searchParams.get('cl') || url.searchParams.get('lang');
   if (l === 'zh' || l === 'en') return l;
-  if (url.searchParams.get('src') === 'tg') return 'en';
+  if (['tg', 'fb'].includes(url.searchParams.get('src'))) return 'en';
   return fallback;
 }
 
@@ -392,8 +392,8 @@ async function salePage(env, url, saleId) {
     ? `${st.location}${until} · ${sample || 'Tap to see photos and reserve'} · made with Secondhand List`
     : `${st.location}${until} · ${sample || '点开看图、排队'} · 用「二手清单」做的`;
   const firstPhoto = (avail[0] || items[0])?.photos?.[0];
-  // Telegram shows a landscape picture large under the message; WeChat crops cards to a square.
-  const wide = url.searchParams.get('src') === 'tg' && !!sale.coverWide;
+  // Telegram and Facebook show a landscape picture large under the message; WeChat crops cards to a square.
+  const wide = ['tg', 'fb'].includes(url.searchParams.get('src')) && !!sale.coverWide;
   const image = wide
     ? `${url.origin}/img/${sale.coverWide}`
     : sale.coverPhoto ? `${url.origin}/img/${sale.coverPhoto}`
@@ -466,6 +466,7 @@ function mapSale(r) {
     // Which apps the seller can be reached on; the values themselves only go to the first in line.
     hasWechat: !!r.wechat_id,
     hasTelegram: !!r.telegram,
+    hasFacebook: !!r.facebook,
     alt: parseAlt(r.alt),
   };
 }
@@ -585,26 +586,30 @@ async function loadPublic(env, saleId, buyerToken) {
 // The seller contact for a buyer first in line somewhere. Buyers mostly find the seller in the group
 // the list was posted to; this is the fallback: Telegram when the buyer left a Telegram username and
 // the seller has one (or the seller has nothing else), else WeChat, and '' when the seller left none.
+// Facebook (a profile link) the same way: when the buyer left a Facebook name, or the seller has nothing else.
 // wechat + note are what clients from before Telegram support read (they label it 卖家联系方式).
 // buyerKind is the app the buyer left; when the seller isn't on it, the seller reaches out there.
-function contactFor(sale, buyerOnTelegram, rows) {
-  const kind = sale.telegram && (buyerOnTelegram || !sale.wechat_id) ? 'telegram' : 'wechat';
-  const value = (kind === 'telegram' ? sale.telegram : sale.wechat_id) || '';
+function contactFor(sale, buyerKind, rows) {
+  const kind = sale.facebook && (buyerKind === 'facebook' || (!sale.wechat_id && !sale.telegram)) ? 'facebook'
+    : sale.telegram && (buyerKind === 'telegram' || !sale.wechat_id) ? 'telegram' : 'wechat';
+  const value = (kind === 'facebook' ? sale.facebook : kind === 'telegram' ? sale.telegram : sale.wechat_id) || '';
   const items = rows.map((r) => ({ no: r.no, name: r.name, nameAlt: r.name_alt || '' }));
-  const old = kind === 'wechat' || !value ? value : `Telegram @${value}`;
-  const buyerKind = buyerOnTelegram ? 'telegram' : 'wechat';
+  const old = kind === 'wechat' || !value ? value : kind === 'telegram' ? `Telegram @${value}` : `Facebook ${value}`;
   return { kind, value, buyerKind, items, wechat: old, note: contactNote(items), nos: items.map((i) => i.no) };
 }
 
+// The app a buyer's queue rows were left on: Telegram, then Facebook, else WeChat.
+const buyerKindOf = (rows) => (rows.some((r) => r.buyer_telegram) ? 'telegram' : rows.some((r) => r.buyer_facebook) ? 'facebook' : 'wechat');
+
 async function buyerContact(env, saleRow, buyerToken) {
   const { results } = await env.DB.prepare(
-    `SELECT i.no, i.name, i.name_alt, q.buyer_telegram FROM queues q JOIN items i ON i.id = q.item_id
+    `SELECT i.no, i.name, i.name_alt, q.buyer_telegram, q.buyer_facebook FROM queues q JOIN items i ON i.id = q.item_id
      WHERE q.sale_id = ? AND q.buyer_token = ? AND q.status = 'waiting'
        AND NOT EXISTS (SELECT 1 FROM queues q2 WHERE q2.item_id = q.item_id AND q2.status = 'waiting' AND q2.seq < q.seq)
      ORDER BY q.seq`,
   ).bind(saleRow.id, buyerToken).all();
   if (!results.length) return null;
-  return contactFor(saleRow, results.some((r) => r.buyer_telegram), results);
+  return contactFor(saleRow, buyerKindOf(results), results);
 }
 
 // ---------- API ----------
@@ -753,6 +758,13 @@ function saleFields(b, partial) {
     if (looksLikeTelegram(out.wechat_id)) fail('INVALID', ['微信号那一栏填的像是 Telegram 用户名，请填到 Telegram 那一栏', 'That looks like a Telegram username: put it in the Telegram box']);
   }
   if (!partial || 'telegram' in b) out.telegram = telegramField(b.telegram);
+  if (!partial || 'facebook' in b) {
+    const raw = str(b.facebook, { max: 200, name: 'Facebook' });
+    out.facebook = !raw ? '' : fbProfileUrl(raw) ?? fail('INVALID', [
+      'Facebook 那一栏要填你的主页链接：在 Facebook 里点进自己的主页 → ··· →「复制主页链接」',
+      'For Facebook, paste your profile link: in Facebook, open your profile → ··· → Copy profile link',
+    ]);
+  }
   if (!partial || 'location' in b) out.location = str(b.location, { max: 60, min: 1, name: ['取货地点', 'Pick-up place'] });
   if (!partial || 'currency' in b) {
     out.currency = CURRENCY_CODES.includes(b.currency) ? b.currency : fail('INVALID', ['货币不支持', 'Currency not supported']);
@@ -789,18 +801,18 @@ function telegramField(v) {
   ]);
 }
 
-const needContact = () => fail('INVALID', ['微信号和 Telegram 用户名至少填一个', 'Add a Telegram username or a WeChat ID']);
+const needContact = () => fail('INVALID', ['微信号、Telegram、Facebook 至少填一个', 'Add a Telegram username, a Facebook profile link or a WeChat ID']);
 
 async function createSale(env, ctx, b, city) {
   const f = saleFields(b, false);
-  if (!f.wechat_id && !f.telegram) needContact();
+  if (!f.wechat_id && !f.telegram && !f.facebook) needContact();
   const t = now();
   const id = rid(8);
   const key = rid(24);
   await env.DB.prepare(
-    `INSERT INTO sales (id, admin_key, title, wechat_id, telegram, location, currency, rules, leave_date, public_nearby, lat, lng, city, seller_active_at, renewed_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(id, key, f.title, f.wechat_id, f.telegram, f.location, f.currency, f.rules, f.leave_date, f.public_nearby, f.lat ?? null, f.lng ?? null, city || null, t, t, t, t).run();
+    `INSERT INTO sales (id, admin_key, title, wechat_id, telegram, facebook, location, currency, rules, leave_date, public_nearby, lat, lng, city, seller_active_at, renewed_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(id, key, f.title, f.wechat_id, f.telegram, f.facebook, f.location, f.currency, f.rules, f.leave_date, f.public_nearby, f.lat ?? null, f.lng ?? null, city || null, t, t, t, t).run();
   ctx.waitUntil(translateSale(env, id).catch((e) => console.error('translate sale', e?.message || e)));
   return ok({ id, key });
 }
@@ -809,7 +821,7 @@ async function createSale(env, ctx, b, city) {
 async function updateSale(env, ctx, sale, b, city) {
   const f = saleFields(b, true);
   const has = (col) => !!(col in f ? f[col] : sale[col]);
-  if (!has('wechat_id') && !has('telegram')) needContact();
+  if (!has('wechat_id') && !has('telegram') && !has('facebook')) needContact();
   if (f.public_nearby && !sale.city && city) f.city = city;
   if (b.alt && typeof b.alt === 'object') {
     // Rule translations follow their rule's text, since the rules themselves may change in this save.
@@ -878,15 +890,15 @@ async function manageData(env, sale) {
   const [itemsRes, queuesRes] = await env.DB.batch([
     // Taken-down items too: the seller has a list of them and can put one back up.
     env.DB.prepare('SELECT * FROM items WHERE sale_id = ? ORDER BY no').bind(sale.id),
-    env.DB.prepare("SELECT seq, item_id, nickname, buyer_wechat, buyer_telegram, added_by, created_at FROM queues WHERE sale_id = ? AND status = 'waiting' ORDER BY seq").bind(sale.id),
+    env.DB.prepare("SELECT seq, item_id, nickname, buyer_wechat, buyer_telegram, buyer_facebook, added_by, created_at FROM queues WHERE sale_id = ? AND status = 'waiting' ORDER BY seq").bind(sale.id),
   ]);
   const queues = {};
   for (const q of queuesRes.results) {
-    (queues[q.item_id] ||= []).push({ seq: q.seq, nickname: q.nickname, wechat: q.buyer_wechat, telegram: q.buyer_telegram, addedBy: q.added_by, createdAt: q.created_at });
+    (queues[q.item_id] ||= []).push({ seq: q.seq, nickname: q.nickname, wechat: q.buyer_wechat, telegram: q.buyer_telegram, facebook: q.buyer_facebook, addedBy: q.added_by, createdAt: q.created_at });
   }
   const soldCents = itemsRes.results.filter((r) => r.status === 'sold').reduce((s, r) => s + r.price_cents, 0);
   return ok({
-    sale: { ...mapSale(sale), wechatId: sale.wechat_id, telegram: sale.telegram, key: sale.admin_key },
+    sale: { ...mapSale(sale), wechatId: sale.wechat_id, telegram: sale.telegram, facebook: sale.facebook, key: sale.admin_key },
     items: itemsRes.results.map((r) => ({ ...mapItem(r, t), queue: queues[r.id] || [], queueCount: (queues[r.id] || []).length })),
     soldCents,
     now: t,
@@ -1104,12 +1116,14 @@ async function joinQueue(env, req, item, b) {
   if (mapSale(sale).paused) fail('CONFLICT', ['卖家暂停了这份清单，暂时不能排队', 'The seller paused this list, reservations are closed for now']);
   if (item.status !== 'available' && item.status !== 'reserved') fail('CONFLICT', ['这件已经出了', 'This item is already gone']);
   if (await isSeller(req, env, sale.id)) fail('CONFLICT', ['这是你自己的清单，不能预订自己的东西', 'This is your own list, you can\’t reserve your own things']);
-  // A Telegram username or a WeChat ID; either doubles as the buyer's name in the seller's list.
-  // Older clients only send a nickname.
+  // A Telegram username, a Facebook name (or profile link) or a WeChat ID; each doubles as the
+  // buyer's name in the seller's list. Older clients only send a nickname.
   const telegram = String(b.telegram ?? '').trim() ? telegramField(b.telegram) : '';
-  const wechat = telegram ? '' : str(b.wechat ?? b.nickname, { max: 30, min: 1, name: ['微信号', 'WeChat ID'] });
+  const facebook = telegram ? '' : str(b.facebook, { max: 200, name: 'Facebook' });
+  const wechat = telegram || facebook ? '' : str(b.wechat ?? b.nickname, { max: 30, min: 1, name: ['微信号', 'WeChat ID'] });
   if (looksLikeTelegram(wechat)) fail('INVALID', ['这像是 Telegram 用户名，请切到 Telegram 再填', 'That looks like a Telegram username: switch to Telegram first']);
-  const nickname = telegram ? `@${telegram}` : wechat;
+  const fbUrl = fbProfileUrl(facebook);
+  const nickname = telegram ? `@${telegram}` : facebook ? (fbUrl ? 'Facebook' : facebook.slice(0, 30)) : wechat;
   const db = env.DB;
   const mine = await db.prepare("SELECT item_id FROM queues WHERE sale_id = ? AND buyer_token = ? AND status = 'waiting'").bind(sale.id, token).all();
   if (mine.results.some((r) => r.item_id === item.id)) fail('CONFLICT', ['你已经在这件的队里了', 'You are already in line for this']);
@@ -1118,8 +1132,8 @@ async function joinQueue(env, req, item, b) {
   try {
     await db.batch([
       db.prepare(
-        "INSERT INTO queues (sale_id, item_id, buyer_token, nickname, buyer_wechat, buyer_telegram, status, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, 'waiting', 'buyer', ?)",
-      ).bind(sale.id, item.id, token, nickname, wechat, telegram, t),
+        "INSERT INTO queues (sale_id, item_id, buyer_token, nickname, buyer_wechat, buyer_telegram, buyer_facebook, status, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'waiting', 'buyer', ?)",
+      ).bind(sale.id, item.id, token, nickname, wechat, telegram, fbUrl || facebook, t),
       db.prepare(
         "UPDATE items SET status = 'reserved', status_changed_at = ?1, status_checked_at = ?1, updated_at = ?1 WHERE id = ?2 AND status = 'available'",
       ).bind(t, item.id),
@@ -1152,9 +1166,9 @@ async function myQueues(env, req) {
   if (!token) return ok({ queues: [] });
   const since = now() - 14 * 24 * HOUR;
   const { results } = await env.DB.prepare(
-    `SELECT q.seq, q.status, q.sale_id, q.item_id, q.created_at, q.buyer_telegram,
+    `SELECT q.seq, q.status, q.sale_id, q.item_id, q.created_at, q.buyer_telegram, q.buyer_facebook,
        i.no, i.name, i.name_alt, i.price_cents, i.photos, i.status AS item_status,
-       s.title, s.alt, s.currency, s.wechat_id, s.telegram,
+       s.title, s.alt, s.currency, s.wechat_id, s.telegram, s.facebook,
        (SELECT COUNT(*) FROM queues q2 WHERE q2.item_id = q.item_id AND q2.status = 'waiting' AND q2.seq <= q.seq) AS position
      FROM queues q JOIN items i ON i.id = q.item_id JOIN sales s ON s.id = q.sale_id
      WHERE q.buyer_token = ? AND (q.status = 'waiting' OR q.closed_at > ?)
@@ -1180,7 +1194,7 @@ async function myQueues(env, req) {
       photo: JSON.parse(r.photos || '[]')[0] || '',
       itemStatus: r.item_status,
       position: r.status === 'waiting' ? r.position : null,
-      contact: head ? contactFor(r, heads[r.sale_id].some((h) => h.buyer_telegram), heads[r.sale_id]) : null,
+      contact: head ? contactFor(r, buyerKindOf(heads[r.sale_id]), heads[r.sale_id]) : null,
     };
   });
   return ok({ queues });

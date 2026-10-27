@@ -107,7 +107,7 @@ test('contactNote lists numbers and names in order', () => {
   assert.equal(contactNote([{ no: 2, name: '一二三四五六七八九十十一' }]), '我在你的清单上预订了 2号 一二三四五六七八九十…');
 });
 
-import { normTelegram, looksLikeTelegram, itemText, saleText, defaultIntro, listMark, conditionText } from '../public/lib.js';
+import { normTelegram, looksLikeTelegram, itemText, saleText, defaultIntro, listMark, conditionText, fbListing, fbProfileUrl } from '../public/lib.js';
 
 test('parseLine: English free and the "20e" price style', () => {
   assert.deepEqual(parseLine('Old hangers free'), { name: 'Old hangers', priceCents: 0 });
@@ -174,4 +174,42 @@ test('itemText and saleText pick each field by its own language', () => {
   assert.equal(saleText(sale, 'en').title, "Alex's moving sale");
   assert.equal(normTelegram('abcd'), null);
   assert.equal(normTelegram('abcde'), 'abcde');
+});
+
+test('fbListing: one listing for the whole list, cheapest price, every item in the description', () => {
+  const sale = { title: "Alex's moving sale", location: 'Töölö', currency: 'EUR', rules: ['Fixed prices'] };
+  const items = [
+    { no: 1, name: '台灯', nameAlt: 'Desk lamp', note: 'Warm light', priceCents: 1500, status: 'available' },
+    { no: 2, name: 'Kettle', priceCents: 400, status: 'reserved' },
+    { no: 3, name: 'Chair', priceCents: 100, status: 'sold' },
+  ];
+  const link = 'https://x.dev/s/abc?src=fb';
+  const f = fbListing(sale, items, { lang: 'en', link });
+  assert.equal(f.title, "Alex's moving sale");
+  assert.equal(f.price, '4');
+  assert.equal(
+    f.description,
+    [
+      defaultIntro(sale, { lang: 'en', target: 'facebook' }),
+      link,
+      '',
+      'Desk lamp – €15',
+      'Warm light',
+      '',
+      'Kettle – €4 (reserved, waitlist open)',
+      '',
+      '📍 Pick-up: Töölö',
+      'Fixed prices',
+    ].join('\n'),
+  );
+  assert.match(f.description, /DM me/);
+});
+
+test('fbProfileUrl turns a pasted profile link into a clean one, and a plain name into null', () => {
+  assert.equal(fbProfileUrl('https://www.facebook.com/alex.k?mibextid=abc'), 'https://www.facebook.com/alex.k');
+  assert.equal(fbProfileUrl('facebook.com/profile.php?id=1000123&ref=x'), 'https://www.facebook.com/profile.php?id=1000123');
+  assert.equal(fbProfileUrl('https://m.facebook.com/share/1AbC/'), 'https://www.facebook.com/share/1AbC/');
+  assert.equal(fbProfileUrl('m.me/alex.k'), 'https://m.me/alex.k');
+  assert.equal(fbProfileUrl('Alex Korhonen'), null);
+  assert.equal(fbProfileUrl('https://evil.example/facebook.com/x'), null);
 });

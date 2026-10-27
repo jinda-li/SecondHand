@@ -1,5 +1,5 @@
-import { money as moneyIn, shareText, openItems, byRecent, defaultIntro, stripLinks, listMark, conditionText, CURRENCIES, RULES, itemText, saleText, textLang, contactNote, normTelegram, looksLikeTelegram } from './lib.js';
-import { LANG, chosenLang, tr, isWeChat, isTelegram, setLang, movedHere } from './i18n.js';
+import { money as moneyIn, shareText, openItems, byRecent, defaultIntro, stripLinks, listMark, conditionText, CURRENCIES, RULES, itemText, saleText, textLang, contactNote, normTelegram, looksLikeTelegram, fbProfileUrl, fbListing } from './lib.js';
+import { LANG, chosenLang, tr, isWeChat, isTelegram, isFacebook, setLang, movedHere } from './i18n.js';
 
 const $app = document.getElementById('app');
 const UI = new URLSearchParams(location.search).get('ui');
@@ -707,15 +707,18 @@ function saleFormHtml(s, { create = false } = {}) {
   // The one this person more likely uses comes first.
   const tgField = `<label class="field"><span>${tr('Telegram 用户名', 'Telegram username')}</span><input type="text" name="telegram" maxlength="64" value="${esc(s.telegram ? `@${s.telegram}` : '')}" placeholder="@username" autocomplete="off" autocapitalize="off" spellcheck="false"></label>`;
   const wxField = `<label class="field"><span>${tr('微信号', 'WeChat ID')}</span><input type="text" name="wechatId" maxlength="60" value="${esc(s.wechatId)}" placeholder="${tr('你的微信号', 'Your WeChat ID')}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>`;
+  const fbField = `<label class="field"><span>${tr('Facebook 主页链接', 'Facebook profile link')}</span><input type="text" inputmode="url" name="facebook" maxlength="200" value="${esc(s.facebook)}" placeholder="https://www.facebook.com/…" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <small class="help fb-help">${tr('Facebook 里点进自己的主页 → ··· →「复制主页链接」', 'In Facebook, open your profile → ··· → Copy profile link')}</small></label>`;
   const contact = `<div class="field"><span>${tr('联系方式', 'How buyers reach you')} <b class="req">*</b></span>
-        <div class="help">${tr('至少填一个：发到微信群要填微信号，发到 Telegram 群要填 Telegram。买家一般在群里直接私聊你；排第 1 位又找不到你的人，才会看到这里填的。', 'Fill in at least one: your WeChat ID for WeChat groups, your Telegram for Telegram groups. Buyers usually message you in the group; only the first in line sees these, for when they can’t find you there.')}</div></div>
-      ${LANG === 'en' || isTelegram ? tgField + wxField : wxField + tgField}
+        <div class="help">${tr('至少填一个：发到微信群要填微信号，发到 Telegram 群要填 Telegram，发到 Facebook 群填 Facebook。买家一般在群里直接私聊你；排第 1 位又找不到你的人，才会看到这里填的。', 'Fill in at least one: your WeChat ID for WeChat groups, your Telegram for Telegram groups, Facebook for Facebook groups. Buyers usually message you in the group; only the first in line sees these, for when they can’t find you there.')}</div></div>
+      ${isFacebook ? fbField + tgField + wxField : LANG === 'en' || isTelegram ? tgField + wxField + fbField : wxField + tgField + fbField}
       <label class="field"><span>${tr('取货地点', 'Pick-up place')} <b class="req">*</b></span><input type="text" name="location" maxlength="60" value="${esc(s.location)}" placeholder="${tr('例：地铁站附近自提', 'e.g. near the metro station')}"></label>`;
   const more = `<label class="field"><span>${tr('货币', 'Currency')}</span><select name="currency">${Object.keys(CURRENCIES).map((c) => `<option value="${c}" ${c === s.currency ? 'selected' : ''}>${c} ${CURRENCIES[c].trim()}</option>`).join('')}</select></label>
       <div class="field"><span>${tr('规则', 'Rules')}</span><div class="rules">${rulesEditor(s.rules)}</div></div>
       <label class="field"><span>${tr('截止日期（选填）', 'Last day (optional)')}</span><input type="date" name="leaveDate" value="${esc(s.leaveDate)}"></label>`;
   const nearby = `<label class="field nearby-row"><input type="checkbox" name="nearby" ${s.publicNearby === false ? '' : 'checked'}>
-        <span style="margin:0;color:var(--text)">${tr('公开到「附近的二手」：你的东西会出现在附近别人的清单下面，卖得更快', 'Show in "Nearby": your things appear under other lists nearby and sell faster')}<br><span class="small muted">${tr('会用到你的大概位置（约 1 公里范围），不会显示具体地址', 'Uses your rough location (about 1 km), never your address')}</span></span></label>`;
+        <span style="margin:0;color:var(--text)">${tr('公开到「附近的二手」：你的东西会出现在附近别人的清单下面，卖得更快', 'Show in "Nearby": your things appear under other lists nearby and sell faster')}<br><span class="small muted">${tr('会用到你的大概位置（约 1 公里范围），不会显示具体地址', 'Uses your rough location (about 1 km), never your address')}</span></span></label>
+      <div class="help nearby-tip" ${nearbyTipWanted(s.publicNearby !== false, s.telegram) ? '' : 'hidden'}>${tr('公开到附近的话，建议也填个 Telegram：附近看到的人不一定在你发的群里，也不一定用微信，Telegram 几乎哪里都有人用。', 'Showing in Nearby? Add a Telegram username too: people who find you there may not be in your group or use WeChat, and Telegram is used almost everywhere.')}</div>`;
   // Creating: the three required fields up front, the rest folded away with their defaults.
   if (create) {
     return `
@@ -738,6 +741,19 @@ function saleFormHtml(s, { create = false } = {}) {
     </div>`;
 }
 
+// Strangers from "Nearby" can't reach the seller through a group, so a list shown there without a
+// Telegram username gets a nudge to add one: the one contact that works for most people anywhere.
+const nearbyTipWanted = (nearby, telegram) => nearby && !String(telegram ?? '').trim();
+
+function bindNearbyTip(root) {
+  const sync = () => {
+    const tip = root.querySelector('.nearby-tip');
+    if (tip) tip.hidden = !nearbyTipWanted(root.querySelector('[name=nearby]')?.checked, root.querySelector('[name=telegram]')?.value);
+  };
+  root.addEventListener('input', sync);
+  root.addEventListener('change', sync);
+}
+
 // Keeps the hidden title in sync with "<name><suffix>" in the create form.
 function syncTitle(form) {
   const name = form.querySelector('[name=owner]').value.trim();
@@ -754,6 +770,7 @@ function readSaleForm(root) {
     title: v('title'),
     wechatId: v('wechatId'),
     telegram: v('telegram'),
+    facebook: v('facebook'),
     location: v('location'),
     currency: v('currency'),
     leaveDate: v('leaveDate'),
@@ -764,7 +781,8 @@ function readSaleForm(root) {
 
 // The contact boxes, checked before sending: at least one, each in its own box. Returns an error or ''.
 function contactError(f) {
-  if (!f.wechatId && !f.telegram) return tr('微信号和 Telegram 用户名至少填一个', 'Add a Telegram username or a WeChat ID');
+  if (!f.wechatId && !f.telegram && !f.facebook) return tr('微信号、Telegram、Facebook 至少填一个', 'Add a Telegram username, a Facebook profile link or a WeChat ID');
+  if (f.facebook && !fbProfileUrl(f.facebook)) return tr('Facebook 那一栏要填主页链接：在 Facebook 里点进自己的主页 → ··· →「复制主页链接」', 'For Facebook, paste your profile link: open your profile → ··· → Copy profile link');
   if (looksLikeTelegram(f.wechatId)) return tr('微信号那一栏填的像是 Telegram 用户名，请填到 Telegram 那一栏', 'That looks like a Telegram username: put it in the Telegram box');
   if (f.telegram && !normTelegram(f.telegram)) return tr('Telegram 用户名不对：5 到 32 位字母、数字或下划线，例如 @jinda_li', 'Not a Telegram username: 5–32 letters, digits or underscores, like @jinda_li');
   return '';
@@ -1179,10 +1197,11 @@ async function listsSheet(S) {
 function createSale() {
   $app.innerHTML = `
     <div class="ik-head">${LOGO}<h1>${tr('发布二手清单', 'New secondhand list')}</h1><div class="ik-sub">${tr('填 3 项就能开始上架，其他都有默认值。', 'Three fields and you can start listing; everything else has defaults.')}</div></div>
-    ${saleFormHtml({ owner: store.get('ownerName', ''), wechatId: store.get('sellerWechat', ''), telegram: store.get('sellerTelegram', ''), location: '', currency: guessCurrency(), rules: DEFAULT_RULES, leaveDate: '' }, { create: true })}
+    ${saleFormHtml({ owner: store.get('ownerName', ''), wechatId: store.get('sellerWechat', ''), telegram: store.get('sellerTelegram', ''), facebook: store.get('sellerFacebook', ''), location: '', currency: guessCurrency(), rules: DEFAULT_RULES, leaveDate: '' }, { create: true })}
     <div class="bottom-bar"><div class="inner"><button class="btn primary big" id="go">${tr('开始上架', 'Start listing')}</button></div></div>`;
   const form = $app.querySelector('.form');
   syncTitle(form);
+  bindNearbyTip(form);
   form.addEventListener('input', () => syncTitle(form));
   form.addEventListener('click', (e) => {
     const b = e.target.closest('[data-suffix]');
@@ -1200,6 +1219,7 @@ function createSale() {
     store.set('ownerName', owner);
     store.set('sellerWechat', f.wechatId);
     store.set('sellerTelegram', normTelegram(f.telegram) || '');
+    store.set('sellerFacebook', fbProfileUrl(f.facebook) || '');
     e.target.disabled = true;
     if (f.nearby) {
       e.target.textContent = tr('正在获取大概位置…', 'Getting your rough location…');
@@ -1276,8 +1296,13 @@ function contactHtml(c) {
   const note = c.items ? contactNote(c.items.map((i) => ({ no: i.no, name: itemT(i).name })), LANG) : c.note;
   const value = c.value ?? c.wechat ?? '';
   const tg = c.kind === 'telegram' && value;
+  // A buyer from a Facebook group goes back to the post and taps Message: that is how Facebook sales work.
+  const fb = c.kind === 'facebook' || c.buyerKind === 'facebook';
   const row = (k, v, copyText = v) => `<div class="row"><div class="grow"><div class="k">${k}</div><div class="v">${esc(v)}</div></div><button class="btn small" data-copy="${esc(copyText)}">${tr('复制', 'Copy')}</button></div>`;
-  const direct = !value ? '' : tg
+  const direct = !value ? '' : c.kind === 'facebook'
+    ? `<a class="btn primary block" href="${esc(value)}" target="_blank" rel="noopener">${tr('打开卖家的 Facebook 主页', "Open the seller's Facebook profile")}</a>
+      <div class="hint" style="padding:6px 0 0">${tr('在主页上点 Message 私信卖家，发上面那句。', 'Tap Message on their profile and send the line above.')}</div>`
+    : tg
     ? `<a class="btn primary block" href="${esc(tgChatUrl(value, note))}" target="_blank" rel="noopener">${tr(`在 Telegram 给 @${esc(value)} 发消息`, `Message @${esc(value)} on Telegram`)}</a>
       ${row(tr('卖家的 Telegram', "Seller's Telegram"), `@${value}`)}`
     : `${row(tr('卖家微信号', "Seller's WeChat ID"), value)}
@@ -1285,13 +1310,17 @@ function contactHtml(c) {
   // No seller contact, or one on an app the buyer didn't leave: the seller reaches out to the buyer instead.
   const other = (!value ? tr('卖家没留联系方式，不过', "The seller left no contact here, but ") : tr('另外，', 'Also, ')) + (c.buyerKind === 'telegram'
     ? tr('卖家能在排队名单里看到你的 Telegram，会来找你。', 'the seller sees your Telegram in the line and can message you.')
+    : c.buyerKind === 'facebook'
+    ? tr('卖家能在排队名单里看到你的 Facebook 名字。', 'the seller sees your Facebook name in the line.')
     : tr('卖家能在排队名单里看到你的微信号，会来加你。', 'the seller sees your WeChat ID in the line and can add you.'));
   return `
     <div class="contact">
-      <div class="contact-title">${tr('你排第 1 位，去群里私聊卖家吧', "You're first in line: message the seller from the group")}</div>
+      <div class="contact-title">${fb ? tr('你排第 1 位，回 Facebook 私信卖家吧', "You're first in line: DM the seller on Facebook") : tr('你排第 1 位，去群里私聊卖家吧', "You're first in line: message the seller from the group")}</div>
       ${row(tr('发这句', 'Send this'), note)}
       <ol class="contact-steps">
-        <li>${tr('在你看到这份清单的群里，点卖家（发清单的人）的头像，加好友或私聊', 'In the group where you saw this list, tap the seller (who posted it) to add or message them')}</li>
+        <li>${fb
+          ? tr('回到你看到这份清单的 Facebook 帖子，点 Message 私信卖家（发帖的人）', 'Go back to the Facebook post where you saw this list and tap Message to DM the seller (who posted it)')
+          : tr('在你看到这份清单的群里，点卖家（发清单的人）的头像，加好友或私聊', 'In the group where you saw this list, tap the seller (who posted it) to add or message them')}</li>
         <li>${tr('把上面这句发过去，卖家一看就知道你要哪件', 'Send the line above so the seller knows what you want')}</li>
         <li>${tr('时间地点和卖家直接约', 'Agree on a time and place with the seller')}</li>
       </ol>
@@ -1575,16 +1604,20 @@ function buyerItem(saleId, no) {
   reload().catch((e) => (e.code === 'NOT_FOUND' ? notFound() : toast(e.message)));
 }
 
-// Joining a queue asks for one contact: a Telegram box and a WeChat box, fill either. A seller not
-// on the buyer's app reaches out to them there. The buyer's last choice, or the app they are in,
-// comes first.
+// Joining a queue asks for one contact: a Telegram box and a WeChat box, fill either, plus a Facebook
+// box on lists posted to Facebook (or when the buyer is in Facebook). A seller not on the buyer's app
+// reaches out to them there. The buyer's last choice, or the app they are in, comes first.
 function joinSheet(sale, it, reload) {
   let result = null;
-  const sellerOn = { telegram: !!sale.hasTelegram, wechat: sale.hasWechat !== false };
-  const kind = store.get('buyerKind', '') || (isTelegram || (LANG === 'en' && !isWeChat) ? 'telegram' : 'wechat');
-  const values = { wechat: store.get('buyerWechat', ''), telegram: store.get('buyerTelegram', '') };
+  const sellerOn = { telegram: !!sale.hasTelegram, wechat: sale.hasWechat !== false, facebook: !!sale.hasFacebook };
+  const kind = store.get('buyerKind', '') || (isFacebook ? 'facebook' : isTelegram || (LANG === 'en' && !isWeChat) ? 'telegram' : 'wechat');
+  const withFb = sellerOn.facebook || isFacebook || kind === 'facebook';
+  const order = [kind, ...['telegram', 'wechat', 'facebook'].filter((k) => k !== kind)].filter((k) => k !== 'facebook' || withFb);
+  const values = { wechat: store.get('buyerWechat', ''), telegram: store.get('buyerTelegram', ''), facebook: store.get('buyerFacebook', '') };
   const field = (k) => k === 'telegram'
     ? `<label class="field"><span>${tr('Telegram 用户名', 'Telegram username')}</span><input class="inp" type="text" name="telegram" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="@username" value="${esc(values.telegram ? `@${values.telegram}` : '')}"></label>`
+    : k === 'facebook'
+    ? `<label class="field"><span>${tr('Facebook 名字', 'Facebook name')}</span><input class="inp" type="text" name="facebook" maxlength="200" autocomplete="name" spellcheck="false" placeholder="${tr('你在 Facebook 上显示的名字', 'The name Facebook shows for you')}" value="${esc(values.facebook)}"></label>`
     : `<label class="field"><span>${tr('微信号', 'WeChat ID')}</span><input class="inp" type="text" name="wechat" maxlength="30" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${tr('微信号', 'WeChat ID')}" value="${esc(values.wechat)}"></label>`;
   const sh = openSheet(() => {
     if (result) {
@@ -1598,9 +1631,11 @@ function joinSheet(sale, it, reload) {
         <div class="actions"><button class="btn block" data-act="close">${tr('好的', 'OK')}</button></div>`;
     }
     return `<h2>${esc(itemT(it).name)}</h2>
-      <div class="hint" style="padding:0 0 8px">${tr('留个联系方式，<b>填一个就行</b>：', 'Leave a contact, <b>either one is enough</b>:')}</div>
-      <div class="group">${kind === 'telegram' ? field('telegram') + field('wechat') : field('wechat') + field('telegram')}</div>
-      <div class="hint" style="padding-top:0">${tr('排到你时，去群里私聊卖家就行；卖家也能在名单里看到你留的联系方式。', "When you're first, message the seller from the group; the seller sees the contact you leave here too.")}
+      <div class="hint" style="padding:0 0 8px">${tr('留个联系方式，<b>填一个就行</b>：', `Leave a contact, <b>${order.length > 2 ? 'any one' : 'either one'} is enough</b>:`)}</div>
+      <div class="group">${order.map(field).join('')}</div>
+      <div class="hint" style="padding-top:0">${kind === 'facebook'
+        ? tr('排到你时，回 Facebook 帖子点 Message 私信卖家就行；卖家在名单里看到你的名字，就能和私信对上。', "When you're first, go back to the Facebook post and tap Message to DM the seller; they see your name in the line and match it to your message.")
+        : tr('排到你时，去群里私聊卖家就行；卖家也能在名单里看到你留的联系方式。', "When you're first, message the seller from the group; the seller sees the contact you leave here too.")}
         ${tr('Telegram 用户名在 Telegram 的「设置」里，@ 开头。', "Your Telegram username is in Telegram's Settings, starting with @.")}</div>
       <div class="actions"><button class="btn primary big block" data-act="go">${tr('排上', 'Get in line')}</button></div>`;
   }, async (act, el, s) => {
@@ -1610,7 +1645,10 @@ function joinSheet(sale, it, reload) {
     const wxBox = s.el.querySelector('[name=wechat]');
     values.telegram = tgBox.value.trim().replace(/^@/, '');
     values.wechat = wxBox.value.trim();
-    if (!values.telegram && !values.wechat) return toast(tr('微信号和 Telegram 用户名，填一个就行', 'Add a Telegram username or a WeChat ID'));
+    values.facebook = s.el.querySelector('[name=facebook]')?.value.trim() || '';
+    if (!values.telegram && !values.wechat && !values.facebook) {
+      return toast(withFb ? tr('填一个联系方式就行', 'Fill in one contact') : tr('微信号和 Telegram 用户名，填一个就行', 'Add a Telegram username or a WeChat ID'));
+    }
     // A Telegram username typed into the WeChat box moves over, when that box is still free.
     if (looksLikeTelegram(values.wechat)) {
       if (!values.telegram) values.telegram = normTelegram(values.wechat) || values.wechat.replace(/^@/, '');
@@ -1623,15 +1661,18 @@ function joinSheet(sale, it, reload) {
       tgBox.focus();
       return toast(tr('Telegram 用户名不对：5 到 32 位字母、数字或下划线，例如 @jinda_li', 'Not a Telegram username: 5–32 letters, digits or underscores, like @jinda_li'), 2600);
     }
-    // Both filled: the one the seller is on, then the one listed first.
-    const useTg = !!username && (!values.wechat || (sellerOn.telegram && (!sellerOn.wechat || kind === 'telegram')));
-    store.set('buyerKind', useTg ? 'telegram' : 'wechat');
+    // Several filled: the first listed that the seller is on, else the first listed.
+    const filled = order.filter((k) => values[k]);
+    const use = filled.find((k) => sellerOn[k]) || filled[0];
+    store.set('buyerKind', use);
     if (username) store.set('buyerTelegram', username);
     if (values.wechat) store.set('buyerWechat', values.wechat);
+    if (values.facebook) store.set('buyerFacebook', values.facebook);
     buyerToken(true);
     el.disabled = true;
     try {
-      result = await api(`/item/${it.id}/join`, { method: 'POST', body: useTg ? { telegram: username } : { wechat: values.wechat } });
+      const body = use === 'telegram' ? { telegram: username } : use === 'facebook' ? { facebook: values.facebook } : { wechat: values.wechat };
+      result = await api(`/item/${it.id}/join`, { method: 'POST', body });
       s.refresh();
       reload();
     } catch (err) {
@@ -2528,8 +2569,11 @@ function itemSheet(S, itemId) {
             <div class="qrow ${i === 0 ? 'head' : ''}">
               <span class="pos">${i + 1}</span>
               <div class="grow">
-                <div>${r.telegram ? '<span class="kind-tag tg">TG</span> ' : r.wechat ? `<span class="kind-tag wx">${tr('微信', 'WeChat')}</span> ` : ''}<b>${esc(r.nickname)}</b>${r.addedBy === 'seller' ? ` <span class="small muted">${tr('（手动加）', '(added by you)')}</span>` : ''}
-                  ${r.telegram ? ` <a class="link-btn small" href="${esc(tgChatUrl(r.telegram))}" target="_blank" rel="noopener">${tr('Telegram 发消息', 'Message')}</a>` : r.wechat ? ` <button class="link-btn small" data-copy="${esc(r.wechat)}">${tr('复制微信号', 'Copy WeChat ID')}</button>` : ''}</div>
+                <div>${r.telegram ? '<span class="kind-tag tg">TG</span> ' : r.facebook ? '<span class="kind-tag fb">FB</span> ' : r.wechat ? `<span class="kind-tag wx">${tr('微信', 'WeChat')}</span> ` : ''}<b>${esc(r.nickname)}</b>${r.addedBy === 'seller' ? ` <span class="small muted">${tr('（手动加）', '(added by you)')}</span>` : ''}
+                  ${r.telegram ? ` <a class="link-btn small" href="${esc(tgChatUrl(r.telegram))}" target="_blank" rel="noopener">${tr('Telegram 发消息', 'Message')}</a>`
+                    : r.facebook && fbProfileUrl(r.facebook) ? ` <a class="link-btn small" href="${esc(fbProfileUrl(r.facebook))}" target="_blank" rel="noopener">${tr('打开 Facebook 主页', 'Facebook profile')}</a>`
+                    : r.facebook ? ` <span class="small muted">${tr('会在 Facebook 私信你', 'will DM you on Facebook')}</span>`
+                    : r.wechat ? ` <button class="link-btn small" data-copy="${esc(r.wechat)}">${tr('复制微信号', 'Copy WeChat ID')}</button>` : ''}</div>
                 <div class="small muted">${new Date(r.createdAt).toLocaleString(tr('zh-CN', 'en-GB'), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
                 ${i === 0 ? `<div class="acts"><button class="btn primary" data-act="sell">${tr('卖给他了', 'Sold')}</button><button class="btn" data-act="decline" data-seq="${r.seq}">${tr('他不要了', 'Backed out')}</button></div>` : ''}
               </div>
@@ -2836,6 +2880,7 @@ function settingsSheet(S) {
       return endSheet(S);
     }
   });
+  bindNearbyTip(sh.el);
   buyerToken(true);
   api('/ai/quota').then((q) => {
     const el = sh.el.querySelector('.ai-status');
@@ -2888,14 +2933,22 @@ function isCardHere(url) {
 
 // Where the seller is posting: WeChat groups (card + text, two messages) or Telegram groups
 // (one message whose link Telegram turns into a preview). Remembered per phone.
+// Facebook groups: one "Sell something" listing with several pictures, copied in by hand.
 function shareTarget() {
-  return store.get('shareTarget', '') || (isTelegram || (LANG === 'en' && !isWeChat) ? 'telegram' : 'wechat');
+  return store.get('shareTarget', '') || (isFacebook ? 'facebook' : isTelegram || (LANG === 'en' && !isWeChat) ? 'telegram' : 'wechat');
 }
 
 // Language of what goes out to a group, which can differ from the seller's own UI:
 // a Chinese seller posting in an English Telegram group writes Chinese and shares English.
 function shareLang(target) {
+  if (target === 'facebook') return store.get('shareLangFb', 'en');
   return target === 'telegram' ? store.get('shareLangTg', 'en') : store.get('shareLangWx', LANG);
+}
+
+// The link in a Facebook listing: src=fb makes the preview English and the page offer a Facebook
+// contact first; cl=zh keeps the preview Chinese.
+function fbLink(url, lang) {
+  return `${url}?src=fb${lang === 'zh' ? '&cl=zh' : ''}`;
 }
 
 // The link a Telegram group gets: src=tg makes the preview English, large and the page default to
@@ -2909,12 +2962,15 @@ function tgLink(url, lang, v = '') {
 // buyer from that group who can't find the seller there still has a way to reach them.
 function contactGateHtml(sale, target) {
   const tg = target === 'telegram';
-  if (tg ? sale.hasTelegram : sale.hasWechat) return '';
+  const fb = target === 'facebook';
+  if (fb ? sale.hasFacebook : tg ? sale.hasTelegram : sale.hasWechat) return '';
   return `<div class="share-nudge">
-      <div class="small">${tg
+      <div class="small">${fb
+        ? tr('发到 Facebook 群之前，先填你的 Facebook 主页链接（Facebook 里点进自己的主页 → ··· →「复制主页链接」），不然从别处看到清单的买家没法私信你。', "Before posting to Facebook groups, add your Facebook profile link (open your profile → ··· → Copy profile link), so buyers who find the list elsewhere can still DM you.")
+        : tg
         ? tr('发到 Telegram 群之前，先填你的 Telegram 用户名，不然在群里找不到你的买家没法联系你。', "Before posting to Telegram groups, add your Telegram username, so buyers who can't find you in the group can still reach you.")
         : tr('发到微信群之前，先填你的微信号，不然在群里找不到你的买家没法加你。', "Before posting to WeChat groups, add your WeChat ID, so buyers who can't find you in the group can still add you.")}</div>
-      <div class="share-nudge-row"><input class="inp boxed grow" name="nudge" placeholder="${tg ? '@username' : tr('你的微信号', 'Your WeChat ID')}" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="share-nudge-row"><input class="inp boxed grow" name="nudge" placeholder="${fb ? 'https://www.facebook.com/…' : tg ? '@username' : tr('你的微信号', 'Your WeChat ID')}" autocomplete="off" autocapitalize="off" spellcheck="false">
         <button class="btn small primary" data-act="nudgesave">${tr('保存', 'Save')}</button></div>
     </div>`;
 }
@@ -2924,11 +2980,19 @@ function shareSheet(S) {
   const here = isCardHere(publicUrl(S));
   let target = shareTarget();
   const sh = openSheet(() => {
-    const seg = `<div class="seg share-target">${[['wechat', tr('发到微信群', 'WeChat groups')], ['telegram', tr('发到 Telegram 群', 'Telegram groups')]]
+    const seg = `<div class="seg share-target">${[['wechat', tr('微信群', 'WeChat')], ['telegram', 'Telegram'], ['facebook', 'Facebook']]
       .map(([k, l]) => `<button class="${target === k ? 'on' : ''}" data-act="target" data-t="${k}">${l}</button>`).join('')}</div>`;
     const gate = contactGateHtml(sale, target);
     if (gate) return `<h2>${tr('分享到群', 'Share to groups')}</h2>${seg}${gate}`;
-    const multi = `<div class="small muted" style="margin:10px 4px 0">${tr('可以发到好几个群（微信、Telegram 都行）：大家排的是同一个队，先到先得，不会撞单。', 'Post it to as many groups as you like, WeChat and Telegram alike: everyone joins the same line, first come first served, no double-selling.')}</div>`;
+    const multi = `<div class="small muted" style="margin:10px 4px 0">${tr('可以发到好几个群（微信、Telegram、Facebook 都行）：大家排的是同一个队，先到先得，不会撞单。', 'Post it to as many groups as you like, WeChat, Telegram and Facebook alike: everyone joins the same line, first come first served, no double-selling.')}</div>`;
+    if (target === 'facebook') {
+      return `<h2>${tr('分享到群', 'Share to groups')}</h2>${seg}
+      <div class="share-step">
+        <button class="btn primary big block" data-act="fbpost">${tr('准备 Facebook 帖子', 'Make the Facebook post')}</button>
+        <div class="small muted step-why">${tr('在群里点 Sell something 发一条：几张图、标题、价格和描述都准备好了，复制粘贴就行。帖子里写明了：想要的点链接排队，有问题直接私信你。', 'One Sell something post in the group: the pictures, title, price and description are ready to copy in. The post tells buyers to reserve at the link, or just DM you with questions.')}</div>
+      </div>
+      ${multi}`;
+    }
     if (target === 'telegram') {
       return `<h2>${tr('分享到群', 'Share to groups')}</h2>${seg}
       <div class="share-step">
@@ -2976,14 +3040,16 @@ function shareSheet(S) {
     if (act === 'nudgesave') {
       const v = s.el.querySelector('[name=nudge]').value.trim();
       const tg = target === 'telegram';
-      const bad = tg ? contactError({ telegram: v }) : contactError({ wechatId: v });
+      const fb = target === 'facebook';
+      const bad = fb ? contactError({ facebook: v }) : tg ? contactError({ telegram: v }) : contactError({ wechatId: v });
       if (!v || bad) return toast(!v ? tr('先填一下', 'Fill it in first') : bad, 2600);
       el.disabled = true;
       try {
-        await api(`/sale/${S.saleId}`, { method: 'PATCH', key: S.key, body: tg ? { telegram: v } : { wechatId: v } });
-        if (tg) store.set('sellerTelegram', normTelegram(v));
+        await api(`/sale/${S.saleId}`, { method: 'PATCH', key: S.key, body: fb ? { facebook: v } : tg ? { telegram: v } : { wechatId: v } });
+        if (fb) store.set('sellerFacebook', fbProfileUrl(v));
+        else if (tg) store.set('sellerTelegram', normTelegram(v));
         else store.set('sellerWechat', v);
-        sale[tg ? 'hasTelegram' : 'hasWechat'] = true;
+        sale[fb ? 'hasFacebook' : tg ? 'hasTelegram' : 'hasWechat'] = true;
         toast(tr('已保存', 'Saved'));
         s.refresh();
         S.reload?.();
@@ -2996,6 +3062,10 @@ function shareSheet(S) {
     if (act === 'tgtext') {
       s.close();
       return textSheet(S, target);
+    }
+    if (act === 'fbpost') {
+      s.close();
+      return fbSheet(S);
     }
     if (act === 'post') {
       s.close();
@@ -3801,6 +3871,173 @@ async function postSheet(S, target = 'telegram') {
       copy(t, tr('已复制，发图时粘贴', 'Copied, paste it as the caption'));
     }
     if (act === 'save') showImages([url], tr('二手清单', 'secondhand-list'));
+  });
+  return sh;
+}
+
+// ---------- Facebook groups: one Sell something listing ----------
+// Facebook's form takes one title, one price, a description and several photos, and the post shows
+// the first few photos as a grid. So instead of one long picture: square pictures, an overview first
+// (what's for sale, how to reserve, DM for questions), then the items, each with its price on it.
+
+const FB_SIDE = 1080;
+// Facebook listings take about ten photos; past nine items, four go on each picture.
+const FB_MAX_PICS = 10;
+
+async function drawFbSet(sale, items, lang) {
+  const L = (zh, en) => (lang === 'en' ? en : zh);
+  const list = openItems(items);
+  const per = list.length <= FB_MAX_PICS - 1 ? 1 : 4;
+  const pages = [];
+  for (let k = 0; k < list.length && pages.length < FB_MAX_PICS - 1; k += per) pages.push(list.slice(k, k + per));
+  const left = list.length - pages.flat().length;
+  const ims = await Promise.all(list.map((it) => (it.photos?.[0] ? loadImage(img(it.photos[0], false)).catch(() => null) : null)));
+  const imOf = new Map(list.map((it, k) => [it, ims[k]]));
+  const canvas = () => {
+    const c = document.createElement('canvas');
+    c.width = c.height = FB_SIDE;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, FB_SIDE, FB_SIDE);
+    return [c, g];
+  };
+  // One item in a square: photo, name on a dark band, price tag above it, a stamp when reserved.
+  const tile = (g, it, x, y, s) => {
+    g.fillStyle = '#f2f2f2';
+    g.fillRect(x, y, s, s);
+    const im = imOf.get(it);
+    if (im) drawCover(g, im, x, y, s, s);
+    const band = Math.round(s * 0.14);
+    g.fillStyle = 'rgba(0,0,0,0.55)';
+    g.fillRect(x, y + s - band, s, band);
+    g.fillStyle = '#fff';
+    g.textBaseline = 'middle';
+    g.fillText(fitFont(g, itemText(it, lang).name, s - band * 0.6, Math.round(band * 0.46), 700), x + band * 0.3, y + s - band / 2 + 1);
+    g.textBaseline = 'alphabetic';
+    const tag = Math.round(s * 0.065);
+    if (it.status === 'reserved') drawStamp(g, L('已预订', 'Reserved'), x + s / 2, y + s * 0.42, tag, '#111', L('可排候补', 'Waitlist open'));
+    drawPriceTag(g, moneyIn(it.priceCents, sale.currency, lang), x + s - 14, y + s - band - 14, tag);
+  };
+
+  // The overview: title and place, a mosaic of what's there, and how to reserve.
+  const st = saleText(sale, lang);
+  const [c0, g0] = canvas();
+  const head = 190;
+  const foot = 250;
+  g0.fillStyle = BLUE;
+  g0.fillRect(0, 0, FB_SIDE, head);
+  g0.fillStyle = '#fff';
+  g0.fillText(fitFont(g0, st.title, FB_SIDE - 80, 62, 800), 40, 92);
+  g0.fillStyle = YELLOW;
+  const until = sale.leaveDate ? L(` · ${dateText(sale.leaveDate, lang)}前出完`, ` · until ${dateText(sale.leaveDate, lang)}`) : '';
+  g0.fillText(fitFont(g0, `📍 ${st.location}${until}`, FB_SIDE - 80, 36, 700), 40, 150);
+  const mosaicH = FB_SIDE - head - foot;
+  const cells = collageCells(list.length, head, FB_SIDE, mosaicH);
+  const shown = [...list].sort((a, b) => b.priceCents - a.priceCents).slice(0, cells.length);
+  cells.forEach(([x, y, w, h], k) => {
+    const it = shown[k];
+    g0.fillStyle = '#f2f2f2';
+    g0.fillRect(x + 3, y + 3, w - 6, h - 6);
+    if (imOf.get(it)) drawCover(g0, imOf.get(it), x + 3, y + 3, w - 6, h - 6);
+    const tag = Math.max(30, Math.min(44, Math.round(Math.min(w, h) * 0.16)));
+    drawPriceTag(g0, moneyIn(it.priceCents, sale.currency, lang), x + w - 10, y + h - 10, tag);
+  });
+  const top = FB_SIDE - foot;
+  g0.fillStyle = YELLOW;
+  g0.fillRect(0, top, FB_SIDE, foot);
+  g0.fillStyle = '#111';
+  g0.fillText(fitFont(g0, L('点帖子里的链接排队 · 先到先得', 'Reserve at the link in the post'), FB_SIDE - 80, 52, 900), 40, top + 78);
+  g0.fillText(fitFont(g0, L('有问题直接私信我', 'Questions? Just DM me'), FB_SIDE - 80, 40, 800), 40, top + 140);
+  const n = list.filter((i) => i.status === 'available').length;
+  g0.fillText(fitFont(g0, L(`在售 ${n} 件，价格都在图上${left > 0 ? `，还有 ${left} 件在链接里` : ''}`, `${n} for sale, prices on the pictures${left > 0 ? `, ${left} more at the link` : ''}`), FB_SIDE - 340, 28, 400), 40, top + 198);
+  g0.fillStyle = BLUE;
+  g0.font = `800 30px ${FONT}`;
+  g0.textAlign = 'right';
+  g0.fillText(L('二手清单', 'Secondhand List'), FB_SIDE - 40, top + 198);
+  g0.textAlign = 'left';
+
+  const out = [await canvasBlob(c0, 0.9)];
+  for (const page of pages) {
+    const [c, g] = canvas();
+    if (per === 1) tile(g, page[0], 0, 0, FB_SIDE);
+    else page.forEach((it, k) => tile(g, it, (k % 2) * (FB_SIDE / 2) + 3, Math.floor(k / 2) * (FB_SIDE / 2) + 3, FB_SIDE / 2 - 6));
+    out.push(await canvasBlob(c, 0.88));
+  }
+  return out;
+}
+
+// The Facebook sheet: the pictures to save, then each field of the Sell something form ready to copy.
+async function fbSheet(S) {
+  let lang = shareLang('facebook');
+  let d = await translatedData(S, lang);
+  let files = [];
+  let urls = [];
+  let f = null;
+  const name = tr('二手清单', 'secondhand-list');
+  const make = async () => {
+    if (!openItems(d.items).length) {
+      toast(tr('还没有在售的东西', 'Nothing for sale yet'));
+      return false;
+    }
+    const stop = loading(tr('正在生成图片…', 'Making the pictures…'));
+    try {
+      const blobs = await drawFbSet(d.sale, d.items, lang);
+      files = blobs.map((b, k) => new File([b], `${name}-${k + 1}.jpg`, { type: 'image/jpeg' }));
+      urls = await Promise.all(files.map(fileDataUrl));
+      f = fbListing(d.sale, d.items, { lang, link: fbLink(publicUrl(S), lang) });
+      // The link preview, should Facebook show one, uses the landscape card.
+      uploadCover(S, lang, true).catch(() => {});
+      return true;
+    } finally {
+      stop();
+    }
+  };
+  if (!(await make())) return;
+  const canShareFiles = () => {
+    try {
+      return !!navigator.canShare?.({ files });
+    } catch {
+      return false;
+    }
+  };
+  const field = (k, label, v, help = '') => `<div class="cell fb-field"><div class="grow"><div class="small muted">${label}</div><div class="fb-v">${esc(v)}</div>${help ? `<div class="small muted">${help}</div>` : ''}</div><button class="btn small" data-act="copy" data-k="${k}">${tr('复制', 'Copy')}</button></div>`;
+  const sh = openSheet(() => `<h2>${tr('发到 Facebook 群', 'Post to a Facebook group')}</h2>
+    <div class="seg small share-lang">${[['zh', '中文'], ['en', 'English']].map(([k, l]) => `<button class="${lang === k ? 'on' : ''}" data-act="lang" data-l="${k}">${l}</button>`).join('')}</div>
+    <div class="fb-pics">${urls.map((u, k) => `<img src="${u}" alt="${tr(`第 ${k + 1} 张`, `Picture ${k + 1}`)}">`).join('')}</div>
+    <div class="actions">
+      <button class="btn primary block" data-act="save">${tr(`保存这 ${urls.length} 张图`, `Save the ${urls.length} pictures`)}</button>
+      ${canShareFiles() ? `<button class="btn block" data-act="share">${tr('分享图片…', 'Share the pictures…')}</button>` : ''}
+    </div>
+    <div class="group" style="margin-top:12px">
+      ${field('title', tr('标题（What are you selling?）', 'Title (What are you selling?)'), f.title)}
+      ${field('price', tr('价格（Price）', 'Price'), f.price, tr('只能填一个价，这里是最便宜那件的；每件的价格在图上和描述里。', 'Only one price fits: this is the cheapest item; every price is on the pictures and in the description.'))}
+      ${field('location', tr('地点（Location）', 'Location'), f.location, tr('Facebook 一般会自动填城市。', 'Facebook usually fills in your city.'))}
+    </div>
+    <div class="small muted" style="margin:12px 4px 4px">${tr('描述（Description），可以改', 'Description, edit as you like')}</div>
+    <textarea class="inp boxed share-text" rows="10">${esc(f.description)}</textarea>
+    <div class="actions" style="margin-top:8px"><button class="btn block" data-act="copy" data-k="description">${tr('复制描述', 'Copy the description')}</button></div>
+    <div class="group"><div class="cell small" style="display:block;line-height:1.9">${tr(
+      '1. 保存上面的图<br>2. 在 Facebook 群里点 <b>Sell something</b>（卖东西）<br>3. <b>Add photos</b>，按顺序选这几张图<br>4. 标题、价格、描述一项项复制粘贴，点 <b>Post</b><br>买家可以点描述里的链接排队，也可以直接私信你；卖掉的东西在链接里实时更新。',
+      '1. Save the pictures above<br>2. In the Facebook group, tap <b>Sell something</b><br>3. <b>Add photos</b> and pick these, in order<br>4. Copy the title, price and description in one by one, then <b>Post</b><br>Buyers can reserve at the link in the description, or just DM you; what you sell updates at the link.',
+    )}</div></div>`, async (act, el, s) => {
+    if (act === 'lang') {
+      lang = el.dataset.l;
+      store.set('shareLangFb', lang);
+      d = await translatedData(S, lang, d);
+      if (await make()) s.refresh();
+    }
+    if (act === 'copy') {
+      const k = el.dataset.k;
+      const v = k === 'description' ? s.el.querySelector('.share-text').value : f[k];
+      copy(v, tr('已复制，去 Facebook 粘贴', 'Copied, paste it in Facebook'));
+    }
+    if (act === 'save') showImages(urls, name);
+    if (act === 'share') {
+      navigator.clipboard?.writeText(s.el.querySelector('.share-text').value).catch(() => {});
+      try {
+        await navigator.share({ files });
+      } catch {}
+    }
   });
   return sh;
 }
