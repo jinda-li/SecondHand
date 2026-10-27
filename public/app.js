@@ -1809,13 +1809,13 @@ function manage(saleId) {
     document.querySelector('.lang-bar')?.remove();
     $app.innerHTML = `
       <div class="topbar"><button class="btn fit" data-act="lists"><span>${tr('我的清单', 'Lists')} (${store.get('mySales', []).length})</span>▾</button><a class="btn fit" href="/s/${sale.id}"><span>${tr('买家视角', 'Buyer view')}</span></a><button class="btn" data-act="settings" aria-label="${tr('设置', 'Settings')}">⚙</button><button class="btn rec-btn" data-recommend>🎁 ${tr('推荐朋友', 'Invite')}</button></div>
-      <div class="head" style="padding-top:8px"><div class="head-row"><h1>${esc(st.title)}</h1>${langSegHtml()}</div><div class="meta">📍 ${esc(st.location)}</div></div>
+      <div class="head" style="padding-top:8px"><div class="head-row"><h1>${esc(st.title)}</h1>${langSegHtml()}</div><div class="meta">📍 ${esc(st.location)}</div>
+        <div class="meta">${tr('已收回', 'Earned')} <b class="earned-tag">${esc(soldCents ? money(soldCents, sale.currency) : CURRENCIES[sale.currency].trim() + '0')}</b></div></div>
       ${ended ? `<div class="banner">${tr('这份清单已结束：买家打开链接会看到「清单已经不见了」。', 'This list has ended: buyers opening the link see that it is gone.')}<br><button class="btn small primary" style="margin-top:8px" data-act="reopen">${tr('重新公开', 'Reopen')}</button></div>` : ''}
       ${ended ? '' : renewBannerHtml(sale, data.now)}
       ${linkSaved(saleId) ? '' : `<div class="banner">${tr('还没把管理入口发给自己：换手机或在微信里打开时，没有它就管理不了这份清单。', "You haven't sent yourself the management link yet: on a new phone or another app, you can't manage this list without it.")}<br><button class="btn small primary" style="margin-top:8px" data-act="savelink">${tr('发给自己', 'Send it to myself')}</button></div>`}
       <div class="stats">
-        ${['available', 'reserved', 'sold'].map((st) => `<button class="stat ${tab === st || (tab === 'open' && st !== 'sold') ? 'on' : ''}" data-tab="${tab === st ? 'open' : st}"><b>${count(st)}</b><span>${statusText[st]}</span></button>`).join('')}
-        <div class="stat-earned"><b>${esc(soldCents ? money(soldCents, sale.currency) : CURRENCIES[sale.currency].trim() + '0')}</b><span>${tr('已收回', 'Earned')}</span></div>
+        ${['available', 'reserved', 'sold', 'removed'].map((st) => `<button class="stat ${tab === st || (tab === 'open' && (st === 'available' || st === 'reserved')) ? 'on' : ''}" data-tab="${tab === st ? 'open' : st}"><b>${count(st)}</b><span>${statusText[st]}</span></button>`).join('')}
       </div>
       ${items.length ? `<div class="list-bar">${tab === 'open'
         ? `<div class="hint">${tr(`未出：${statusText.available} + ${statusText.reserved}`, `Open: ${statusText.available.toLowerCase()} + ${statusText.reserved.toLowerCase()}`)}</div>`
@@ -2524,6 +2524,7 @@ function itemSheet(S, itemId) {
   const { sale } = S.data();
   let it = S.data().items.find((i) => i.id === itemId);
   let edit = null;
+  let adding = false; // the add-someone row is open as a name field
 
   const refreshItem = async () => {
     await S.reload();
@@ -2565,7 +2566,7 @@ function itemSheet(S, itemId) {
           <div>${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)} · <span class="st ${it.status}">${statusText[it.status]}</span>${it.condition ? ` · ${conditionText(it.condition, LANG)}` : ''}</div>
           ${it.note ? `<div class="small muted">${esc(it.note)}</div>` : ''}
         </div>
-        ${open ? `<button class="btn small" data-act="edit">${tr('编辑', 'Edit')}</button>` : ''}
+        ${open ? `<button class="btn small" data-act="share-item">${tr('分享', 'Share')}</button><button class="btn small" data-act="edit">${tr('编辑', 'Edit')}</button>` : ''}
       </div>
       <div class="alt-box ${missing ? 'missing' : ''}">
         <div class="small muted">${altTag(it.name)}</div>
@@ -2588,18 +2589,21 @@ function itemSheet(S, itemId) {
               ${i > 0 ? `<button class="btn small" data-act="rmq" data-seq="${r.seq}">${tr('移除', 'Remove')}</button>` : ''}
             </div>`).join('') : `<div class="cell muted small">${tr('还没人排队', 'Nobody in line yet')}</div>`}
         </div>
-        <div class="group"><div class="cell"><input class="inp grow" name="manual" maxlength="20" placeholder="${tr('没在这里排队的人，填称呼加到队尾', "Someone who didn't reserve here? Add their name at the end")}"><button class="btn small" data-act="manual">${tr('手动加人', 'Add')}</button></div></div>
-        <div class="actions">
-          ${q.length ? '' : `<button class="btn primary block" data-act="sell">${tr('已经卖掉了', 'Already sold')}</button>`}
-          <button class="btn block" data-act="share-item">${tr('发这件的卡片', 'Share this item')}</button>
-          <button class="btn danger block" data-act="remove">${tr('下架', 'Take down')}</button>
+        <div class="small muted" style="margin:0 4px 6px">${tr('处理这件', 'Do something with it')}</div>
+        <div class="group act-list">
+          ${q.length ? '' : `<button class="cell go" data-act="sell">✓ ${tr('已经卖掉了', 'Already sold')}</button>`}
+          ${adding
+            ? `<div class="cell"><input class="inp grow" name="manual" maxlength="20" placeholder="${tr('称呼，加到队尾', 'Their name, added at the end')}"><button class="btn small primary" data-act="manual">${tr('加入', 'Add')}</button></div>`
+            : `<button class="cell" data-act="add-open"><div class="grow">＋ ${tr('手动加人到队列', 'Add someone to the line')}<div class="small muted">${tr('微信里约好、没在这里排队的人', "Someone who reserved by chat, not here")}</div></div><span class="muted">›</span></button>`}
+          <button class="cell danger" data-act="remove">↓ ${tr('下架', 'Take down')}</button>
         </div>` : it.status === 'sold'
         ? `<div class="sold-done">
             <b>${tr('卖出去了！🎉', 'Sold! 🎉')}</b>
             ${tipOn() ? `<div class="small">${tr('觉得好用？', 'Was it handy?')}</div><button class="btn block" data-act="tip">☕ ${tr('请开发者喝杯咖啡', 'Buy the developer a coffee')}</button>` : ''}
           </div>
           <div class="actions"><button class="btn block" data-act="relist">${tr('点错了？重新上架', 'Not sold after all? Put it back up')}</button></div>`
-        : `<div class="hint center">${tr(`这件${statusText[it.status]}了`, `This item is ${statusText[it.status].toLowerCase()}`)}</div>`}`;
+        : `<div class="hint center">${tr(`这件${statusText[it.status]}了`, `This item is ${statusText[it.status].toLowerCase()}`)}</div>
+          <div class="actions"><button class="btn block" data-act="relist">${tr('重新上架', 'Put it back up')}</button></div>`}`;
   }, async (act, el, s) => {
     const run = async (body, msg) => {
       el.disabled = true;
@@ -2616,7 +2620,11 @@ function itemSheet(S, itemId) {
       case 'sell':
         return run({ action: 'sell' }, tr('已标记为已出', 'Marked as sold'));
       case 'relist':
-        if (!(await ask({ title: tr(`把 ${it.no} 号重新上架？`, `Put #${it.no} back up?`), text: tr('标已出时排队的人会回到队里。', 'Whoever was in line when you marked it sold is back in line.'), ok: tr('重新上架', 'Put back up') }))) return;
+        if (!(await ask({
+          title: tr(`把 ${it.no} 号重新上架？`, `Put #${it.no} back up?`),
+          text: it.status === 'sold' ? tr('标已出时排队的人会回到队里。', 'Whoever was in line when you marked it sold is back in line.') : tr('下架时排队的人会回到队里。', 'Whoever was in line when you took it down is back in line.'),
+          ok: tr('重新上架', 'Put back up'),
+        }))) return;
         return run({ action: 'relist' }, tr('已重新上架', 'Back up for sale'));
       case 'decline':
         return run({ action: 'decline', seq: Number(el.dataset.seq) }, it.queue.length > 1 ? tr('下一位顶上了', 'Next in line moves up') : tr('回到在售', 'Back on sale'));
@@ -2626,8 +2634,13 @@ function itemSheet(S, itemId) {
       case 'manual': {
         const nickname = s.el.querySelector('[name=manual]').value.trim();
         if (!nickname) return toast(tr('填个称呼', 'Add a name'));
+        adding = false;
         return run({ action: 'addManual', nickname }, tr('已加到队尾', 'Added at the end'));
       }
+      case 'add-open':
+        adding = true;
+        s.refresh();
+        return s.el.querySelector('[name=manual]')?.focus();
       case 'remove':
         if (!(await ask({ title: tr(`下架 ${it.no} 号？`, `Take down #${it.no}?`), text: tr('排队的人会被移出。', 'Everyone in line is removed.'), ok: tr('下架', 'Take down'), danger: true }))) return;
         await run({ action: 'remove' }, tr('已下架', 'Taken down'));

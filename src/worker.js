@@ -933,7 +933,8 @@ async function manageData(env, sale) {
     await env.DB.prepare('UPDATE sales SET seller_active_at = ? WHERE id = ?').bind(t, sale.id).run();
   }
   const [itemsRes, queuesRes] = await env.DB.batch([
-    env.DB.prepare("SELECT * FROM items WHERE sale_id = ? AND status != 'removed' ORDER BY no").bind(sale.id),
+    // Taken-down items too: the seller has a list of them and can put one back up.
+    env.DB.prepare('SELECT * FROM items WHERE sale_id = ? ORDER BY no').bind(sale.id),
     env.DB.prepare("SELECT seq, item_id, nickname, buyer_wechat, buyer_telegram, added_by, created_at FROM queues WHERE sale_id = ? AND status = 'waiting' ORDER BY seq").bind(sale.id),
   ]);
   const queues = {};
@@ -1098,8 +1099,8 @@ async function itemAction(env, sale, item, b) {
       break;
     }
     case 'relist': {
-      // Undoes a sale marked by mistake: the line closed by that tap comes back as it was.
-      if (item.status !== 'sold') fail('CONFLICT', ['这件不是已出状态', 'This item is not marked sold']);
+      // Undoes a sale or a take-down: the line closed by that tap comes back as it was.
+      if (item.status !== 'sold' && item.status !== 'removed') fail('CONFLICT', ['这件还在卖', 'This item is still up']);
       stmts.push(db.prepare(
         "UPDATE queues SET status = 'waiting', closed_at = NULL WHERE item_id = ? AND status IN ('sold', 'removed') AND closed_at = ?",
       ).bind(item.id, item.status_changed_at));
