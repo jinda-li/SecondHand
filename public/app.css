@@ -289,9 +289,7 @@ img { display: block; max-width: 100%; }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 .ph-price { display: none; }
 .tile .info .btn b { font-weight: inherit; }
-.login-card { margin: 0 16px 12px; padding: 12px 14px; background: var(--card); border-radius: var(--radius); display: flex; flex-direction: column; gap: 10px; }
 .sheet .login-card { margin: 0; }
-.login-card .gbtn { min-height: 44px; }
 .row-item .row-no { flex: none; }
 .wx-arrow { position: fixed; right: 14px; top: 4px; z-index: 70; color: #fff; text-align: right; pointer-events: none; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
 .wx-arrow span { display: block; font-size: 46px; line-height: 1; }

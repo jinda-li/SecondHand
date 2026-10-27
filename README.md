@@ -13,7 +13,7 @@ Sell your stuff without answering every message. Snap a photo, post one link to 
 - **A queue, not a chat.** Buyers tap Reserve and leave a WeChat ID or Telegram username. Only the first in line sees the seller's contact; if they drop out, the next one moves up.
 - **Chinese and English.** The UI is bilingual, and item names and details are translated automatically.
 - **Nearby.** Lists can show up under other lists in the same area, so things sell faster.
-- **No accounts.** Sellers manage a list with a key kept in their browser; Google sign-in exists but is off by default.
+- **No accounts.** Sellers manage a list with a key kept in their browser and in the management link they save.
 
 ## How it is built
 
@@ -41,7 +41,6 @@ Then open the address wrangler prints (http://localhost:8787 by default). Tests 
 3. Optional settings in `wrangler.toml` under `[vars]`:
    - `SITE_ORIGIN`: your own domain, which pages on workers.dev move to; empty to serve pages on every address. Change or remove the `routes` for `secondhandlist.org` too.
    - `TIP_URL`: your own tip page (Ko-fi, etc.), or empty to hide it.
-   - `GOOGLE_CLIENT_ID`: a Google OAuth web client ID to turn on Google sign-in.
 4. Optional secret: `npx wrangler secret put INVITE_CODE` gives unlimited AI photo recognition to people who enter the code.
 5. `npm run deploy`.
 

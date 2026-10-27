@@ -531,26 +531,7 @@ async function cropEditor(file) {
   });
 }
 
-// ---------- Google sign-in (sales follow the account) ----------
-
 const CFG = window.__CFG__ || {};
-const googleOn = () => !!CFG.googleClientId;
-let gisLoading = null;
-
-function loadGis() {
-  gisLoading ||= new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'https://accounts.google.com/gsi/client';
-    s.async = true;
-    s.onload = resolve;
-    s.onerror = () => {
-      gisLoading = null;
-      reject(new Error('load'));
-    };
-    document.head.appendChild(s);
-  });
-  return gisLoading;
-}
 
 function mergeSales(list) {
   const mine = store.get('mySales', []);
@@ -561,53 +542,6 @@ function mergeSales(list) {
     else mine.push(v);
   }
   store.set('mySales', mine);
-}
-
-async function fetchMe() {
-  if (!googleOn()) return { user: null, sales: [] };
-  try {
-    const d = await api('/me');
-    store.set('signedIn', !!d.user);
-    if (d.sales.length) mergeSales(d.sales);
-    return d;
-  } catch {
-    return { user: null, sales: [] };
-  }
-}
-
-// Renders the official Google button into el. Google blocks sign-in inside WeChat's browser.
-async function googleButton(el, onDone) {
-  if (!el) return;
-  if (isWeChat) {
-    el.innerHTML = `<div class="small muted">${tr('微信里不能用 Google 登录：点右上角 ··· 选「在浏览器打开」再登录。', "Google sign-in doesn't work inside WeChat: tap ··· at the top right, open in the browser, then sign in.")}</div>`;
-    return;
-  }
-  try {
-    await loadGis();
-  } catch {
-    el.innerHTML = `<div class="small muted">${tr('Google 登录加载失败，检查一下网络', "Google sign-in didn't load, check your connection")}</div>`;
-    return;
-  }
-  google.accounts.id.initialize({
-    client_id: CFG.googleClientId,
-    callback: async (r) => {
-      try {
-        const claims = store.get('mySales', []).map((s) => ({ id: s.id, key: s.key }));
-        const d = await api('/auth/google', { method: 'POST', body: { credential: r.credential, claims } });
-        mergeSales(d.sales);
-        store.set('signedIn', true);
-        toast(tr(`已登录 ${d.user.email || ''}`, `Signed in ${d.user.email || ''}`));
-        onDone?.(d);
-      } catch (e) {
-        toast(e.message);
-      }
-    },
-  });
-  google.accounts.id.renderButton(el, { theme: 'outline', size: 'large', shape: 'pill', text: 'continue_with', locale: tr('zh-CN', 'en'), width: Math.min(320, el.clientWidth || 300) });
-}
-
-function loginCardHtml(text) {
-  return `<div class="login-card"><div class="small">${text}</div><div class="gbtn"></div></div>`;
 }
 
 // ---------- routing ----------
@@ -650,7 +584,7 @@ function boot() {
 // / and /en arrive with the landing page already rendered by the server. People who already have
 // lists get their home instead; someone who chose English is sent to /en.
 function landing() {
-  if (store.get('mySales', []).length || store.get('signedIn', false)) return home();
+  if (store.get('mySales', []).length) return home();
   if (BOOT.landing === 'zh' && chosenLang === 'en') return location.replace('/en');
   playLanding();
 }
@@ -716,14 +650,10 @@ function notFound() {
 // ---------- entry ----------
 
 async function home() {
-  const meData = await fetchMe();
   const mine = store.get('mySales', []);
   $app.innerHTML = `
     <div class="appbar">${LOGO}</div>
     <div class="head has-keep-tag">${recommendTagHtml()}<h1>${tr('我的二手', 'My stuff')}</h1><div class="meta">${tr('拍照就上架，别人点开就能排队', 'Snap a photo to list it; people tap the link and get in line')}</div></div>
-    ${!googleOn() ? '' : meData.user
-      ? `<div class="hint">${tr(`已登录 ${esc(meData.user.email)} · 清单跟着账号走`, `Signed in as ${esc(meData.user.email)} · lists follow your account`)} · <button class="link-btn small" id="logout">${tr('退出', 'Sign out')}</button></div>`
-      : loginCardHtml(tr('用 Google 登录，清单跟着账号走，换手机也能管理', 'Sign in with Google so your lists follow you to a new phone'))}
     ${mine.length ? `<div class="hint" style="padding-bottom:4px">${tr(`我的清单（${mine.length}）`, `My lists (${mine.length})`)} · <a href="/lists">${tr('全部清单和收藏入口 ›', 'All lists and the saved entry ›')}</a></div><div class="section">${mine.map((s) => `
       <a class="cell" href="/manage/${esc(s.id)}"><div class="grow"><div>${esc(s.title)}</div><div class="muted small">${tr('管理我的清单', 'Manage this list')}</div></div><span class="muted">›</span></a>`).join('')}
     </div>` : ''}
@@ -734,18 +664,9 @@ async function home() {
     </div>
     ${nearbyEntryHtml()}
     <div class="hint center"><a href="/privacy${tr('', '#en')}">${tr('隐私政策', 'Privacy')}</a> · <a href="/terms${tr('', '#en')}">${tr('服务条款', 'Terms')}</a> · <button class="link-btn small" id="feedback">${tr('反馈', 'Feedback')}</button>${tipOn() ? ` · <button class="link-btn small" id="tip">${tr('打赏开发者', 'Tip the developer')}</button>` : ''}</div>`;
-  googleButton($app.querySelector('.gbtn'), () => home());
   const tipBtn = $app.querySelector('#tip');
   if (tipBtn) tipBtn.onclick = () => tipSheet();
   $app.querySelector('#feedback').onclick = feedbackSheet;
-  const lo = $app.querySelector('#logout');
-  if (lo) {
-    lo.onclick = async () => {
-      await api('/auth/logout', { method: 'POST', body: {} }).catch(() => {});
-      store.set('signedIn', false);
-      home();
-    };
-  }
 }
 
 // ---------- 6.1 create sale ----------
@@ -985,7 +906,7 @@ async function keepPage() {
     return location.replace(`/keep?${q}`);
   }
   // A plain saved /keep is the way back in: sellers get their home, as on /.
-  if (!q.has('gift') && !q.has('save') && (store.get('mySales', []).length || store.get('signedIn', false))) return home();
+  if (!q.has('gift') && !q.has('save') && store.get('mySales', []).length) return home();
   playLanding();
   if (q.has('gift')) return redeemKeepGift(q.get('gift'));
   if (!q.has('save')) return;
@@ -1255,12 +1176,10 @@ async function listsSheet(S) {
     </div>`;
 }
 
-async function createSale() {
-  const meData = await fetchMe();
+function createSale() {
   $app.innerHTML = `
     <div class="ik-head">${LOGO}<h1>${tr('发布二手清单', 'New secondhand list')}</h1><div class="ik-sub">${tr('填 3 项就能开始上架，其他都有默认值。', 'Three fields and you can start listing; everything else has defaults.')}</div></div>
-    ${googleOn() && !meData.user ? loginCardHtml(tr('可以先用 Google 登录（可跳过）：清单跟着账号走，换手机也能管理', 'Optional: sign in with Google so your lists follow you to a new phone')) : ''}
-    ${saleFormHtml({ owner: store.get('ownerName', '') || meData.user?.name || '', wechatId: store.get('sellerWechat', ''), telegram: store.get('sellerTelegram', ''), location: '', currency: guessCurrency(), rules: DEFAULT_RULES, leaveDate: '' }, { create: true })}
+    ${saleFormHtml({ owner: store.get('ownerName', ''), wechatId: store.get('sellerWechat', ''), telegram: store.get('sellerTelegram', ''), location: '', currency: guessCurrency(), rules: DEFAULT_RULES, leaveDate: '' }, { create: true })}
     <div class="bottom-bar"><div class="inner"><button class="btn primary big" id="go">${tr('开始上架', 'Start listing')}</button></div></div>`;
   const form = $app.querySelector('.form');
   syncTitle(form);
@@ -1271,7 +1190,6 @@ async function createSale() {
     form.querySelectorAll('[data-suffix]').forEach((x) => x.classList.toggle('on', x === b));
     syncTitle(form);
   });
-  googleButton($app.querySelector('.gbtn'), () => $app.querySelector('.login-card')?.remove());
   $app.querySelector('#go').onclick = async (e) => {
     const owner = $app.querySelector('[name=owner]').value.trim();
     if (!owner) return toast(tr('填一下你的名字', 'Add your name'));
@@ -1802,9 +1720,7 @@ function showManageLinkInUrl(saleId, key) {
 
 function noAccess(saleId) {
   $app.innerHTML = `<div class="head"><h1>${tr('需要管理权限', 'Management access needed')}</h1><div class="meta">${tr('这台手机的浏览器里没有这份清单的管理权限。', "This browser doesn't hold the key to manage this list.")}</div></div>
-    ${googleOn() ? `<div style="padding:0 16px">${loginCardHtml(tr('清单绑定过 Google 账号的话，登录就能管理', 'If the list is linked to a Google account, sign in to manage it'))}</div>` : ''}
-    <div style="padding:16px"><div class="small muted" style="margin-bottom:6px">${tr('或者打开你保存的「管理链接」：', 'Or open the management link you saved:')}</div><input class="inp boxed" id="lk" placeholder="${tr('粘贴管理链接', 'Paste the management link')}"><br><br><button class="btn primary block" id="go">${tr('打开', 'Open')}</button></div>`;
-  googleButton($app.querySelector('.gbtn'), () => location.reload());
+    <div style="padding:16px"><div class="small muted" style="margin-bottom:6px">${tr('打开你保存的「管理链接」：', 'Open the management link you saved:')}</div><input class="inp boxed" id="lk" placeholder="${tr('粘贴管理链接', 'Paste the management link')}"><br><br><button class="btn primary block" id="go">${tr('打开', 'Open')}</button></div>`;
   $app.querySelector('#go').onclick = () => {
       const v = $app.querySelector('#lk').value.trim();
       const m = v.match(/[#?&]k=([A-Za-z0-9]+)/);
@@ -1848,7 +1764,6 @@ function manage(saleId) {
     soldRecommendSheet(S);
   };
   S.data = () => data;
-  S.afterUpload = () => loginPrompt(S);
 
   const render = () => {
     const { sale, items, soldCents } = data;
@@ -1989,26 +1904,6 @@ function forgetSale(saleId) {
   const saved = store.get('linkSaved', {});
   delete saved[saleId];
   store.set('linkSaved', saved);
-}
-
-// Ask to sign in once the seller has something worth keeping: after the first upload,
-// and once more when the list reaches 10 items. Never inside WeChat, where Google sign-in can't work.
-function loginPrompt(S) {
-  const d = S.data();
-  if (!googleOn() || isWeChat || !d || d.sale.ownerEmail) return;
-  const asked = store.get('loginAsked', {});
-  const n = asked[S.saleId] || 0;
-  if (n >= 2 || (n === 1 && d.items.length < 10)) return;
-  asked[S.saleId] = n + 1;
-  store.set('loginAsked', asked);
-  const sh = openSheet(() => `<h2>${tr('用 Google 登录？', 'Sign in with Google?')}</h2>
-    <div class="hint center" style="padding-top:0">${tr('清单跟着账号走：换手机、换浏览器、清了缓存，登录就能继续管理', 'Your lists follow your account: new phone, new browser or cleared data, sign in and carry on')}</div>
-    <div class="gbtn" style="display:flex;justify-content:center;margin:8px 0 14px"></div>
-    <div class="actions"><button class="btn block" data-act="later">${tr('先不用', 'Not now')}</button></div>`, (act, el, s) => s.close());
-  googleButton(sh.el.querySelector('.gbtn'), () => {
-    sh.close();
-    S.reload();
-  });
 }
 
 function linkSaved(saleId) {
@@ -2557,7 +2452,6 @@ function composer(S) {
     if (done) toast(tr(`上架了 ${done} 件${failed ? `，${failed} 件没成功` : ''}`, `Listed ${done}${failed ? `, ${failed} failed` : ''}`));
     else if (failed) toast(tr('没保存成功，网络恢复后再点一次', 'Not saved. Tap again once you are back online'));
     if (!cards.length) close();
-    if (done) setTimeout(() => S.afterUpload?.(), 600);
   };
 
   render();
@@ -2864,9 +2758,6 @@ function settingsSheet(S) {
     ${altHtml}
     <div class="actions">
       <button class="btn primary block" data-act="save">${tr('保存', 'Save')}</button>
-      ${googleOn() ? (sale.ownerEmail
-        ? `<div class="hint center">${tr(`已绑定 Google 账号 ${esc(sale.ownerEmail)}，换设备登录就能管理`, `Linked to Google account ${esc(sale.ownerEmail)}: sign in on any device to manage`)}</div>`
-        : `<div class="login-card"><div class="small">${tr('用 Google 登录，清单跟着账号走', 'Sign in with Google so the list follows your account')}</div><div class="gbtn"></div></div>`) : ''}
       <button class="btn block" data-act="link">${tr('把管理入口发给自己（换手机、换浏览器用）', 'Send myself the management link (for a new phone or browser)')}</button>
       <button class="btn block" data-act="feedback">${tr('反馈问题 / 提建议', 'Feedback / ideas')}</button>
       ${tipOn() ? `<button class="btn block" data-act="tip">☕ ${tr('打赏开发者', 'Tip the developer')}</button>` : ''}
@@ -2944,10 +2835,6 @@ function settingsSheet(S) {
       s.close();
       return endSheet(S);
     }
-  });
-  googleButton(sh.el.querySelector('.gbtn'), () => {
-    sh.close();
-    S.reload();
   });
   buyerToken(true);
   api('/ai/quota').then((q) => {

@@ -87,9 +87,9 @@ export default {
 // that with a redirect, which the browser follows keeping the #fragment. Only the keys the app
 // uses go along, so the link stays short. If nothing has moved after a few seconds, the meta
 // refresh goes to the new address without the storage.
-const MOVED_KEYS = ['mySales', 'buyerToken', 'kept', 'listsKept', 'lang', 'signedIn', 'ownerName',
+const MOVED_KEYS = ['mySales', 'buyerToken', 'kept', 'listsKept', 'lang', 'ownerName',
   'sellerWechat', 'sellerTelegram', 'buyerWechat', 'buyerTelegram', 'buyerKind', 'buyerSort', 'manageSort',
-  'linkSaved', 'loginAsked', 'recAsked', 'promoHidden', 'keepBarClosed', 'shareTarget', 'shareIntro',
+  'linkSaved', 'recAsked', 'promoHidden', 'keepBarClosed', 'shareTarget', 'shareIntro',
   'nearbyLoc', 'nearbyScope', 'aiAuto'];
 function moved(req, url, origin) {
   const hop = url.searchParams.has('_mv');
@@ -126,7 +126,7 @@ function pageLang(url, fallback = 'zh') {
 }
 
 async function route(req, env, ctx) {
-  CLIENT_CFG = { googleClientId: env.GOOGLE_CLIENT_ID || '', keepGiftUses: KEEP_GIFT_USES, tipUrl: env.TIP_URL || '' };
+  CLIENT_CFG = { keepGiftUses: KEEP_GIFT_USES, tipUrl: env.TIP_URL || '' };
   const url = new URL(req.url);
   const p = url.pathname;
   let m;
@@ -617,15 +617,11 @@ async function body(req) {
   }
 }
 
-// The seller is whoever holds the sale's key, or the Google account that owns it.
+// The seller is whoever holds the sale's key.
 async function requireSeller(req, env, saleId) {
   const sale = await getSale(env, saleId);
   const key = req.headers.get('x-key') || '';
   if (key && key === sale.admin_key) return sale;
-  if (sale.owner_sub) {
-    const user = await currentUser(req, env);
-    if (user && user.sub === sale.owner_sub) return sale;
-  }
   fail('FORBIDDEN', ['没有管理权限', 'You can\’t manage this list'], 403);
 }
 
@@ -639,72 +635,6 @@ async function isSeller(req, env, saleId) {
   }
 }
 
-// ---------- Google sign-in ----------
-
-function cookie(req, name) {
-  const m = (req.headers.get('cookie') || '').match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
-  return m ? m[1] : null;
-}
-
-async function currentUser(req, env) {
-  const token = cookie(req, 'sid');
-  if (!token || !/^[A-Za-z0-9]{32}$/.test(token)) return null;
-  return env.DB.prepare('SELECT sub, email, name FROM sessions WHERE token = ?').bind(token).first();
-}
-
-async function verifyGoogle(env, credential) {
-  if (!env.GOOGLE_CLIENT_ID) fail('INVALID', ['Google 登录还没配置', 'Google sign-in is not set up']);
-  if (typeof credential !== 'string' || credential.length > 4096) fail('INVALID', ['登录凭证不对', 'Bad sign-in credential']);
-  const r = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
-  if (!r.ok) fail('FORBIDDEN', ['Google 登录失败，再试一次', 'Google sign-in failed, try again'], 403);
-  const t = await r.json();
-  const issOk = t.iss === 'accounts.google.com' || t.iss === 'https://accounts.google.com';
-  if (t.aud !== env.GOOGLE_CLIENT_ID || !issOk || Number(t.exp) * 1000 < now() || !t.sub) {
-    fail('FORBIDDEN', ['Google 登录失败，再试一次', 'Google sign-in failed, try again'], 403);
-  }
-  return { sub: t.sub, email: t.email_verified === 'true' || t.email_verified === true ? t.email : '', name: t.name || '' };
-}
-
-async function ownedSales(env, sub) {
-  const { results } = await env.DB.prepare(
-    'SELECT id, admin_key, title, status, created_at FROM sales WHERE owner_sub = ? ORDER BY created_at DESC LIMIT 50',
-  ).bind(sub).all();
-  return results.map((r) => ({ id: r.id, key: r.admin_key, title: r.title, status: r.status }));
-}
-
-// Signing in also claims every sale whose key this browser already holds, so sales follow the account.
-async function googleLogin(env, b) {
-  const g = await verifyGoogle(env, b.credential);
-  const token = rid(32);
-  const t = now();
-  const stmts = [
-    env.DB.prepare('INSERT INTO sessions (token, sub, email, name, created_at) VALUES (?, ?, ?, ?, ?)').bind(token, g.sub, g.email, g.name, t),
-  ];
-  for (const c of (Array.isArray(b.claims) ? b.claims : []).slice(0, 20)) {
-    if (typeof c?.id !== 'string' || typeof c?.key !== 'string') continue;
-    stmts.push(env.DB.prepare(
-      'UPDATE sales SET owner_sub = ?, owner_email = ?, updated_at = ? WHERE id = ? AND admin_key = ? AND (owner_sub IS NULL OR owner_sub = ?)',
-    ).bind(g.sub, g.email, t, c.id, c.key, g.sub));
-  }
-  await env.DB.batch(stmts);
-  const res = ok({ user: { email: g.email, name: g.name }, sales: await ownedSales(env, g.sub) });
-  res.headers.append('set-cookie', `sid=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=31536000`);
-  return res;
-}
-
-async function me(req, env) {
-  const user = await currentUser(req, env);
-  if (!user) return ok({ user: null, sales: [] });
-  return ok({ user: { email: user.email, name: user.name }, sales: await ownedSales(env, user.sub) });
-}
-
-async function logout(req, env) {
-  const token = cookie(req, 'sid');
-  if (token) await env.DB.prepare('DELETE FROM sessions WHERE token = ?').bind(token).run();
-  const res = ok({});
-  res.headers.append('set-cookie', 'sid=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0');
-  return res;
-}
 
 function buyerTokenOf(req) {
   const t = req.headers.get('x-buyer') || '';
@@ -771,12 +701,9 @@ async function api(req, env, url, ctx) {
   if (p === '/ai/nudge' && M === 'POST') return aiNudge(env, req);
   if (p === '/keep/gift' && M === 'POST') return keepGiftCreate(env, req);
   if ((m = p.match(/^\/keep\/gift\/(\w+)$/)) && M === 'POST') return keepGiftRedeem(env, req, m[1]);
-  if (p === '/auth/google' && M === 'POST') return googleLogin(env, await body(req));
-  if (p === '/auth/logout' && M === 'POST') return logout(req, env);
-  if (p === '/me' && M === 'GET') return me(req, env);
   if (p === '/sale' && M === 'POST') {
     await limitIp(env, req, 'sale', SALES_PER_IP);
-    return createSale(env, ctx, await body(req), await currentUser(req, env), requestCity(req, url));
+    return createSale(env, ctx, await body(req), requestCity(req, url));
   }
   if ((m = p.match(/^\/sale\/(\w+)$/))) {
     if (M === 'GET') {
@@ -864,16 +791,16 @@ function telegramField(v) {
 
 const needContact = () => fail('INVALID', ['微信号和 Telegram 用户名至少填一个', 'Add a Telegram username or a WeChat ID']);
 
-async function createSale(env, ctx, b, user, city) {
+async function createSale(env, ctx, b, city) {
   const f = saleFields(b, false);
   if (!f.wechat_id && !f.telegram) needContact();
   const t = now();
   const id = rid(8);
   const key = rid(24);
   await env.DB.prepare(
-    `INSERT INTO sales (id, admin_key, title, wechat_id, telegram, location, currency, rules, leave_date, public_nearby, lat, lng, city, owner_sub, owner_email, seller_active_at, renewed_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(id, key, f.title, f.wechat_id, f.telegram, f.location, f.currency, f.rules, f.leave_date, f.public_nearby, f.lat ?? null, f.lng ?? null, city || null, user?.sub ?? null, user?.email ?? null, t, t, t, t).run();
+    `INSERT INTO sales (id, admin_key, title, wechat_id, telegram, location, currency, rules, leave_date, public_nearby, lat, lng, city, seller_active_at, renewed_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(id, key, f.title, f.wechat_id, f.telegram, f.location, f.currency, f.rules, f.leave_date, f.public_nearby, f.lat ?? null, f.lng ?? null, city || null, t, t, t, t).run();
   ctx.waitUntil(translateSale(env, id).catch((e) => console.error('translate sale', e?.message || e)));
   return ok({ id, key });
 }
@@ -959,7 +886,7 @@ async function manageData(env, sale) {
   }
   const soldCents = itemsRes.results.filter((r) => r.status === 'sold').reduce((s, r) => s + r.price_cents, 0);
   return ok({
-    sale: { ...mapSale(sale), wechatId: sale.wechat_id, telegram: sale.telegram, key: sale.admin_key, ownerEmail: sale.owner_email || '' },
+    sale: { ...mapSale(sale), wechatId: sale.wechat_id, telegram: sale.telegram, key: sale.admin_key },
     items: itemsRes.results.map((r) => ({ ...mapItem(r, t), queue: queues[r.id] || [], queueCount: (queues[r.id] || []).length })),
     soldCents,
     now: t,
