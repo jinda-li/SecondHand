@@ -1,7 +1,7 @@
 import { money, contactNote, byRecent, itemText, saleText, textLang, normTelegram, looksLikeTelegram, RULES } from '../public/lib.js';
 import { landingHtml } from './landing.js';
 
-const VERSION = '59';
+const VERSION = '60';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 // An open list pauses this long after its last renewal: buyers can look but not queue,
@@ -82,16 +82,31 @@ export default {
 // in the #fragment, which never reaches a server (i18n.js takes it in). The fragment goes along
 // even with nothing stored, so the new address knows to ask for a new bookmark. Crawlers and link
 // previews get a plain 301.
-function moved(req, to) {
+// The script doesn't jump across addresses itself: WeChat let such a jump hang on this page (and
+// the link too, once it hung). It goes to this same address with ?_mv=1 and the server answers
+// that with a redirect, which the browser follows keeping the #fragment. Only the keys the app
+// uses go along, so the link stays short. If nothing has moved after a few seconds, the meta
+// refresh goes to the new address without the storage.
+const MOVED_KEYS = ['mySales', 'buyerToken', 'kept', 'listsKept', 'lang', 'signedIn', 'ownerName',
+  'sellerWechat', 'sellerTelegram', 'buyerWechat', 'buyerTelegram', 'buyerKind', 'buyerSort', 'manageSort',
+  'linkSaved', 'loginAsked', 'recAsked', 'promoHidden', 'keepBarClosed', 'shareTarget', 'shareIntro',
+  'nearbyLoc', 'nearbyScope', 'aiAuto'];
+function moved(req, url, origin) {
+  const hop = url.searchParams.has('_mv');
+  url.searchParams.delete('_mv');
+  const to = origin + url.pathname + url.search;
+  if (hop) return Response.redirect(to, 302);
   if (/bot[/ (-]|crawler|spider|facebookexternalhit|WhatsApp/i.test(req.headers.get('user-agent') || '')) return Response.redirect(to, 301);
+  url.searchParams.set('_mv', '1');
   const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex"><link rel="canonical" href="${esc(to)}"><title>二手清单 Secondhand List</title>
-<p style="font:16px sans-serif;text-align:center;margin-top:40vh">二手清单搬到新网址了 · Secondhand List has moved<br><a href="${esc(to)}">${esc(to)}</a></p>
+<meta name="robots" content="noindex"><link rel="canonical" href="${esc(to)}"><meta http-equiv="refresh" content="8;url=${esc(to)}"><title>二手清单 Secondhand List</title>
+<p style="font:16px sans-serif;text-align:center;margin-top:40vh">二手清单搬到新网址了 · Secondhand List has moved<br><a id="to" href="${esc(to)}">${esc(to)}</a></p>
 <script>
-var data = {};
-try { for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); data[k] = localStorage.getItem(k); } } catch (e) {}
-var to = ${JSON.stringify(to).replace(/</g, '\\u003c')};
-location.replace(to + '#migrate=' + encodeURIComponent(JSON.stringify({ data: data, hash: location.hash })));
+var data = {}, keys = ${JSON.stringify(MOVED_KEYS)};
+try { for (var i = 0; i < keys.length; i++) { var v = localStorage.getItem(keys[i]); if (v != null) data[keys[i]] = v; } } catch (e) {}
+var hop = ${JSON.stringify(url.pathname + url.search).replace(/</g, '\u003c')} + '#migrate=' + encodeURIComponent(JSON.stringify({ data: data, hash: location.hash }));
+document.getElementById('to').href = hop;
+location.replace(hop);
 </script>`;
   return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
 }
@@ -119,7 +134,7 @@ async function route(req, env, ctx) {
   // reachable there for pages that are already open.
   if (env.SITE_ORIGIN && url.origin !== env.SITE_ORIGIN && /\.workers\.dev$|^www\./.test(url.hostname)
     && !p.startsWith('/api/') && !p.startsWith('/img/') && (req.method === 'GET' || req.method === 'HEAD')) {
-    return moved(req, env.SITE_ORIGIN + p + url.search);
+    return moved(req, url, env.SITE_ORIGIN);
   }
   if (p.startsWith('/api/')) return api(req, env, url, ctx);
   if ((m = p.match(/^\/img\/([A-Za-z0-9]+)(\/t)?$/))) return image(req, env, ctx, m[1], !!m[2]);

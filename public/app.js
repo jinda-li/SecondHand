@@ -152,7 +152,7 @@ function openSheet(render, onAct, { onClose, locked = false } = {}) {
 
 // In-page confirm dialog. Native confirm()/prompt() show the site address or "JavaScript"
 // as their title (especially inside WeChat), so every confirmation goes through this.
-function ask({ title, text = '', ok = tr('确定', 'OK'), danger = false, word = '' }) {
+function ask({ title, text = '', ok = tr('确定', 'OK'), cancel = tr('取消', 'Cancel'), danger = false, word = '' }) {
   return new Promise((resolve) => {
     let done = false;
     const finish = (v, s) => {
@@ -166,7 +166,7 @@ function ask({ title, text = '', ok = tr('确定', 'OK'), danger = false, word =
       ${word ? `<div class="group"><div class="cell"><input class="inp grow" name="askword" placeholder="${esc(tr(`输入「${word}」确认`, `Type "${word}" to confirm`))}" autocomplete="off"></div></div>` : ''}
       <div class="actions">
         <button class="btn ${danger ? 'danger-solid' : 'primary'} big block" data-act="ok">${esc(ok)}</button>
-        <button class="btn block" data-act="cancel">${tr('取消', 'Cancel')}</button>
+        <button class="btn block" data-act="cancel">${esc(cancel)}</button>
       </div>`, (act, el, s) => {
       if (act === 'cancel') return finish(false, s);
       if (act !== 'ok') return;
@@ -615,7 +615,7 @@ function boot() {
   if (BOOT.notFound) return notFound();
   if ((m = path.match(/^\/s\/([A-Za-z0-9]+)\/i\/(\d+)/))) return buyerItem(m[1], Number(m[2]));
   if ((m = path.match(/^\/s\/([A-Za-z0-9]+)/))) return buyerSale(m[1]);
-  if ((m = path.match(/^\/manage\/([A-Za-z0-9]+)/))) return manage(m[1]);
+  if ((m = path.match(/^\/manage\/([A-Za-z0-9]+)/))) return manageGate(m[1]);
   if (path === '/my') return myQueues();
   if (path === '/nearby') return nearbyPage();
   if (path === '/keep') return keepPage();
@@ -654,12 +654,31 @@ function langSegHtml() {
 const langBarHtml = () => `<div class="lang-bar">${langSegHtml()}</div>`;
 
 function ownerBanner(sale) {
-  return `<div class="banner">${tr('这是买家看到的样子。你是卖家，不能预订自己的东西。', 'This is what buyers see. You are the seller, so you can\'t reserve your own things.')}</div>`;
+  return `<div class="banner">${tr('这是买家看到的样子。你是卖家，不能预订自己的东西。', 'This is what buyers see. You are the seller, so you can\'t reserve your own things.')}
+    <button class="link-btn" data-not-seller>${tr('我不是卖家', "I'm not the seller")}</button></div>`;
 }
 
 // Seller previewing their own list sees buyer buttons; tapping one points them to the management page.
-async function ownerTap(sale) {
-  if (await ask({ title: tr('这是你自己的东西', 'This is your own item'), text: tr('买家点这里会排队预订。\n要改价格、标已出，去管理页。', 'Buyers tap here to reserve.\nTo change prices or mark things sold, go to the management page.'), ok: tr('去管理', 'Manage') })) location.href = `/manage/${sale.id}`;
+// A buyer who once opened a management link sent by mistake holds the key too, so they get a way out.
+function ownerTap(sale) {
+  openSheet(() => `<h2>${tr('这是你自己的东西', 'This is your own item')}</h2>
+    <div class="hint center" style="padding-top:0">${tr('买家点这里会排队预订。<br>要改价格、标已出，去管理页。', 'Buyers tap here to reserve.<br>To change prices or mark things sold, go to the management page.')}</div>
+    <div class="actions">
+      <button class="btn primary big block" data-act="manage">${tr('去管理', 'Manage')}</button>
+      <button class="btn block" data-act="cancel">${tr('取消', 'Cancel')}</button>
+      <button class="link-btn" data-act="not-seller">${tr('我不是卖家，是来买东西的', "I'm not the seller, I'm here to buy")}</button>
+    </div>`, (act, el, s) => {
+    s.close();
+    if (act === 'manage') location.href = `/manage/${sale.id}`;
+    if (act === 'not-seller') notSeller(sale.id);
+  });
+}
+
+// Forget this list's key in this browser, so it shows the buyer view again.
+async function notSeller(saleId) {
+  if (!(await ask({ title: tr('退出卖家身份？', 'Stop being the seller here?'), text: tr('这台手机会忘掉这份清单的管理权限，之后看到的就是买家页面，可以正常预订。\n真是卖家的话，打开自己保存的管理链接就能回来。', "This phone forgets the key to manage this list, so you'll see the buyer page and can reserve.\nIf you are the seller, open your saved management link to get back in."), ok: tr('我不是卖家', "I'm not the seller") }))) return;
+  store.set('mySales', store.get('mySales', []).filter((s) => s.id !== saleId));
+  location.reload();
 }
 
 // Ended and deleted lists look the same to buyers.
@@ -1473,6 +1492,7 @@ function buyerSale(saleId) {
       store.set('buyerSort', sort);
       render();
     }
+    if (e.target.closest('[data-not-seller]')) notSeller(saleId);
     const j = e.target.closest('[data-join]');
     if (j) data.isOwner ? ownerTap(data.sale) : joinSheet(data.sale, data.items.find((i) => i.id === j.dataset.join), reload);
     // Seller previewing their own list: same share options as on the management page.
@@ -1740,6 +1760,20 @@ function sellerKey(saleId) {
   return mine.find((s) => s.id === saleId)?.key || null;
 }
 
+// A management link looks like any other card in a chat, so sellers sometimes send it to a buyer
+// by mistake. When one reaches a browser with no record of the list, ask before this browser takes
+// the key: a buyer who says so goes to the list instead and stays a buyer.
+async function manageGate(saleId) {
+  const fromUrl = new URLSearchParams(location.search).get('k') || new URLSearchParams(location.hash.slice(1)).get('k');
+  if (fromUrl && !localKey(saleId) && !(await ask({
+    title: tr('这是卖家的管理页', "This is the seller's management page"),
+    text: tr('在这里能改价格、看谁预订了，只有卖家本人该打开。\n你是这份清单的卖家吗？', 'It changes prices and shows who reserved; only the seller should open it.\nAre you the seller of this list?'),
+    ok: tr('我是卖家', "I'm the seller"),
+    cancel: tr('我是买家，去看清单', "I'm a buyer, show me the list"),
+  }))) return location.replace(`/s/${saleId}`);
+  manage(saleId);
+}
+
 function manageLink(saleId, key) {
   return `${location.origin}/manage/${saleId}?k=${key}`;
 }
@@ -1757,6 +1791,7 @@ function noAccess(saleId) {
       const v = $app.querySelector('#lk').value.trim();
       const m = v.match(/[#?&]k=([A-Za-z0-9]+)/);
       if (!m) return toast(tr('链接不对', "That link doesn't work"));
+      mergeSales([{ id: saleId, key: m[1], title: TITLE_PICKS[0] }]);
       location.href = `/manage/${saleId}?k=${m[1]}`;
   };
 }
