@@ -137,12 +137,15 @@ function toast(msg, ms = 1800) {
   setTimeout(() => el.remove(), ms);
 }
 
+// Returns stop(); stop.say(msg) changes the message while it shows.
 function loading(msg = tr('请稍候…', 'One moment…')) {
   const el = document.createElement('div');
   el.className = 'loading';
-  el.innerHTML = `<div>${esc(msg)}</div>`;
+  el.innerHTML = `<div><i class="spin"></i><span></span></div>`;
+  const say = (m) => (el.querySelector('span').textContent = m);
+  say(msg);
   document.body.appendChild(el);
-  return () => el.remove();
+  return Object.assign(() => el.remove(), { say });
 }
 
 // Bottom half-screen sheet. render() returns HTML; clicks on [data-act] go to onAct(act, el).
@@ -298,19 +301,47 @@ async function resize(im, maxSide, q) {
   return canvasBlob(c, q);
 }
 
-async function uploadPhoto(saleId, key, file) {
-  const url = URL.createObjectURL(file);
+// Shrinking a big phone photo is the slow part, so the composer starts it as soon as a photo is
+// picked and listing only sends the small JPEGs. One photo at a time: several 48 MP photos
+// decoded at once can run a phone out of memory.
+const shrunk = new WeakMap();
+let shrinkQueue = Promise.resolve();
+function shrinkPhoto(file) {
+  let p = shrunk.get(file);
+  if (!p) {
+    p = shrinkQueue.then(async () => {
+      const url = URL.createObjectURL(file);
+      try {
+        const im = await loadImage(url);
+        const [full, thumb] = await Promise.all([resize(im, 1280, 0.75), resize(im, 600, 0.72)]);
+        return { full, thumb };
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    });
+    shrinkQueue = p.catch(() => {});
+    shrunk.set(file, p);
+  }
+  return p;
+}
+
+// A smaller copy for the AI, made from the shrunk photo rather than decoding the original again.
+async function aiImage(file, maxSide, q) {
+  const url = URL.createObjectURL((await shrinkPhoto(file)).full);
   try {
-    const im = await loadImage(url);
-    const [full, thumb] = await Promise.all([resize(im, 1280, 0.75), resize(im, 600, 0.72)]);
-    const form = new FormData();
-    form.append('full', full, 'full.jpg');
-    form.append('thumb', thumb, 'thumb.jpg');
-    const { photoId } = await api(`/sale/${saleId}/photo`, { method: 'POST', key, form });
-    return photoId;
+    return await resize(await loadImage(url), maxSide, q);
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+async function uploadPhoto(saleId, key, file) {
+  const { full, thumb } = await shrinkPhoto(file);
+  const form = new FormData();
+  form.append('full', full, 'full.jpg');
+  form.append('thumb', thumb, 'thumb.jpg');
+  const { photoId } = await api(`/sale/${saleId}/photo`, { method: 'POST', key, form });
+  return photoId;
 }
 
 // ---------- 打码: smear a mosaic over parts of a photo, on the phone, before upload ----------
@@ -2310,7 +2341,12 @@ function composer(S) {
     }
   };
 
-  const newCard = (files) => ({ files: files.map((f) => ({ file: f, url: URL.createObjectURL(f) })), name: '', price: '', orig: '', note: '', touched: false, error: '' });
+  // A photo on a card, shrunk in the background from now on; photoId is set once it is uploaded.
+  const entry = (file) => {
+    shrinkPhoto(file).catch(() => {});
+    return { file, url: URL.createObjectURL(file) };
+  };
+  const newCard = (files) => ({ files: files.map(entry), name: '', price: '', orig: '', note: '', touched: false, error: '' });
 
   // Several photos picked at once: one AI call per batch puts shots of the same thing on one
   // card and names each card. A single photo, or AI off / stopped: one card per photo, as before.
@@ -2375,9 +2411,8 @@ function composer(S) {
       const file = await (act === 'crop' ? cropEditor : mosaicEditor)(old.file);
       if (!file || c.files[j] !== old) return;
       URL.revokeObjectURL(old.url);
-      c.files[j] = { file, url: URL.createObjectURL(file) };
-      // A failed earlier submit may have uploaded the original already: upload again from here.
-      if (c.photoIds) c.photoIds.length = Math.min(c.photoIds.length, j);
+      // A new entry has no photoId, so the edited photo is uploaded even if the original was.
+      c.files[j] = entry(file);
       return render();
     }
     if (act === 'rm') {
@@ -2456,7 +2491,7 @@ function composer(S) {
       }
       case 'addph': {
         const fs = await pickFiles();
-        for (const f of fs.slice(0, MAX_PHOTOS - c.files.length)) c.files.push({ file: f, url: URL.createObjectURL(f) });
+        for (const f of fs.slice(0, MAX_PHOTOS - c.files.length)) c.files.push(entry(f));
         return render();
       }
       case 'submit':
@@ -2464,18 +2499,24 @@ function composer(S) {
     }
   });
 
+  // Leaving mid-way loses the items not sent yet, so the browser asks first.
+  const holdPage = (e) => e.preventDefault();
   const submit = async () => {
     cards.forEach((c) => (c.touched = true));
     busy = true;
     render();
+    const todo = cards.filter(valid);
+    const stop = loading('');
+    window.addEventListener('beforeunload', holdPage);
     let done = 0;
     let failed = 0;
-    for (const c of [...cards]) {
-      if (!valid(c)) continue;
+    for (const c of todo) {
+      const k = done + failed + 1;
+      stop.say(tr(`正在上架第 ${k}/${todo.length} 件，先别关页面…`, `Listing ${k} of ${todo.length}, keep this page open…`));
       try {
-        c.photoIds ||= [];
-        for (let j = c.photoIds.length; j < c.files.length; j++) c.photoIds.push(await uploadPhoto(S.saleId, S.key, c.files[j].file));
-        const body = { name: c.name.trim(), priceCents: priceCents(c), origPriceCents: parsePrice(c.orig), condition: '', note: c.note.trim(), photos: c.photoIds };
+        // A card's photos go up together; ones an earlier failed try already sent keep their id.
+        await Promise.all(c.files.map(async (f) => (f.photoId ||= await uploadPhoto(S.saleId, S.key, f.file))));
+        const body = { name: c.name.trim(), priceCents: priceCents(c), origPriceCents: parsePrice(c.orig), condition: '', note: c.note.trim(), photos: c.files.map((f) => f.photoId) };
         // The AI's other-language name goes along while the seller kept its wording; otherwise the server translates.
         if (c.ai?.nameAlt && body.name === c.ai.name && body.note === c.ai.note && (c.ai.noteAlt || !body.note)) Object.assign(body, { nameAlt: c.ai.nameAlt, noteAlt: c.ai.noteAlt });
         await api(`/sale/${S.saleId}/items`, { method: 'POST', key: S.key, body });
@@ -2488,6 +2529,8 @@ function composer(S) {
       }
       render();
     }
+    window.removeEventListener('beforeunload', holdPage);
+    stop();
     busy = false;
     render();
     if (done) toast(tr(`上架了 ${done} 件${failed ? `，${failed} 件没成功` : ''}`, `Listed ${done}${failed ? `, ${failed} failed` : ''}`));
@@ -4321,15 +4364,8 @@ const AI_BATCH_MAX = 8;
 async function aiBatch(files, currency, groups) {
   buyerToken(true);
   const form = new FormData();
-  for (const file of files) {
-    const url = URL.createObjectURL(file);
-    try {
-      // Smaller than a single recognition (1024) to keep a batch cheap; big print still reads.
-      form.append('image', await resize(await loadImage(url), 768, 0.72), 'photo.jpg');
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  }
+  // Smaller than a single recognition (1024) to keep a batch cheap; big print still reads.
+  for (const file of files) form.append('image', await aiImage(file, 768, 0.72), 'photo.jpg');
   if (currency) form.append('currency', currency);
   if (groups) form.append('groups', groups.join(','));
   return api('/ai/batch', { method: 'POST', form });
@@ -4339,15 +4375,8 @@ async function aiBatch(files, currency, groups) {
 async function aiRecognize(files, currency) {
   buyerToken(true);
   const form = new FormData();
-  for (const file of files.slice(0, MAX_PHOTOS)) {
-    const url = URL.createObjectURL(file);
-    try {
-      // Large enough to read printed brand / model text.
-      form.append('image', await resize(await loadImage(url), 1024, 0.75), 'photo.jpg');
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  }
+  // Large enough to read printed brand / model text.
+  for (const file of files.slice(0, MAX_PHOTOS)) form.append('image', await aiImage(file, 1024, 0.75), 'photo.jpg');
   if (currency) form.append('currency', currency);
   return api('/ai/identify', { method: 'POST', form });
 }
