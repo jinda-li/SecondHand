@@ -1832,6 +1832,7 @@ function manage(saleId) {
   let tab = 'open';
   let sort = store.get('manageSort', 'no');
   let checkedThisOpen = false;
+  let translatedThisOpen = false;
   let hiddenAt = 0;
   const S = { saleId, key };
 
@@ -1844,6 +1845,11 @@ function manage(saleId) {
     mergeSales([{ id: saleId, key, title: data.sale.title }]);
     render();
     S.tryRecommend();
+    // The page shows names in the UI language; ones not translated yet are, quietly, once per open.
+    if (!translatedThisOpen && untranslated(data, LANG)) {
+      translatedThisOpen = true;
+      api(`/sale/${saleId}/translate`, { method: 'POST', key, body: {} }).then(reload).catch(() => {});
+    }
   };
   S.reload = reload;
   // A sale made inside a sheet waits for that sheet to close.
@@ -1860,11 +1866,13 @@ function manage(saleId) {
     const count = (st) => items.filter((i) => i.status === st).length;
     const list = sortItems(manageOrder(items, tab), sort);
     const ended = sale.status === 'ended';
-    document.title = tr(`管理｜${sale.title}`, `Manage | ${sale.title}`);
+    // Title, place and item names in the UI language (the original stays in the item sheet).
+    const st = saleText(sale, LANG);
+    document.title = tr(`管理｜${st.title}`, `Manage | ${st.title}`);
     document.querySelector('.lang-bar')?.remove();
     $app.innerHTML = `
       <div class="topbar"><button class="btn fit" data-act="lists"><span>${tr('我的清单', 'Lists')} (${store.get('mySales', []).length})</span>▾</button><a class="btn fit" href="/s/${sale.id}"><span>${tr('买家视角', 'Buyer view')}</span></a><button class="btn" data-act="settings" aria-label="${tr('设置', 'Settings')}">⚙</button><button class="btn rec-btn" data-recommend>🎁 ${tr('推荐朋友', 'Invite')}</button></div>
-      <div class="head" style="padding-top:8px"><div class="head-row"><h1>${esc(sale.title)}</h1>${langSegHtml()}</div><div class="meta">📍 ${esc(sale.location)}</div></div>
+      <div class="head" style="padding-top:8px"><div class="head-row"><h1>${esc(st.title)}</h1>${langSegHtml()}</div><div class="meta">📍 ${esc(st.location)}</div></div>
       ${ended ? `<div class="banner">${tr('这份清单已结束：买家打开链接会看到「清单已经不见了」。', 'This list has ended: buyers opening the link see that it is gone.')}<br><button class="btn small primary" style="margin-top:8px" data-act="reopen">${tr('重新公开', 'Reopen')}</button></div>` : ''}
       ${ended ? '' : renewBannerHtml(sale, data.now)}
       ${linkSaved(saleId) ? '' : `<div class="banner">${tr('还没把管理入口发给自己：换手机或在微信里打开时，没有它就管理不了这份清单。', "You haven't sent yourself the management link yet: on a new phone or another app, you can't manage this list without it.")}<br><button class="btn small primary" style="margin-top:8px" data-act="savelink">${tr('发给自己', 'Send it to myself')}</button></div>`}
@@ -1882,7 +1890,7 @@ function manage(saleId) {
             <span class="no row-no">${it.no}</span>
             <img src="${img(it.photos[0])}" alt="" loading="lazy">
             <div class="grow">
-              <div class="ellipsis">${esc(it.name)}</div>
+              <div class="ellipsis">${esc(itemText(it, LANG).name)}</div>
               <div class="small">${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)} · <span class="st ${it.status}">${statusText[it.status]}</span>${it.queueCount ? ` · ${tr(`${it.queueCount} 人排队`, `${it.queueCount} in line`)}${it.queue[0] ? tr(`（第 1 位：${esc(it.queue[0].nickname)}）`, ` (first: ${esc(it.queue[0].nickname)})`) : ''}` : ''}</div>
             </div>
             <span class="muted">›</span>
@@ -2132,7 +2140,7 @@ function maybeCheck(S, beforeShare, then) {
       <div class="check-row ${answered[it.id] ? 'answered' : ''}">
         <div class="row">
           <img src="${img(it.photos[0])}" alt="">
-          <div class="grow"><div class="ellipsis"><span class="no">${it.no}</span> ${esc(it.name)}</div><div class="small muted">${tr('第 1 位：', 'First: ')}${esc(it.queue[0]?.nickname || '')}</div></div>
+          <div class="grow"><div class="ellipsis"><span class="no">${it.no}</span> ${esc(itemText(it, LANG).name)}</div><div class="small muted">${tr('第 1 位：', 'First: ')}${esc(it.queue[0]?.nickname || '')}</div></div>
           ${answered[it.id] ? `<span class="small">${answered[it.id]}</span>` : ''}
         </div>
         <div class="btns">
@@ -3129,10 +3137,13 @@ function shareSheet(S) {
 
 // The list with its open items in lang: names not yet translated (an older list, a just-added item)
 // are translated first, so what goes out has no leftovers in the other language. d: the data so far.
-async function translatedData(S, lang, d = S.data()) {
-  const missing = (textLang(d.sale.title) !== lang && !d.sale.alt)
+function untranslated(d, lang) {
+  return (textLang(d.sale.title) !== lang && !d.sale.alt)
     || d.items.some((i) => (i.status === 'available' || i.status === 'reserved') && textLang(i.name) !== lang && !i.nameAlt);
-  if (!missing) return d;
+}
+
+async function translatedData(S, lang, d = S.data()) {
+  if (!untranslated(d, lang)) return d;
   const stop = loading(tr('正在翻译物品名…', 'Translating item names…'));
   try {
     await api(`/sale/${S.saleId}/translate`, { method: 'POST', key: S.key, body: {} });
