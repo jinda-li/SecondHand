@@ -3280,13 +3280,17 @@ function drawStruck(g, text, x, cy, maxX) {
   g.fillRect(x - 1, cy - 1, w + 2, 2);
 }
 
-function drawStamp(g, text, cx, cy, size, color) {
+// sub: a smaller second line, e.g. "可排候补" under "已预订" so a reserved item doesn't read as gone.
+function drawStamp(g, text, cx, cy, size, color, sub = '') {
   g.save();
   g.translate(cx, cy);
   g.rotate(-0.24);
+  const subSize = Math.max(18, Math.round(size * 0.55));
+  g.font = `700 ${subSize}px ${FONT}`;
+  const subW = sub ? g.measureText(sub).width : 0;
   g.font = `800 ${size}px ${FONT}`;
-  const w = g.measureText(text).width + size;
-  const h = size * 1.5;
+  const w = Math.max(g.measureText(text).width, subW) + size;
+  const h = size * 1.5 + (sub ? subSize * 1.2 : 0);
   g.fillStyle = YELLOW;
   g.fillRect(-w / 2, -h / 2, w, h);
   g.lineWidth = size / 10;
@@ -3295,7 +3299,12 @@ function drawStamp(g, text, cx, cy, size, color) {
   g.fillStyle = color;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillText(text, 0, 2);
+  if (!sub) g.fillText(text, 0, 2);
+  else {
+    g.fillText(text, 0, -subSize * 0.55);
+    g.font = `700 ${subSize}px ${FONT}`;
+    g.fillText(sub, 0, size * 0.55 + 2);
+  }
   g.restore();
 }
 
@@ -3461,7 +3470,7 @@ async function drawSalePage(sale, list, qr, url, pi, pn, counts, lang = LANG) {
     g.fillStyle = '#f5f5f5';
     g.fillRect(x, y, cell, cell);
     if (ims[k]) drawCover(g, ims[k], x, y, cell, cell);
-    if (it.status === 'reserved') drawStamp(g, L('已预订', 'Reserved'), x + cell / 2, y + cell / 2, 40, '#111');
+    if (it.status === 'reserved') drawStamp(g, L('已预订', 'Reserved'), x + cell / 2, y + cell / 2, 40, '#111', L('可排候补', 'Waitlist open'));
     g.fillStyle = '#111';
     g.font = `800 30px ${FONT}`;
     g.fillText(fitText(g, itemText(it, lang).name, cell - 8), x + 2, y + cell + 40);
@@ -3490,7 +3499,7 @@ async function drawSalePage(sale, list, qr, url, pi, pn, counts, lang = LANG) {
   g.fillText(qr ? L('长按识别 · 先到先得', 'Scan to reserve · first come') : L('打开链接排队', 'Open the link to reserve'), qx + qs + 36, qy + 80);
   g.font = `400 30px ${FONT}`;
   g.fillStyle = '#fff';
-  g.fillText(fitText(g, L('页面实时更新，显示「预订」就是还在', 'Live page: "Reserve" means still available'), W - pad * 2 - qs - 100), qx + qs + 36, qy + 130);
+  g.fillText(fitText(g, L('页面实时更新，已预订的也能排候补', 'Live page: reserved items take a waitlist'), W - pad * 2 - qs - 100), qx + qs + 36, qy + 130);
   g.font = `400 24px ${FONT}`;
   g.fillStyle = 'rgba(255,255,255,0.75)';
   g.fillText(fitText(g, url, W - pad * 2 - qs - 100), qx + qs + 36, qy + 175);
@@ -3631,11 +3640,11 @@ async function drawPoster(sale, items, lang, { link, target }) {
     }
     if (ims[k]) drawCover(g, ims[k], x + 3, y + 3, w - 6, h - 6);
     const tag = Math.max(26, Math.min(44, Math.round(side * 0.15)));
-    if (it.status === 'reserved') drawStamp(g, L('已预订', 'Reserved'), x + w / 2, y + h / 2, tag, '#111');
+    if (it.status === 'reserved') drawStamp(g, L('已预订', 'Reserved'), x + w / 2, y + h / 2, tag, '#111', L('可排候补', 'Waitlist open'));
     drawPriceTag(g, moneyIn(it.priceCents, sale.currency, lang), x + w - 10, y + h - 10, tag);
   });
 
-  // Names and prices, down the left column first; reserved items in grey.
+  // Names and prices, down the left column first; reserved items in grey, still priced, marked waitlist.
   const y0 = head + mosaic + 40;
   const gap = 48;
   const colW = (POST_W - pad * 2 - gap) / 2;
@@ -3643,7 +3652,8 @@ async function drawPoster(sale, items, lang, { link, target }) {
     const x = pad + (k < rows ? 0 : colW + gap);
     const y = y0 + (k % rows) * rowH;
     const reserved = it.status === 'reserved';
-    const price = reserved ? L('已预订', 'Reserved') : moneyIn(it.priceCents, sale.currency, lang);
+    const money = moneyIn(it.priceCents, sale.currency, lang);
+    const price = reserved ? L(`可候补 ${money}`, `waitlist ${money}`) : money;
     g.font = `800 30px ${FONT}`;
     const pw = g.measureText(price).width;
     g.textAlign = 'right';
