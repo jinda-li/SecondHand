@@ -1,7 +1,7 @@
 import { money, contactNote, byRecent, itemText, saleText, textLang, normTelegram, looksLikeTelegram, RULES } from '../public/lib.js';
 import { landingHtml } from './landing.js';
 
-const VERSION = '58';
+const VERSION = '59';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 // An open list pauses this long after its last renewal: buyers can look but not queue,
@@ -143,6 +143,7 @@ async function route(req, env, ctx) {
   }
   // The landing page: / in Chinese, /en in English, rendered here so search engines read it.
   // People who already have lists get their home over it (app.js).
+  const landingBody = (l) => landingHtml(l, { appName: APP_NAME[l], faq: FAQ[l], esc, repoUrl: REPO_URL, tipUrl: env.TIP_URL || '' });
   if (p === '/' || p === '/en') {
     const l = p === '/en' ? 'en' : 'zh';
     return page({
@@ -154,17 +155,18 @@ async function route(req, env, ctx) {
       lang: l,
       jsonLd: { '@context': 'https://schema.org', '@graph': [appJsonLd(url, l), faqJsonLd(l)] },
       alternates: { 'zh-CN': `${url.origin}/`, en: `${url.origin}/en`, 'x-default': `${url.origin}/` },
-      body: landingHtml(l, { appName: APP_NAME[l], faq: FAQ[l], esc, repoUrl: REPO_URL, tipUrl: env.TIP_URL || '' }),
+      body: landingBody(l),
       css: 'landing.css',
       data: { landing: l },
     });
   }
   const lang = pageLang(url);
   const T = (zh, en) => (lang === 'en' ? en : zh);
-  // /new is the public "what is this" page buyers reach from 我也有二手要出, and the one people
-  // save or forward, so its card says what the app does.
+  // /new was the old "what is this" page, still sitting in people's 收藏; the landing page has
+  // taken its place. /new?go=1 is the publish form.
   if (p === '/new') {
-    return page({ title: APP_TITLE[lang], desc: APP_DESC[lang], image: `${url.origin}/icon-300.png`, imageSize: 300, url, lang, jsonLd: appJsonLd(url, lang) });
+    if (!url.searchParams.has('go')) return Response.redirect(url.origin + (lang === 'en' ? '/en' : '/'), 301);
+    return page({ title: APP_TITLE[lang], desc: APP_DESC[lang], image: `${url.origin}/icon-300.png`, imageSize: 300, url, lang, robots: true });
   }
   if (p === '/my' || p === '/nearby') {
     return page({ title: APP_NAME[lang], desc: T('拍照就上架，别人点开就能排队', 'Snap a photo to list it; people tap the link and get in line'), url, lang });
@@ -180,26 +182,24 @@ async function route(req, env, ctx) {
       robots: true,
     });
   }
-  // The page buyers save to WeChat 收藏 for later. Its title is what they will see and search for,
-  // so a saved gift link says what is waiting inside.
+  // The page buyers save to WeChat 收藏 for later, and the one 推荐朋友 sends. Its title is what
+  // they will see and search for, so a saved gift link says what is waiting inside. The body is
+  // the landing page; it stays out of search so / is the one that gets indexed.
   if (p === '/keep') {
     const gift = url.searchParams.has('save') || url.searchParams.has('gift');
     const friend = await friendGift(env, url.searchParams.get('gift'));
+    const keepPage = (o) => page({ ...o, image: url.origin + '/keep-icon.png', url, lang, robots: true, body: landingBody(lang), css: 'landing.css', data: { ...o.data, landing: lang } });
     if (friend) {
-      return page({
+      return keepPage({
         title: T(`${friend.name || '朋友'}送你 ${KEEP_GIFT_USES} 次 AI 识图｜二手清单`, `${friend.name || 'A friend'} sent you ${KEEP_GIFT_USES} AI photo tries | Secondhand List`),
         desc: T(
           `我用它出过闲置，挺好用。拍照就上架，发到群里，群友点开自己排队。打开就到账，收藏起来搬家时用。`,
           `I sold my stuff with it and it worked well. Snap a photo to list it, post one link, people get in line themselves. Open to claim, keep it for moving day.`,
         ),
-        image: url.origin + '/keep-icon.png',
-        url,
-        lang,
-        robots: true,
         data: { friendGift: friend },
       });
     }
-    return page({
+    return keepPage({
       title: gift
         ? T(`二手清单｜送你 ${KEEP_GIFT_USES} 次 AI 识图，搬家时用`, `Secondhand List | ${KEEP_GIFT_USES} free AI photo tries for moving day`)
         : T('二手清单｜搬家、毕业、回国出闲置', 'Secondhand List | Sell your stuff when you move out'),
@@ -209,10 +209,6 @@ async function route(req, env, ctx) {
           `This link holds ${KEEP_GIFT_USES} AI photo tries for you: snap a photo and it knows what it is, no typing. Open it when you move out.`,
         )
         : T('拍照就上架，发到群里，群友点开自己排队', 'Snap a photo to list it, post one link, people get in line themselves'),
-      image: url.origin + '/keep-icon.png',
-      url,
-      lang,
-      robots: gift,
     });
   }
   return page({ title: T('找不到这个页面', 'Page not found'), url, lang, status: 404, data: { notFound: true } });

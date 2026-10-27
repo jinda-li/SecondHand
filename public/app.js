@@ -600,7 +600,9 @@ function boot() {
   });
   // 中文 / English in the bar at the top of every page.
   document.addEventListener('click', (e) => {
-    if (e.target.closest('[data-lang-switch]')) setLang(LANG === 'en' ? 'zh' : 'en');
+    if (!e.target.closest('[data-lang-switch]')) return;
+    e.preventDefault();
+    setLang(LANG === 'en' ? 'zh' : 'en');
   });
   // Any page that renders a .nearby-feed placeholder gets the live feed filled in.
   new MutationObserver(mountNearbyFeeds).observe($app, { childList: true, subtree: true });
@@ -618,7 +620,7 @@ function boot() {
   if (path === '/nearby') return nearbyPage();
   if (path === '/keep') return keepPage();
   if (path === '/lists') return listsPage();
-  if (path === '/new') return new URLSearchParams(location.search).has('go') ? createSale() : intro();
+  if (path === '/new') return createSale();
   if (BOOT.landing) return landing();
   return home();
 }
@@ -628,6 +630,10 @@ function boot() {
 function landing() {
   if (store.get('mySales', []).length || store.get('signedIn', false)) return home();
   if (BOOT.landing === 'zh' && chosenLang === 'en') return location.replace('/en');
+  playLanding();
+}
+
+function playLanding() {
   $app.querySelectorAll('[data-feedback]').forEach((b) => (b.onclick = feedbackSheet));
   // The room that empties as you scroll; the page reads fine without it.
   import('./landing.js').then((m) => m.initLanding($app, BOOT.landing)).catch(() => {});
@@ -684,7 +690,7 @@ async function home() {
       <a class="cell" href="/manage/${esc(s.id)}"><div class="grow"><div>${esc(s.title)}</div><div class="muted small">${tr('管理我的清单', 'Manage this list')}</div></div><span class="muted">›</span></a>`).join('')}
     </div>` : ''}
     <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
-      <a class="btn primary big block" href="${mine.length ? '/new?go=1' : '/new'}">${mine.length ? tr('再发一份新清单', 'Start another list') : tr('发布我的二手清单', 'Post my secondhand list')}</a>
+      <a class="btn primary big block" href="/new?go=1">${mine.length ? tr('再发一份新清单', 'Start another list') : tr('发布我的二手清单', 'Post my secondhand list')}</a>
       <a class="btn big block" href="/my">${tr('我的排队', 'My reservations')}</a>
       <button class="btn big block rec-btn" data-recommend>🎁 ${tr('推荐给要搬家的朋友', 'Recommend to a friend who is moving')}</button>
     </div>
@@ -817,79 +823,6 @@ function getLocation() {
   });
 }
 
-// What this is and how it works, before the publish form.
-function intro() {
-  // A tiny picture of the product: what buyers see in the group link.
-  const mock = [
-    ['🪑', '€20', false],
-    ['💡', '€5', true],
-    ['🍳', '€6', false],
-    ['🚲', '€80', false],
-  ];
-  const steps = tr([
-    ['📷', '拍照，填个价格', 'AI 自动认出是什么，名字不用打'],
-    ['💬', '一个链接，发几个群都行', '群友点开就能看图、预订'],
-    ['🙋', '自动排队，不撞单', '排到第 1 位的人来找你'],
-    ['📍', '附近的人也能刷到', '也会出现在附近别人的清单下面，卖得更快'],
-  ], [
-    ['📷', 'Snap a photo, add a price', 'The AI names the item, no typing'],
-    ['💬', 'One link, as many groups as you like', 'People tap it to see photos and reserve'],
-    ['🙋', 'A queue, no double-selling', 'Only the first in line sees your contact'],
-    ['📍', 'People nearby see it too', 'Your things also show under lists nearby'],
-  ]);
-  const fg = BOOT.friendGift;
-  $app.innerHTML = `
-    <div class="appbar">${LOGO}</div>
-    <div class="intro">
-      ${fg ? `<div class="friend-note">🎁 ${tr(`<b>${esc(fg.name || '朋友')}</b> 推荐你用`, `<b>${esc(fg.name || 'A friend')}</b> recommends this`)}</div>` : ''}
-      <h1 class="intro-title">${tr('出二手，<br>不用一个个回消息', 'Sell your stuff<br>without answering every message')}</h1>
-      <div class="intro-sub">${tr('拍照上架，发到群里，想要的人自己排队', 'List with photos, post to your groups, buyers line up themselves')}</div>
-      <div class="intro-mock">${mock.map(([e, p, reserved]) => `
-        <div class="mock-tile">
-          <div class="mock-ph">${e}${reserved ? `<span class="mock-stamp">${tr('已预订', 'Reserved')}</span>` : ''}</div>
-          <span class="mock-price">${p}</span>
-          <span class="mock-btn ${reserved ? 'off' : ''}">${reserved ? tr('排候补', 'Waitlist') : tr('预订', 'Reserve')}</span>
-        </div>`).join('')}
-      </div>
-      <div class="intro-steps2">${steps.map(([i, t, d]) => `
-        <div class="intro-step2"><span class="intro-icon">${i}</span><div><b>${t}</b><div class="small muted">${d}</div></div></div>`).join('')}
-      </div>
-      <div class="intro-free">${tr('免费 · 不用注册 · 不用下载', 'Free · no sign-up · no app')}</div>
-    </div>
-    <div class="save-entry" id="save">
-      <div class="save-t">${ICON_STAR}${tr('收藏这个页面', 'Keep this page')}</div>
-      <div class="save-s">${tr(`现在不发也没关系，以后想出二手，从${isWeChat ? '微信收藏' : '书签'}里打开就能用。`, `Not selling today? Keep it ${isTelegram ? 'in Saved Messages' : 'as a bookmark'} and open it when you move out.`)}</div>
-      <div class="save-btns">
-        <button class="pill dark" data-save="fav">${ICON_STAR}${tr('去收藏', 'Keep it')}</button>
-        <button class="pill" data-save="send">${tr('分享给朋友', 'Share with a friend')}</button>
-      </div>
-    </div>
-    <div class="bottom-bar"><div class="inner"><a class="btn primary big" href="/new?go=1">${tr('开始发布', 'Get started')}</a></div></div>`;
-  // 收藏 on a buyer page's strip lands here; the card is rendered after load, so scroll by hand.
-  if (location.hash === '#save') $app.querySelector('#save').scrollIntoView({ block: 'center' });
-  $app.addEventListener('click', async (e) => {
-    const b = e.target.closest('[data-save]');
-    if (!b) return;
-    const fav = b.dataset.save === 'fav';
-    if (isWeChat) return menuGuide(fav ? '收藏' : '发送给朋友');
-    const url = `${location.origin}/new`;
-    if (isTelegram) {
-      location.href = tgShareUrl(url, fav ? '' : tr('出二手不用一个个回消息，拍照上架、群友自己排队', 'Sell your stuff without answering every message: photos in, buyers line up themselves'));
-      return;
-    }
-    if (!fav && navigator.share) {
-      try {
-        await navigator.share({ title: document.title, url });
-      } catch {}
-      return;
-    }
-    if (fav) return toast(/Mobi/i.test(navigator.userAgent) ? tr('在浏览器菜单里选「添加书签」或「添加到主屏幕」', 'Use "Add bookmark" or "Add to Home Screen" in the browser menu') : tr('按 Ctrl+D（Mac 上 ⌘+D）加到书签', 'Press Ctrl+D (⌘+D on a Mac) to bookmark'));
-    copy(url, tr('链接已复制，发给朋友吧', 'Link copied, send it to a friend'));
-  });
-}
-
-const ICON_STAR = `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`;
-
 // The first time a browser arrives from the old workers.dev address, ask it to save the new one.
 // It sits above $app, so page renders don't wipe it. Telegram links live in chats, not bookmarks.
 function movedNotice() {
@@ -942,7 +875,7 @@ function keepWanted() {
 const GIFT_USES = CFG.keepGiftUses || 10;
 
 function keepButtonsHtml() {
-  return `<div class="keep-btns"><a class="btn primary big" href="/keep?save=1">☆ ${tr('收藏备用', 'Keep for later')}</a><a class="btn big" href="/new">${tr('现在就发', 'Post now')}</a></div>
+  return `<div class="keep-btns"><a class="btn primary big" href="/keep?save=1">☆ ${tr('收藏备用', 'Keep for later')}</a><a class="btn big" href="/new?go=1">${tr('现在就发', 'Post now')}</a></div>
     <div class="small muted center">${tr(`送你 ${GIFT_USES} 次 AI 识图，存在${isWeChat ? '收藏' : '书签'}的页面里，以后打开就到账`, `${GIFT_USES} free AI photo tries live in the saved page, yours when you open it later`)}</div>`;
 }
 
@@ -975,7 +908,7 @@ function brandCardHtml() {
       ${tr('📷 拍照，填个价格就上架<br>💬 一个链接，发几个群都行<br>🙋 群友自己排队，不撞单', '📷 Snap a photo, add a price<br>💬 One link for all your groups<br>🙋 Buyers line up themselves, no double-selling')}
       ${keepWanted()
         ? `<div class="brand-card-note">${tr('现在用不上也没关系。收藏起来，搬家、毕业、回国那天再打开。', 'No use for it today? Keep it for the day you move out.')}</div>${keepButtonsHtml()}`
-        : `<a class="btn primary big block" href="/new" style="margin-top:12px">${tr('我也发一份', 'Make my own list')}</a>`}
+        : `<a class="btn primary big block" href="/new?go=1" style="margin-top:12px">${tr('我也发一份', 'Make my own list')}</a>`}
     </div>
   </div>`;
 }
@@ -1005,10 +938,17 @@ function keepBar() {
 
 // /keep is the page buyers save. ?save=1 makes a gift code and swaps the address to
 // /keep?gift=<code>: WeChat 收藏 (or a bookmark) keeps the current URL, so the gift travels
-// with the saved link and is claimed when someone opens it later.
+// with the saved link and is claimed when someone opens it later. The page under it is the
+// landing page, in the card's language; someone who chose the other one gets it via ?lang=.
 async function keepPage() {
-  intro();
   const q = new URLSearchParams(location.search);
+  if (chosenLang && chosenLang !== BOOT.landing) {
+    q.set('lang', chosenLang);
+    return location.replace(`/keep?${q}`);
+  }
+  // A plain saved /keep is the way back in: sellers get their home, as on /.
+  if (!q.has('gift') && !q.has('save') && (store.get('mySales', []).length || store.get('signedIn', false))) return home();
+  playLanding();
   if (q.has('gift')) return redeemKeepGift(q.get('gift'));
   if (!q.has('save')) return;
   buyerToken(true);
@@ -1449,8 +1389,8 @@ function appBarHtml(isOwner) {
     ${promo ? `<div class="promo">
       <button class="promo-x" data-promo-x aria-label="${tr('关闭', 'Close')}">✕</button>
       <div class="promo-txt"><b>${tr('我也有二手要出', 'Selling stuff too?')}</b><span>${tr('免登录·免安装·多群同步·免费', 'No sign-up · no app · free')}</span></div>
-      <a class="promo-fav" href="/new#save">${tr('收藏', 'Keep')}</a>
-      <a class="promo-cta" href="/new">${tr('去发布', 'Post')}</a>
+      <a class="promo-fav" href="/keep?save=1">${tr('收藏', 'Keep')}</a>
+      <a class="promo-cta" href="${tr('/', '/en')}">${tr('去发布', 'Post')}</a>
     </div>` : ''}
     <div class="appbar">
       ${LOGO}
@@ -4296,7 +4236,7 @@ function nearbyPage() {
   $app.innerHTML = `${nearbyEntryHtml()}
     <div style="padding:24px 16px 8px;display:flex;gap:10px;justify-content:center">
       <a class="btn small" href="/my">${tr('我的排队', 'My reservations')}</a>
-      <a class="btn small" href="/new">${tr('我也要发清单', 'Make my own list')}</a>
+      <a class="btn small" href="${tr('/', '/en')}">${tr('我也要发清单', 'Make my own list')}</a>
     </div>`;
   mountNearbyFeeds();
 }

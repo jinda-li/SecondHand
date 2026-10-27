@@ -81,6 +81,8 @@ export function setLang(l) {
   save(l);
   const u = new URL(location.href);
   u.searchParams.delete('lang');
-  if (window.__DATA__?.landing) u.pathname = l === 'en' ? '/en' : '/';
+  // / and /en are one page per language; /keep keeps its gift link and asks for the other one.
+  if (window.__DATA__?.landing && u.pathname === '/keep') u.searchParams.set('lang', l);
+  else if (window.__DATA__?.landing) u.pathname = l === 'en' ? '/en' : '/';
   location.replace(u.href);
 }
