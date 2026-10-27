@@ -627,12 +627,9 @@ function boot() {
 function landing() {
   if (store.get('mySales', []).length || store.get('signedIn', false)) return home();
   if (BOOT.landing === 'zh' && chosenLang === 'en') return location.replace('/en');
-  $app.querySelector('[data-feedback]').onclick = feedbackSheet;
-  const tip = $app.querySelector('[data-tip]');
-  if (tipOn()) {
-    tip.hidden = false;
-    tip.querySelector('button').onclick = () => tipSheet();
-  }
+  $app.querySelectorAll('[data-feedback]').forEach((b) => (b.onclick = feedbackSheet));
+  // The room that empties as you scroll; the page reads fine without it.
+  import('./landing.js').then((m) => m.initLanding($app, BOOT.landing)).catch(() => {});
 }
 
 // The seller's own key for this sale, if this browser has one.

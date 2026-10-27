@@ -1,6 +1,7 @@
 import { money, contactNote, byRecent, itemText, saleText, textLang, normTelegram, looksLikeTelegram, RULES } from '../public/lib.js';
+import { landingHtml } from './landing.js';
 
-const VERSION = '55';
+const VERSION = '56';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 // An open list pauses this long after its last renewal: buyers can look but not queue,
@@ -152,7 +153,8 @@ async function route(req, env, ctx) {
       lang: l,
       jsonLd: { '@context': 'https://schema.org', '@graph': [appJsonLd(url, l), faqJsonLd(l)] },
       alternates: { 'zh-CN': `${url.origin}/`, en: `${url.origin}/en`, 'x-default': `${url.origin}/` },
-      body: landingHtml(l),
+      body: landingHtml(l, { appName: APP_NAME[l], faq: FAQ[l], esc, repoUrl: REPO_URL, tipUrl: env.TIP_URL || '' }),
+      css: 'landing.css',
       data: { landing: l },
     });
   }
@@ -270,84 +272,10 @@ const faqJsonLd = (lang) => ({
   mainEntity: FAQ[lang].map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })),
 });
 
-// The landing page body (/ and /en). Plain HTML so it reads without JavaScript; app.js wires the
-// feedback and tip buttons, and swaps in the seller's home for people who already have lists.
-function landingHtml(lang) {
-  const T = (zh, en) => (lang === 'en' ? en : zh);
-  const home = T('/', '/en');
-  const mock = [['🪑', '€20', false], ['💡', '€5', true], ['🍳', '€6', false], ['🚲', '€80', false]];
-  const steps = T([
-    ['📷', '拍照，填个价格', 'AI 自动认出是什么，名字不用打'],
-    ['💬', '一个链接，发几个群都行', '群友点开就能看图、预订'],
-    ['🙋', '自动排队，不撞单', '第 1 位才看到你的联系方式'],
-    ['📍', '附近的人也能刷到', '也会出现在附近别人的清单下面，卖得更快'],
-  ], [
-    ['📷', 'Snap a photo, add a price', 'The AI names the item, no typing'],
-    ['💬', 'One link, as many groups as you like', 'People tap it to see photos and reserve'],
-    ['🙋', 'A queue, no double-selling', 'Only the first in line sees your contact'],
-    ['📍', 'People nearby see it too', 'Your things also show under lists nearby'],
-  ]);
-  const who = T([
-    '搬家、毕业、回国、换城市，走之前要清一屋子闲置',
-    '在海外的留学生、交换生、上班族，东西卖给同城的华人和外国同学',
-    '在微信群、Telegram 群里出二手，懒得一条条回消息',
-  ], [
-    'Moving out, graduating, going home or changing cities, with a flat to clear first',
-    'Students and workers abroad selling to people in the same city',
-    'Anyone selling in WeChat or Telegram groups who is tired of answering one message at a time',
-  ]);
-  const why = T([
-    ['不用一遍遍回「还在吗」', '卖了没卖、几个人在排，链接里都写着'],
-    ['不会两个人约同一件', '先到先得，排第 1 的人才拿到你的联系方式'],
-    ['一处改，所有群都更新', '改价、标已出只在一个地方，发出去的链接自动是最新的'],
-    ['中英文自动翻译', '外国同学、室友也看得懂'],
-  ], [
-    ['No more "is this still available?"', 'The link shows what is sold and how many are in line'],
-    ['Nobody double-books', 'First come, first served: only the first in line gets your contact'],
-    ['Change it once, every group sees it', 'Edit a price or mark it sold in one place; every link you posted is up to date'],
-    ['Translated automatically', 'Chinese and English, so flatmates and classmates can read it'],
-  ]);
-  return `
-<header class="appbar lp-bar"><a class="logo" href="${home}"><img src="/icon.svg" alt="" width="34" height="34"><span class="logo-txt"><b>${APP_NAME[lang]}</b><small>${T('AI识别 · 多群同步', 'AI photos · all your groups')}</small></span></a><a class="appbar-my" href="/my">${T('我的排队', 'My reservations')}</a></header>
-<main class="lp">
-  <section class="intro">
-    <h1 class="intro-title">${T('出二手，<br>不用一个个回消息', 'Sell your stuff<br>without answering every message')}</h1>
-    <p class="intro-sub">${T('拍照上架，发一个链接到群里，想要的人自己排队预订', 'List it with a photo, post one link to your groups, and buyers line up themselves')}</p>
-    <div class="intro-mock" aria-hidden="true">${mock.map(([e, price, reserved]) => `
-      <div class="mock-tile"><div class="mock-ph">${e}${reserved ? `<span class="mock-stamp">${T('已预订', 'Reserved')}</span>` : ''}</div><span class="mock-price">${price}</span><span class="mock-btn ${reserved ? 'off' : ''}">${reserved ? T('排候补', 'Waitlist') : T('预订', 'Reserve')}</span></div>`).join('')}
-    </div>
-    <a class="btn primary big lp-cta" href="/new?go=1">${T('免费发布我的清单', 'Post my list, free')}</a>
-    <div class="intro-free">${T('免费 · 不用注册 · 不用下载 App', 'Free · no sign-up · no app')}</div>
-  </section>
-  <section class="lp-sec" id="how">
-    <h2>${T('怎么用', 'How it works')}</h2>
-    <div class="intro-steps2">${steps.map(([i, t, d]) => `
-      <div class="intro-step2"><span class="intro-icon">${i}</span><div><b>${t}</b><div class="small muted">${d}</div></div></div>`).join('')}
-    </div>
-  </section>
-  <section class="lp-sec">
-    <h2>${T('为什么不直接在群里发', 'Why not just post in the group?')}</h2>
-    <dl class="lp-why">${why.map(([t, d]) => `<div><dt>${t}</dt><dd>${d}</dd></div>`).join('')}</dl>
-  </section>
-  <section class="lp-sec">
-    <h2>${T('适合谁', 'Who it is for')}</h2>
-    <ul class="lp-who">${who.map((w) => `<li>${w}</li>`).join('')}</ul>
-  </section>
-  <section class="lp-sec" id="faq">
-    <h2>${T('常见问题', 'Questions')}</h2>
-    <div class="lp-faq">${FAQ[lang].map(([q, a]) => `<details><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join('')}</div>
-  </section>
-  <footer class="lp-foot">
-    <p>${T('一个人独立开发的免费小工具，代码开源。', 'A free tool built independently by one developer. The code is open source.')}</p>
-    <p><a href="/privacy${T('', '#en')}">${T('隐私政策', 'Privacy')}</a> · <a href="/terms${T('', '#en')}">${T('服务条款', 'Terms')}</a> · <a href="${REPO_URL}" rel="noopener">GitHub</a> · <button class="link-btn small" data-feedback>${T('反馈', 'Feedback')}</button><span data-tip hidden> · <button class="link-btn small">${T('打赏开发者', 'Tip the developer')}</button></span></p>
-  </footer>
-</main>
-<div class="bottom-bar"><div class="inner"><a class="btn primary big" href="/new?go=1">${T('开始发布', 'Get started')}</a></div></div>`;
-}
-
 // wide: the image is the 1200×630 Telegram card, shown large under the message.
-// body: HTML rendered into #app before app.js runs; alternates: hreflang → URL of each language version.
-function page({ title, desc = '', image = '', imageSize = 600, wide = false, url, lang = 'zh', data = {}, status = 200, robots = false, keepQuery = false, jsonLd = null, body = '', alternates = null }) {
+// body: HTML rendered into #app before app.js runs; alternates: hreflang → URL of each language version;
+// css: an extra stylesheet for this page.
+function page({ title, desc = '', image = '', imageSize = 600, wide = false, url, lang = 'zh', data = {}, status = 200, robots = false, keepQuery = false, jsonLd = null, body = '', alternates = null, css = '' }) {
   const canonical = url.origin + url.pathname + (keepQuery ? url.search : '');
   const dataJson = JSON.stringify(data).replace(/</g, '\\u003c');
   const html = `<!doctype html>
@@ -382,6 +310,7 @@ ${image ? `<meta property="og:image" content="${esc(image)}">
 ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>` : ''}
 <link rel="stylesheet" href="/app.css?v=${VERSION}">
 <link rel="stylesheet" href="/theme.css?v=${VERSION}">
+${css ? `<link rel="stylesheet" href="/${css}?v=${VERSION}">` : ''}
 </head>
 <body>
 ${image && !wide ? `<div class="wx-thumb" aria-hidden="true"><img src="${esc(image)}" width="300" height="300" alt=""></div>` : ''}
