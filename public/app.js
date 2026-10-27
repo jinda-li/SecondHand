@@ -152,7 +152,7 @@ function openSheet(render, onAct, { onClose, locked = false } = {}) {
 
 // In-page confirm dialog. Native confirm()/prompt() show the site address or "JavaScript"
 // as their title (especially inside WeChat), so every confirmation goes through this.
-function ask({ title, text = '', ok = tr('确定', 'OK'), cancel = tr('取消', 'Cancel'), danger = false, word = '' }) {
+function ask({ title, text = '', ok = tr('确定', 'OK'), danger = false, word = '' }) {
   return new Promise((resolve) => {
     let done = false;
     const finish = (v, s) => {
@@ -166,7 +166,7 @@ function ask({ title, text = '', ok = tr('确定', 'OK'), cancel = tr('取消', 
       ${word ? `<div class="group"><div class="cell"><input class="inp grow" name="askword" placeholder="${esc(tr(`输入「${word}」确认`, `Type "${word}" to confirm`))}" autocomplete="off"></div></div>` : ''}
       <div class="actions">
         <button class="btn ${danger ? 'danger-solid' : 'primary'} big block" data-act="ok">${esc(ok)}</button>
-        <button class="btn block" data-act="cancel">${esc(cancel)}</button>
+        <button class="btn block" data-act="cancel">${tr('取消', 'Cancel')}</button>
       </div>`, (act, el, s) => {
       if (act === 'cancel') return finish(false, s);
       if (act !== 'ok') return;
@@ -615,7 +615,7 @@ function boot() {
   if (BOOT.notFound) return notFound();
   if ((m = path.match(/^\/s\/([A-Za-z0-9]+)\/i\/(\d+)/))) return buyerItem(m[1], Number(m[2]));
   if ((m = path.match(/^\/s\/([A-Za-z0-9]+)/))) return buyerSale(m[1]);
-  if ((m = path.match(/^\/manage\/([A-Za-z0-9]+)/))) return manageGate(m[1]);
+  if ((m = path.match(/^\/manage\/([A-Za-z0-9]+)/))) return manage(m[1]);
   if (path === '/my') return myQueues();
   if (path === '/nearby') return nearbyPage();
   if (path === '/keep') return keepPage();
@@ -644,6 +644,22 @@ function localKey(saleId) {
   return store.get('mySales', []).find((s) => s.id === saleId)?.key || null;
 }
 
+// A list's own pages show the seller's view (banner, back-to-manage bar) only in a tab that came
+// from that list's management page (its 买家视角 and 分享 buttons add #preview). Opened any other
+// way they are the buyer page, even in a browser holding the key: a management link sent to a
+// buyer by mistake leaves the key in their browser.
+function previewing(saleId) {
+  try {
+    if (location.hash === '#preview') {
+      sessionStorage.setItem('preview', saleId);
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+    return sessionStorage.getItem('preview') === saleId;
+  } catch {
+    return false;
+  }
+}
+
 
 // 中文 | English at the top of every page, the current one highlighted; switching reloads the page.
 // The manage page puts it beside the list's title instead, so it takes no row of its own.
@@ -654,31 +670,12 @@ function langSegHtml() {
 const langBarHtml = () => `<div class="lang-bar">${langSegHtml()}</div>`;
 
 function ownerBanner(sale) {
-  return `<div class="banner">${tr('这是买家看到的样子。你是卖家，不能预订自己的东西。', 'This is what buyers see. You are the seller, so you can\'t reserve your own things.')}
-    <button class="link-btn" data-not-seller>${tr('我不是卖家', "I'm not the seller")}</button></div>`;
+  return `<div class="banner">${tr('这是买家看到的样子。你是卖家，不能预订自己的东西。', 'This is what buyers see. You are the seller, so you can\'t reserve your own things.')}</div>`;
 }
 
 // Seller previewing their own list sees buyer buttons; tapping one points them to the management page.
-// A buyer who once opened a management link sent by mistake holds the key too, so they get a way out.
-function ownerTap(sale) {
-  openSheet(() => `<h2>${tr('这是你自己的东西', 'This is your own item')}</h2>
-    <div class="hint center" style="padding-top:0">${tr('买家点这里会排队预订。<br>要改价格、标已出，去管理页。', 'Buyers tap here to reserve.<br>To change prices or mark things sold, go to the management page.')}</div>
-    <div class="actions">
-      <button class="btn primary big block" data-act="manage">${tr('去管理', 'Manage')}</button>
-      <button class="btn block" data-act="cancel">${tr('取消', 'Cancel')}</button>
-      <button class="link-btn" data-act="not-seller">${tr('我不是卖家，是来买东西的', "I'm not the seller, I'm here to buy")}</button>
-    </div>`, (act, el, s) => {
-    s.close();
-    if (act === 'manage') location.href = `/manage/${sale.id}`;
-    if (act === 'not-seller') notSeller(sale.id);
-  });
-}
-
-// Forget this list's key in this browser, so it shows the buyer view again.
-async function notSeller(saleId) {
-  if (!(await ask({ title: tr('退出卖家身份？', 'Stop being the seller here?'), text: tr('这台手机会忘掉这份清单的管理权限，之后看到的就是买家页面，可以正常预订。\n真是卖家的话，打开自己保存的管理链接就能回来。', "This phone forgets the key to manage this list, so you'll see the buyer page and can reserve.\nIf you are the seller, open your saved management link to get back in."), ok: tr('我不是卖家', "I'm not the seller") }))) return;
-  store.set('mySales', store.get('mySales', []).filter((s) => s.id !== saleId));
-  location.reload();
+async function ownerTap(sale) {
+  if (await ask({ title: tr('这是你自己的东西', 'This is your own item'), text: tr('买家点这里会排队预订。\n要改价格、标已出，去管理页。', 'Buyers tap here to reserve.\nTo change prices or mark things sold, go to the management page.'), ok: tr('去管理', 'Manage') })) location.href = `/manage/${sale.id}`;
 }
 
 // Ended and deleted lists look the same to buyers.
@@ -1162,7 +1159,7 @@ function listRowHtml({ id, key, d }) {
   const n = (st) => d.items.filter((i) => i.status === st).length;
   return `<a class="list-row" href="/manage/${esc(id)}?k=${esc(key)}">
     <div class="row"><b class="grow ellipsis">${esc(d.sale.title)}</b><span class="small muted">${d.sale.status === 'ended' ? tr('已结束', 'Ended') : d.sale.paused ? tr('已暂停', 'Paused') : tr('进行中', 'Open')}</span><span class="muted">›</span></div>
-    <div class="list-row-stats"><span>${statusText.available} <b>${n('available')}</b></span><span>${statusText.reserved} <b>${n('reserved')}</b></span><span>${statusText.sold} <b>${n('sold')}</b></span><span>${tr('已收回', 'Earned')} <b class="earned-tag">${esc(earnedText(d))}</b></span></div>
+    <div class="list-row-stats"><span>${statusText.available} <b>${n('available')}</b></span><span>${statusText.reserved} <b>${n('reserved')}</b></span><span>${statusText.sold} <b>${n('sold')}</b></span><span>${tr('已收回', 'Earned')} <b class="earned-tag">${esc(earnedText(d))}</b></span><span class="list-forget" role="button" data-forget="${esc(id)}">${tr('移出', 'Remove')}</span></div>
   </a>`;
 }
 
@@ -1190,7 +1187,18 @@ async function listsPage() {
     ${lists.length ? lists.map(listRowHtml).join('')
       : `<div class="empty">${tr('这台手机上还没有清单。<br>换过手机的话，从收藏或聊天记录里打开以前存的管理入口。', 'No lists on this phone yet.<br>New phone? Open the management link you saved earlier.')}</div>`}
     <div class="bottom-bar"><div class="inner"><a class="btn primary big" href="/new?go=1">${tr('＋ 新建一份清单', '+ New list')}</a></div></div>`;
-  $app.onclick = (e) => {
+  $app.onclick = async (e) => {
+    // Removing only forgets the key on this phone; the list itself stays up for buyers.
+    const f = e.target.closest('[data-forget]');
+    if (f) {
+      e.preventDefault();
+      const l = lists.find((x) => x.id === f.dataset.forget);
+      if (!(await ask({ title: tr(`从这台手机移出「${l.d.sale.title}」？`, `Remove "${l.d.sale.title}" from this phone?`), text: tr('清单不会被删除，买家照常能看到和预订。\n这台手机只是不再记得它的管理链接，之后要管理，重新打开管理链接就行。', "The list isn't deleted: buyers can still see it and reserve.\nThis phone just forgets its management link; open that link again to manage it."), ok: tr('移出', 'Remove') }))) return;
+      forgetSale(l.id);
+      // The address carries every list's key (?s=), so it is rebuilt without this one.
+      history.replaceState(null, '', '/lists');
+      return listsPage();
+    }
     const a = e.target.closest('[data-act]');
     if (a?.dataset.act === 'kept') {
       store.set('listsKept', true);
@@ -1401,19 +1409,19 @@ function previousVisit(saleId, t) {
 const LOGO = `<a class="logo" href="/"><img src="/icon.svg" alt="" width="34" height="34"><span class="logo-txt"><b>${APP_NAME}</b><small>${tr('AI识别 · 多群同步', 'AI photos · all your groups')}</small></span></a>`;
 
 // Buyers arrive from a group card without knowing what this is: a slim dismissible strip
-// (like a store's "get the app" bar) above a bar with the name and 我的二手.
-function appBarHtml(isOwner) {
+// (like a store's "get the app" bar) above a bar with the name and, on the right, the
+// 收藏 / 推荐 tag (corner) — one row each, laid out like the manage page's top bar.
+function appBarHtml(isOwner, corner = '') {
   const promo = !isOwner && !store.get('promoHidden', false);
   return `
     ${promo ? `<div class="promo">
       <button class="promo-x" data-promo-x aria-label="${tr('关闭', 'Close')}">✕</button>
       <div class="promo-txt"><b>${tr('我也有二手要出', 'Selling stuff too?')}</b><span>${tr('免登录·免安装·多群同步·免费', 'No sign-up · no app · free')}</span></div>
-      <a class="promo-fav" href="/keep?save=1">${tr('收藏', 'Keep')}</a>
       <a class="promo-cta" href="${tr('/', '/en')}">${tr('去发布', 'Post')}</a>
     </div>` : ''}
     <div class="appbar">
       ${LOGO}
-      <a class="appbar-my" href="/">${tr('我的二手 ›', 'My stuff ›')}</a>
+      ${corner}
     </div>`;
 }
 
@@ -1422,8 +1430,9 @@ function sortSegHtml(sort) {
 }
 
 function buyerSale(saleId) {
-  // Assume seller view right away if this browser holds the key; the refetch below confirms it.
-  let data = BOOT.sale ? { ...BOOT, isOwner: !!localKey(saleId) } : null;
+  // Assume seller view right away when previewing with the key; the refetch below confirms it.
+  const preview = previewing(saleId);
+  let data = BOOT.sale ? { ...BOOT, isOwner: preview && !!localKey(saleId) } : null;
   let sort = store.get('buyerSort', 'no');
   let lastVisit;
 
@@ -1451,12 +1460,12 @@ function buyerSale(saleId) {
     // Corner: newcomers are asked to save the tool; people already using it, to pass it on.
     const keepTag = !isOwner && !ended && keepWanted();
     const recTag = !isOwner && !ended && !keepTag;
+    // Language sits beside the title, as on the manage page, instead of a row of its own.
+    document.querySelector('.lang-bar')?.remove();
     $app.innerHTML = `
-      ${appBarHtml(isOwner)}
-      <div class="head${keepTag || recTag ? ' has-keep-tag' : ''}">
-        ${keepTag ? `<a class="keep-tag" href="/keep?save=1">☆ ${tr('收藏', 'Keep')}<small>${tr(`送 ${GIFT_USES} 次 AI 识图`, `${GIFT_USES} free AI tries`)}</small></a>` : ''}
-        ${recTag ? recommendTagHtml() : ''}
-        <h1>${esc(st.title)}</h1>
+      ${appBarHtml(isOwner, keepTag ? `<a class="keep-tag" href="/keep?save=1">☆ ${tr('收藏', 'Keep')}<small>${tr(`送 ${GIFT_USES} 次 AI 识图`, `${GIFT_USES} free AI tries`)}</small></a>` : recTag ? recommendTagHtml() : '')}
+      <div class="head">
+        <div class="head-row"><h1>${esc(st.title)}</h1>${langSegHtml()}</div>
         <div class="meta">📍 ${esc(st.location)}${sale.leaveDate ? ` · ${untilText(sale.leaveDate)}` : ''} · ${tr(`卖家 ${agoText(sale.sellerActiveAt, now)}在线`, `seller active ${agoText(sale.sellerActiveAt, now)}`)}</div>
         ${st.rules.length ? `<div class="tags">${st.rules.map((r) => `<span class="tag">${esc(r)}</span>`).join('')}</div>` : ''}
       </div>
@@ -1475,6 +1484,7 @@ function buyerSale(saleId) {
       ${isOwner ? '' : brandCardHtml()}
       <div style="padding:28px 16px 8px;display:flex;gap:10px;justify-content:center;align-items:center">
         <a class="btn small" href="/my">${tr('我的排队', 'My reservations')}</a>
+        <a class="btn small" href="/">${tr('我的二手', 'My stuff')}</a>
         <button class="btn small" data-feedback>${tr('反馈问题', 'Feedback')}</button>
       </div>
       ${nearbyEntryHtml(sale.id)}`;
@@ -1492,7 +1502,6 @@ function buyerSale(saleId) {
       store.set('buyerSort', sort);
       render();
     }
-    if (e.target.closest('[data-not-seller]')) notSeller(saleId);
     const j = e.target.closest('[data-join]');
     if (j) data.isOwner ? ownerTap(data.sale) : joinSheet(data.sale, data.items.find((i) => i.id === j.dataset.join), reload);
     // Seller previewing their own list: same share options as on the management page.
@@ -1505,7 +1514,7 @@ function buyerSale(saleId) {
 
   const reload = () => api(`/sale/${saleId}`, { key: localKey(saleId) }).then((d) => {
     const y = window.scrollY;
-    data = d;
+    data = { ...d, isOwner: preview && d.isOwner };
     render();
     window.scrollTo(0, y);
   });
@@ -1540,8 +1549,9 @@ const askCancelQueue = () => ask({
 // ---------- 7.3 buyer item page ----------
 
 function buyerItem(saleId, no) {
-  // Assume seller view right away if this browser holds the key; the refetch below confirms it.
-  let data = BOOT.sale ? { ...BOOT, isOwner: !!localKey(saleId) } : null;
+  // Assume seller view right away when previewing with the key; the refetch below confirms it.
+  const preview = previewing(saleId);
+  let data = BOOT.sale ? { ...BOOT, isOwner: preview && !!localKey(saleId) } : null;
 
   const render = () => {
     if (!data) {
@@ -1598,7 +1608,7 @@ function buyerItem(saleId, no) {
   };
 
   const reload = () => api(`/sale/${saleId}`, { key: localKey(saleId) }).then((d) => {
-    data = d;
+    data = { ...d, isOwner: preview && d.isOwner };
     render();
   });
 
@@ -1760,20 +1770,6 @@ function sellerKey(saleId) {
   return mine.find((s) => s.id === saleId)?.key || null;
 }
 
-// A management link looks like any other card in a chat, so sellers sometimes send it to a buyer
-// by mistake. When one reaches a browser with no record of the list, ask before this browser takes
-// the key: a buyer who says so goes to the list instead and stays a buyer.
-async function manageGate(saleId) {
-  const fromUrl = new URLSearchParams(location.search).get('k') || new URLSearchParams(location.hash.slice(1)).get('k');
-  if (fromUrl && !localKey(saleId) && !(await ask({
-    title: tr('这是卖家的管理页', "This is the seller's management page"),
-    text: tr('在这里能改价格、看谁预订了，只有卖家本人该打开。\n你是这份清单的卖家吗？', 'It changes prices and shows who reserved; only the seller should open it.\nAre you the seller of this list?'),
-    ok: tr('我是卖家', "I'm the seller"),
-    cancel: tr('我是买家，去看清单', "I'm a buyer, show me the list"),
-  }))) return location.replace(`/s/${saleId}`);
-  manage(saleId);
-}
-
 function manageLink(saleId, key) {
   return `${location.origin}/manage/${saleId}?k=${key}`;
 }
@@ -1791,7 +1787,6 @@ function noAccess(saleId) {
       const v = $app.querySelector('#lk').value.trim();
       const m = v.match(/[#?&]k=([A-Za-z0-9]+)/);
       if (!m) return toast(tr('链接不对', "That link doesn't work"));
-      mergeSales([{ id: saleId, key: m[1], title: TITLE_PICKS[0] }]);
       location.href = `/manage/${saleId}?k=${m[1]}`;
   };
 }
@@ -1840,10 +1835,11 @@ function manage(saleId) {
     const ended = sale.status === 'ended';
     // Title, place and item names in the UI language (the original stays in the item sheet).
     const st = saleText(sale, LANG);
-    document.title = tr(`管理｜${st.title}`, `Manage | ${st.title}`);
+    // WeChat's ··· → 发送给朋友 titles the card with this; same warning as the card the server renders.
+    document.title = tr(`⛔勿转发｜卖家管理入口｜${st.title}`, `⛔ Don't forward | Seller's manage link | ${st.title}`);
     document.querySelector('.lang-bar')?.remove();
     $app.innerHTML = `
-      <div class="topbar"><button class="btn fit" data-act="lists"><span>${tr('我的清单', 'Lists')} (${store.get('mySales', []).length})</span>▾</button><a class="btn fit" href="/s/${sale.id}"><span>${tr('买家视角', 'Buyer view')}</span></a><button class="btn" data-act="settings" aria-label="${tr('设置', 'Settings')}">⚙</button><button class="btn rec-btn" data-recommend>🎁 ${tr('推荐朋友', 'Invite')}</button></div>
+      <div class="topbar"><button class="btn fit" data-act="lists"><span>${tr('我的清单', 'Lists')} (${store.get('mySales', []).length})</span>▾</button><a class="btn fit" href="/s/${sale.id}#preview"><span>${tr('买家视角', 'Buyer view')}</span></a><button class="btn" data-act="settings" aria-label="${tr('设置', 'Settings')}">⚙</button><button class="btn rec-btn" data-recommend>🎁 ${tr('推荐朋友', 'Invite')}</button></div>
       <div class="head" style="padding-top:8px"><div class="head-row"><h1>${esc(st.title)}</h1>${langSegHtml()}</div><div class="meta">📍 ${esc(st.location)}</div>
         <div class="meta">${tr('已收回', 'Earned')} <b class="earned-tag">${esc(soldCents ? money(soldCents, sale.currency) : CURRENCIES[sale.currency].trim() + '0')}</b></div></div>
       ${ended ? `<div class="banner">${tr('这份清单已结束：买家打开链接会看到「清单已经不见了」。', 'This list has ended: buyers opening the link see that it is gone.')}<br><button class="btn small primary" style="margin-top:8px" data-act="reopen">${tr('重新公开', 'Reopen')}</button></div>` : ''}
@@ -1893,7 +1889,7 @@ function manage(saleId) {
     // Sharing starts from the buyer page: forwarding this page would send the 管理入口 card, key included.
     if (a.dataset.act === 'share') {
       if (data.sale.paused) return toast(tr('清单已暂停，先点上面的「重新上架」', 'The list is paused: tap Reopen above first'));
-      maybeCheck(S, true, () => (location.href = `/s/${saleId}`));
+      maybeCheck(S, true, () => (location.href = `/s/${saleId}#preview`));
     }
     if (a.dataset.act === 'settings') settingsSheet(S);
     if (a.dataset.act === 'lists') listsSheet(S);
@@ -2032,7 +2028,7 @@ function sendSelfSheet(S, { locked = false, doneText = tr('我发好了', 'Sent 
     }
   };
   if (isWeChat || isTelegram) document.addEventListener('visibilitychange', onVisible);
-  const text = tr(`【二手清单 · 管理入口】${title}\n点开就能管理：上架、改价、看谁预订了。只发给自己，别发到群里。`, `[Secondhand List · manage] ${title}\nTap to manage: add items, change prices, see who reserved. Keep it to yourself, never post it in a group.`);
+  const text = tr(`【⛔勿转发 · 二手清单卖家管理入口】${title}\n点开就能管理：上架、改价、看谁预订了。只发给自己，别转发给买家、别发到群里。`, `[⛔ Don't forward · Secondhand List seller's manage link] ${title}\nTap to manage: add items, change prices, see who reserved. Keep it to yourself, never forward it to buyers or post it in a group.`);
   const sh = openSheet(() => `<h2>${tr('先把管理入口发给自己', 'First, send yourself the management link')}</h2>
     <div class="hint">${tr('这个页面就是你的<b>管理入口</b>：上架、改价、看谁预订了都在这里。发给自己存好，以后点一下就能回来。', 'This page is where you <b>manage</b> the list: add items, change prices, see who reserved. Send it to yourself so one tap brings you back.')}</div>
     <div class="group"><div class="cell small" style="display:block;line-height:1.9">
@@ -2054,7 +2050,7 @@ function sendSelfSheet(S, { locked = false, doneText = tr('我发好了', 'Sent 
     if (act === 'sendtg') wentAway = false;
     if (act === 'sendself') {
       try {
-        if (navigator.share) await navigator.share({ title: tr(`管理入口｜${title}`, `Manage | ${title}`), text, url: link });
+        if (navigator.share) await navigator.share({ title: tr(`⛔勿转发｜卖家管理入口｜${title}`, `⛔ Don't forward | Seller's manage link | ${title}`), text, url: link });
         else await copy(`${text}\n${link}`, tr('已复制，发到文件传输助手或自己的窗口', 'Copied: paste it into Saved Messages or a chat with yourself'));
       } catch {
         return;

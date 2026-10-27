@@ -161,7 +161,6 @@ img { display: block; max-width: 100%; }
 .promo-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
 .promo-txt b { font-size: 14px; }
 .promo-txt span { font-size: 12px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.promo-fav { flex: none; border: 1px solid #111; color: #111; font-size: 14px; font-weight: 700; padding: 7px 12px; border-radius: 999px; }
 .promo-cta { flex: none; background: #111; color: #fff; font-size: 14px; font-weight: 700; padding: 8px 16px; border-radius: 999px; }
 .appbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px 0; }
 .logo { display: inline-flex; align-items: center; gap: 8px; color: var(--text); }
@@ -169,7 +168,6 @@ img { display: block; max-width: 100%; }
 .logo-txt { display: flex; flex-direction: column; line-height: 1.15; }
 .logo-txt b { font-size: 17px; font-weight: 900; letter-spacing: .02em; }
 .logo-txt small { font-size: 11px; color: var(--sub); letter-spacing: .06em; }
-.appbar-my { color: var(--text); font-size: 14px; font-weight: 700; white-space: nowrap; }
 .how-line { margin: 0 16px 12px; padding: 8px 12px; background: #f5f5f5; border-radius: 8px; font-size: 13px; color: #484848; line-height: 1.5; }
 /* The first three buttons sit together on the left and 推荐朋友 keeps the right end, so a wide screen does not scatter them. */
 .topbar { display: flex; align-items: center; gap: 8px; padding: 12px 16px 0; }
@@ -397,11 +395,14 @@ img { display: block; max-width: 100%; }
   box-shadow: 2px 2px 0 rgba(0,0,0,.15);
 }
 .keep-tag small { font-size: 11px; font-weight: 600; }
+/* On a buyer's list the tag sits in the logo bar instead of over the title. */
+.appbar .keep-tag { position: static; flex: none; }
 
 /* ---------- 我的清单 ---------- */
 .list-row { display: block; padding: 12px 16px; background: var(--card); border-bottom: 1px solid var(--line); color: var(--text); }
 .list-row-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; font-size: 13px; color: var(--sub); }
 .list-row-stats b { color: var(--text); }
+.list-forget { margin-left: auto; color: #576b95; }
 .earned-tag { background: #ffdb00; padding: 0 4px; }
 .lists-keep { margin: 0 12px 12px; }
 .lists-keep .small { margin-top: 4px; }

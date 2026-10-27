@@ -1,7 +1,7 @@
 import { money, contactNote, byRecent, itemText, saleText, textLang, normTelegram, looksLikeTelegram, RULES } from '../public/lib.js';
 import { landingHtml } from './landing.js';
 
-const VERSION = '60';
+const VERSION = '61';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 // An open list pauses this long after its last renewal: buyers can look but not queue,
@@ -338,19 +338,20 @@ ${image && !wide ? `<div class="wx-thumb" aria-hidden="true"><img src="${esc(ima
 }
 
 // With the right ?k=, the management page shares as a "管理入口" card, so a seller can
-// send it to 文件传输助手 from WeChat's ··· menu and tap back in later.
+// send it to 文件传输助手 from WeChat's ··· menu and tap back in later. The card says not to
+// forward it right in its title, and carries the app icon instead of the list's photo, so in a
+// chat it doesn't look like the list card buyers get.
 async function managePage(env, url, saleId) {
   const k = url.searchParams.get('k') || '';
   const sale = k ? await env.DB.prepare('SELECT * FROM sales WHERE id = ?').bind(saleId).first() : null;
   const lang = pageLang(url, sale ? textLang(sale.title) : 'zh');
   const T = (zh, en) => (lang === 'en' ? en : zh);
   if (!sale || sale.admin_key !== k) return page({ title: T('管理我的清单', 'Manage my list'), url, lang, robots: true });
-  const first = await env.DB.prepare("SELECT photos FROM items WHERE sale_id = ? AND status != 'removed' ORDER BY no LIMIT 1").bind(saleId).first();
-  const photo = sale.cover_photo ? `/img/${sale.cover_photo}` : first ? `/img/${JSON.parse(first.photos)[0]}/t` : '';
   return page({
-    title: T(`管理入口｜${sale.title}`, `Manage | ${sale.title}`),
-    desc: T('点开直接管理：上架、改价、看谁预订了。只发给自己，别发到群里。', 'Tap to manage: add items, change prices, see who reserved. Keep it to yourself, never post it in a group.'),
-    image: photo ? url.origin + photo : '',
+    title: T(`⛔勿转发｜卖家管理入口｜${sale.title}`, `⛔ Don't forward | Seller's manage link | ${sale.title}`),
+    desc: T('只发给自己（文件传输助手）。别转发给买家、别发到群里：拿到它的人能改价、下架、看买家联系方式。', 'Only for yourself. Never forward it to buyers or post it in a group: anyone with it can change prices, take items down and see how to reach buyers.'),
+    image: `${url.origin}/icon-300.png`,
+    imageSize: 300,
     url,
     lang,
     keepQuery: true,
