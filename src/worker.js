@@ -1,7 +1,7 @@
 import { money, contactNote, byRecent, itemText, saleText, textLang, normTelegram, looksLikeTelegram, fbProfileUrl, RULES } from '../public/lib.js';
 import { landingHtml } from './landing.js';
 
-const VERSION = '64';
+const VERSION = '65';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 // An open list pauses this long after its last renewal: buyers can look but not queue,

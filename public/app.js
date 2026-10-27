@@ -3967,24 +3967,31 @@ async function drawFbSet(sale, items, lang) {
 }
 
 // The Facebook sheet: the pictures to save, then each field of the Sell something form ready to copy.
+// Reserved items stay out of the pictures and the description unless the seller ticks them in
+// (remembered): a Facebook post can't be edited live, and buyers there skip what looks taken.
 async function fbSheet(S) {
   let lang = shareLang('facebook');
   let d = await translatedData(S, lang);
+  let withReserved = store.get('fbWithReserved', false);
   let files = [];
   let urls = [];
   let f = null;
   const name = tr('二手清单', 'secondhand-list');
+  const reservedCount = () => d.items.filter((i) => i.status === 'reserved').length;
   const make = async () => {
     if (!openItems(d.items).length) {
       toast(tr('还没有在售的东西', 'Nothing for sale yet'));
       return false;
     }
+    // Everything left is reserved: post those rather than nothing.
+    const onlyReserved = !d.items.some((i) => i.status === 'available');
+    const items = withReserved || onlyReserved ? d.items : d.items.filter((i) => i.status !== 'reserved');
     const stop = loading(tr('正在生成图片…', 'Making the pictures…'));
     try {
-      const blobs = await drawFbSet(d.sale, d.items, lang);
+      const blobs = await drawFbSet(d.sale, items, lang);
       files = blobs.map((b, k) => new File([b], `${name}-${k + 1}.jpg`, { type: 'image/jpeg' }));
       urls = await Promise.all(files.map(fileDataUrl));
-      f = fbListing(d.sale, d.items, { lang, link: fbLink(publicUrl(S), lang) });
+      f = fbListing(d.sale, items, { lang, link: fbLink(publicUrl(S), lang) });
       // The link preview, should Facebook show one, uses the landscape card.
       uploadCover(S, lang, true).catch(() => {});
       return true;
@@ -4003,6 +4010,7 @@ async function fbSheet(S) {
   const field = (k, label, v, help = '') => `<div class="cell fb-field"><div class="grow"><div class="small muted">${label}</div><div class="fb-v">${esc(v)}</div>${help ? `<div class="small muted">${help}</div>` : ''}</div><button class="btn small" data-act="copy" data-k="${k}">${tr('复制', 'Copy')}</button></div>`;
   const sh = openSheet(() => `<h2>${tr('发到 Facebook 群', 'Post to a Facebook group')}</h2>
     <div class="seg small share-lang">${[['zh', '中文'], ['en', 'English']].map(([k, l]) => `<button class="${lang === k ? 'on' : ''}" data-act="lang" data-l="${k}">${l}</button>`).join('')}</div>
+    ${reservedCount() && d.items.some((i) => i.status === 'available') ? `<div class="share-opts"><label class="nearby-row"><input type="checkbox" data-act="reserved" ${withReserved ? 'checked' : ''}><span>${tr(`带上已预订的 ${reservedCount()} 件（标成可排候补）`, `Include the ${reservedCount()} reserved (marked waitlist open)`)}</span></label></div>` : ''}
     <div class="fb-pics">${urls.map((u, k) => `<img src="${u}" alt="${tr(`第 ${k + 1} 张`, `Picture ${k + 1}`)}">`).join('')}</div>
     <div class="actions">
       <button class="btn primary block" data-act="save">${tr(`保存这 ${urls.length} 张图`, `Save the ${urls.length} pictures`)}</button>
@@ -4024,6 +4032,11 @@ async function fbSheet(S) {
       lang = el.dataset.l;
       store.set('shareLangFb', lang);
       d = await translatedData(S, lang, d);
+      if (await make()) s.refresh();
+    }
+    if (act === 'reserved') {
+      withReserved = el.checked;
+      store.set('fbWithReserved', withReserved);
       if (await make()) s.refresh();
     }
     if (act === 'copy') {
