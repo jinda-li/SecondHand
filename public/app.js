@@ -1,5 +1,5 @@
 import { money as moneyIn, shareText, openItems, byRecent, defaultIntro, stripLinks, listMark, conditionText, CURRENCIES, RULES, itemText, saleText, textLang, contactNote, normTelegram, looksLikeTelegram } from './lib.js';
-import { LANG, chosenLang, tr, isWeChat, isTelegram, setLang } from './i18n.js';
+import { LANG, chosenLang, tr, isWeChat, isTelegram, setLang, movedHere } from './i18n.js';
 
 const $app = document.getElementById('app');
 const UI = new URLSearchParams(location.search).get('ui');
@@ -605,6 +605,7 @@ function boot() {
   // Any page that renders a .nearby-feed placeholder gets the live feed filled in.
   new MutationObserver(mountNearbyFeeds).observe($app, { childList: true, subtree: true });
   $app.insertAdjacentHTML('beforebegin', langBarHtml());
+  movedNotice();
   // The server titles pages for the share card (Chinese for WeChat); pages that don't set their own follow the UI.
   if (LANG === 'en' && textLang(document.title) === 'zh') document.title = APP_NAME;
   const path = location.pathname;
@@ -888,6 +889,30 @@ function intro() {
 }
 
 const ICON_STAR = `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`;
+
+// The first time a browser arrives from the old workers.dev address, ask it to save the new one.
+// It sits above $app, so page renders don't wipe it. Telegram links live in chats, not bookmarks.
+function movedNotice() {
+  if (!movedHere || store.get('movedNoticed', false)) return;
+  store.set('movedNoticed', true);
+  const el = document.createElement('div');
+  el.className = 'banner';
+  el.style.marginTop = '12px';
+  el.innerHTML = `${tr(`二手清单搬到新网址 <b>${esc(location.host)}</b> 了。${isTelegram ? '' : '收藏过旧网址的话，请重新收藏这一页。'}`,
+    `Secondhand List has moved to <b>${esc(location.host)}</b>.${isTelegram ? '' : ' If you saved the old address, please save this page again.'}`)}
+    <div class="row" style="margin-top:8px">
+      ${isTelegram ? '' : `<button class="btn small primary" data-act="how">${tr('怎么收藏', 'How to save it')}</button>`}
+      <button class="btn small" data-act="ok">${tr('知道了', 'Got it')}</button>
+    </div>`;
+  el.querySelector('[data-act=ok]').onclick = () => el.remove();
+  const how = el.querySelector('[data-act=how]');
+  if (how) how.onclick = () => {
+    el.remove();
+    if (isWeChat) return menuGuide('收藏');
+    toast(/Mobi/i.test(navigator.userAgent) ? tr('在浏览器菜单里选「添加书签」或「添加到主屏幕」', 'Use "Add bookmark" or "Add to Home Screen" in the browser menu') : tr('按 Ctrl+D（Mac 上 ⌘+D）加到书签', 'Press Ctrl+D (⌘+D on a Mac) to bookmark'), 3000);
+  };
+  $app.before(el);
+}
 
 // WeChat gives pages no way to bookmark or share themselves, so point at its ··· menu instead.
 function menuGuide(item) {
@@ -1804,6 +1829,7 @@ function manage(saleId) {
   let tab = 'open';
   let sort = store.get('manageSort', 'no');
   let checkedThisOpen = false;
+  let translatedThisOpen = false;
   let hiddenAt = 0;
   const S = { saleId, key };
 
@@ -1816,6 +1842,11 @@ function manage(saleId) {
     mergeSales([{ id: saleId, key, title: data.sale.title }]);
     render();
     S.tryRecommend();
+    // The page shows names in the UI language; ones not translated yet are, quietly, once per open.
+    if (!translatedThisOpen && untranslated(data, LANG)) {
+      translatedThisOpen = true;
+      api(`/sale/${saleId}/translate`, { method: 'POST', key, body: {} }).then(reload).catch(() => {});
+    }
   };
   S.reload = reload;
   // A sale made inside a sheet waits for that sheet to close.
@@ -1832,11 +1863,13 @@ function manage(saleId) {
     const count = (st) => items.filter((i) => i.status === st).length;
     const list = sortItems(manageOrder(items, tab), sort);
     const ended = sale.status === 'ended';
-    document.title = tr(`管理｜${sale.title}`, `Manage | ${sale.title}`);
+    // Title, place and item names in the UI language (the original stays in the item sheet).
+    const st = saleText(sale, LANG);
+    document.title = tr(`管理｜${st.title}`, `Manage | ${st.title}`);
     document.querySelector('.lang-bar')?.remove();
     $app.innerHTML = `
       <div class="topbar"><button class="btn fit" data-act="lists"><span>${tr('我的清单', 'Lists')} (${store.get('mySales', []).length})</span>▾</button><a class="btn fit" href="/s/${sale.id}"><span>${tr('买家视角', 'Buyer view')}</span></a><button class="btn" data-act="settings" aria-label="${tr('设置', 'Settings')}">⚙</button><button class="btn rec-btn" data-recommend>🎁 ${tr('推荐朋友', 'Invite')}</button></div>
-      <div class="head" style="padding-top:8px"><div class="head-row"><h1>${esc(sale.title)}</h1>${langSegHtml()}</div><div class="meta">📍 ${esc(sale.location)}</div></div>
+      <div class="head" style="padding-top:8px"><div class="head-row"><h1>${esc(st.title)}</h1>${langSegHtml()}</div><div class="meta">📍 ${esc(st.location)}</div></div>
       ${ended ? `<div class="banner">${tr('这份清单已结束：买家打开链接会看到「清单已经不见了」。', 'This list has ended: buyers opening the link see that it is gone.')}<br><button class="btn small primary" style="margin-top:8px" data-act="reopen">${tr('重新公开', 'Reopen')}</button></div>` : ''}
       ${ended ? '' : renewBannerHtml(sale, data.now)}
       ${linkSaved(saleId) ? '' : `<div class="banner">${tr('还没把管理入口发给自己：换手机或在微信里打开时，没有它就管理不了这份清单。', "You haven't sent yourself the management link yet: on a new phone or another app, you can't manage this list without it.")}<br><button class="btn small primary" style="margin-top:8px" data-act="savelink">${tr('发给自己', 'Send it to myself')}</button></div>`}
@@ -1854,7 +1887,7 @@ function manage(saleId) {
             <span class="no row-no">${it.no}</span>
             <img src="${img(it.photos[0])}" alt="" loading="lazy">
             <div class="grow">
-              <div class="ellipsis">${esc(it.name)}</div>
+              <div class="ellipsis">${esc(itemText(it, LANG).name)}</div>
               <div class="small">${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)} · <span class="st ${it.status}">${statusText[it.status]}</span>${it.queueCount ? ` · ${tr(`${it.queueCount} 人排队`, `${it.queueCount} in line`)}${it.queue[0] ? tr(`（第 1 位：${esc(it.queue[0].nickname)}）`, ` (first: ${esc(it.queue[0].nickname)})`) : ''}` : ''}</div>
             </div>
             <span class="muted">›</span>
@@ -2104,7 +2137,7 @@ function maybeCheck(S, beforeShare, then) {
       <div class="check-row ${answered[it.id] ? 'answered' : ''}">
         <div class="row">
           <img src="${img(it.photos[0])}" alt="">
-          <div class="grow"><div class="ellipsis"><span class="no">${it.no}</span> ${esc(it.name)}</div><div class="small muted">${tr('第 1 位：', 'First: ')}${esc(it.queue[0]?.nickname || '')}</div></div>
+          <div class="grow"><div class="ellipsis"><span class="no">${it.no}</span> ${esc(itemText(it, LANG).name)}</div><div class="small muted">${tr('第 1 位：', 'First: ')}${esc(it.queue[0]?.nickname || '')}</div></div>
           ${answered[it.id] ? `<span class="small">${answered[it.id]}</span>` : ''}
         </div>
         <div class="btns">
@@ -2621,7 +2654,11 @@ function itemSheet(S, itemId) {
           <button class="btn block" data-act="share-item">${tr('发这件的卡片', 'Share this item')}</button>
           <button class="btn danger block" data-act="remove">${tr('下架', 'Take down')}</button>
         </div>` : it.status === 'sold'
-        ? `<div class="hint center">${tr('卖出去了！', 'Sold!')}${tipOn() ? ` ${tr('觉得好用？', 'Was it handy?')}<button class="link-btn small" data-act="tip">${tr('请开发者喝杯咖啡', 'Buy the developer a coffee')}</button>` : ''}</div>`
+        ? `<div class="sold-done">
+            <b>${tr('卖出去了！🎉', 'Sold! 🎉')}</b>
+            ${tipOn() ? `<div class="small">${tr('觉得好用？', 'Was it handy?')}</div><button class="btn block" data-act="tip">☕ ${tr('请开发者喝杯咖啡', 'Buy the developer a coffee')}</button>` : ''}
+          </div>
+          <div class="actions"><button class="btn block" data-act="relist">${tr('点错了？重新上架', 'Not sold after all? Put it back up')}</button></div>`
         : `<div class="hint center">${tr(`这件${statusText[it.status]}了`, `This item is ${statusText[it.status].toLowerCase()}`)}</div>`}`;
   }, async (act, el, s) => {
     const run = async (body, msg) => {
@@ -2638,6 +2675,9 @@ function itemSheet(S, itemId) {
     switch (act) {
       case 'sell':
         return run({ action: 'sell' }, tr('已标记为已出', 'Marked as sold'));
+      case 'relist':
+        if (!(await ask({ title: tr(`把 ${it.no} 号重新上架？`, `Put #${it.no} back up?`), text: tr('标已出时排队的人会回到队里。', 'Whoever was in line when you marked it sold is back in line.'), ok: tr('重新上架', 'Put back up') }))) return;
+        return run({ action: 'relist' }, tr('已重新上架', 'Back up for sale'));
       case 'decline':
         return run({ action: 'decline', seq: Number(el.dataset.seq) }, it.queue.length > 1 ? tr('下一位顶上了', 'Next in line moves up') : tr('回到在售', 'Back on sale'));
       case 'rmq':
@@ -3094,10 +3134,13 @@ function shareSheet(S) {
 
 // The list with its open items in lang: names not yet translated (an older list, a just-added item)
 // are translated first, so what goes out has no leftovers in the other language. d: the data so far.
-async function translatedData(S, lang, d = S.data()) {
-  const missing = (textLang(d.sale.title) !== lang && !d.sale.alt)
+function untranslated(d, lang) {
+  return (textLang(d.sale.title) !== lang && !d.sale.alt)
     || d.items.some((i) => (i.status === 'available' || i.status === 'reserved') && textLang(i.name) !== lang && !i.nameAlt);
-  if (!missing) return d;
+}
+
+async function translatedData(S, lang, d = S.data()) {
+  if (!untranslated(d, lang)) return d;
   const stop = loading(tr('正在翻译物品名…', 'Translating item names…'));
   try {
     await api(`/sale/${S.saleId}/translate`, { method: 'POST', key: S.key, body: {} });
@@ -3606,8 +3649,6 @@ function showImages(urls, name = tr('清单图', 'list')) {
 // Telegram's caption limit.
 const CAPTION_MAX = 1024;
 const POST_W = 1080;
-// Items named in the list under the photos; any more are "and N more" at the QR code.
-const POST_LISTED = 20;
 
 // The post text: the intro and the link, then as many items as fit in a caption ("…and N more"),
 // or no items at all when the seller leaves the list out.
@@ -3647,7 +3688,8 @@ function collageCells(n, y, w, h) {
 
 // The picture, top to bottom: title and place, the photo mosaic with prices, every item by name
 // and price in two columns, and a footer with the QR code (link) telling people to reserve there.
-// Its height follows the number of items: about 1080×1600 for a few, 1080×2200 for twenty.
+// Every item is listed, so nobody has to open the link just to see what's there; the height
+// follows the number of items: about 1080×1600 for a few, 1080×2200 for twenty, 1080×3400 for sixty.
 async function drawPoster(sale, items, lang, { link, target }) {
   const L = (zh, en) => (lang === 'en' ? en : zh);
   const st = saleText(sale, lang);
@@ -3656,10 +3698,8 @@ async function drawPoster(sale, items, lang, { link, target }) {
   const head = 180;
   const mosaic = POST_W * (5 / 6); // square grid units
   const rowH = 62;
-  const listed = list.slice(0, POST_LISTED);
-  const rows = Math.ceil(listed.length / 2);
-  const more = list.length - listed.length;
-  const listH = 40 + (rows + (more > 0 ? 1 : 0)) * rowH + 24;
+  const rows = Math.ceil(list.length / 2);
+  const listH = 40 + rows * rowH + 24;
   const foot = 420;
   const H = head + mosaic + listH + foot;
   const qr = await qrMatrix(link);
@@ -3695,7 +3735,7 @@ async function drawPoster(sale, items, lang, { link, target }) {
       g.font = `900 ${Math.round(side * 0.34)}px ${FONT}`;
       g.fillText(`+${extra + 1}`, x + w / 2, y + h / 2 + side * 0.06);
       g.font = `700 ${Math.round(side * 0.12)}px ${FONT}`;
-      g.fillText(L('更多', 'more'), x + w / 2, y + h / 2 + side * 0.26);
+      g.fillText(L('见下方', 'see below'), x + w / 2, y + h / 2 + side * 0.26);
       g.textAlign = 'left';
       return;
     }
@@ -3709,7 +3749,7 @@ async function drawPoster(sale, items, lang, { link, target }) {
   const y0 = head + mosaic + 40;
   const gap = 48;
   const colW = (POST_W - pad * 2 - gap) / 2;
-  listed.forEach((it, k) => {
+  list.forEach((it, k) => {
     const x = pad + (k < rows ? 0 : colW + gap);
     const y = y0 + (k % rows) * rowH;
     const reserved = it.status === 'reserved';
@@ -3726,11 +3766,6 @@ async function drawPoster(sale, items, lang, { link, target }) {
     g.fillStyle = '#ececec';
     g.fillRect(x, y + rowH - 2, colW, 2);
   });
-  if (more > 0) {
-    g.font = `700 30px ${FONT}`;
-    g.fillStyle = BLUE;
-    g.fillText(L(`…还有 ${more} 件，扫码看全部`, `…and ${more} more: scan to see them all`), pad, y0 + rows * rowH + 40);
-  }
 
   const top = H - foot;
   g.fillStyle = YELLOW;

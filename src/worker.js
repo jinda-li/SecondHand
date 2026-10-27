@@ -1,7 +1,7 @@
 import { money, contactNote, byRecent, itemText, saleText, textLang, normTelegram, looksLikeTelegram, RULES } from '../public/lib.js';
 import { landingHtml } from './landing.js';
 
-const VERSION = '56';
+const VERSION = '57';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 // An open list pauses this long after its last renewal: buyers can look but not queue,
@@ -79,7 +79,8 @@ export default {
 
 // Browser storage belongs to one address, and it holds each seller's list keys and each buyer's
 // place in line. So a person's browser copies it into the link it follows to the new address,
-// in the #fragment, which never reaches a server (i18n.js takes it in). Crawlers and link
+// in the #fragment, which never reaches a server (i18n.js takes it in). The fragment goes along
+// even with nothing stored, so the new address knows to ask for a new bookmark. Crawlers and link
 // previews get a plain 301.
 function moved(req, to) {
   if (/bot[/ (-]|crawler|spider|facebookexternalhit|WhatsApp/i.test(req.headers.get('user-agent') || '')) return Response.redirect(to, 301);
@@ -90,7 +91,7 @@ function moved(req, to) {
 var data = {};
 try { for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); data[k] = localStorage.getItem(k); } } catch (e) {}
 var to = ${JSON.stringify(to).replace(/</g, '\\u003c')};
-location.replace(Object.keys(data).length ? to + '#migrate=' + encodeURIComponent(JSON.stringify({ data: data, hash: location.hash })) : to + location.hash);
+location.replace(to + '#migrate=' + encodeURIComponent(JSON.stringify({ data: data, hash: location.hash })));
 </script>`;
   return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
 }
@@ -1098,6 +1099,18 @@ async function itemAction(env, sale, item, b) {
         stmts.push(db.prepare("UPDATE queues SET status = 'removed', closed_at = ? WHERE item_id = ? AND status = 'waiting' AND seq != ?").bind(t, item.id, head.seq));
       }
       stmts.push(db.prepare("UPDATE items SET status = 'sold', status_changed_at = ?1, status_checked_at = ?1, updated_at = ?1 WHERE id = ?2").bind(t, item.id));
+      break;
+    }
+    case 'relist': {
+      // Undoes a sale marked by mistake: the line closed by that tap comes back as it was.
+      if (item.status !== 'sold') fail('CONFLICT', ['这件不是已出状态', 'This item is not marked sold']);
+      stmts.push(db.prepare(
+        "UPDATE queues SET status = 'waiting', closed_at = NULL WHERE item_id = ? AND status IN ('sold', 'removed') AND closed_at = ?",
+      ).bind(item.id, item.status_changed_at));
+      stmts.push(db.prepare(
+        `UPDATE items SET status = CASE WHEN EXISTS (SELECT 1 FROM queues WHERE item_id = ?2 AND status = 'waiting') THEN 'reserved' ELSE 'available' END,
+         status_changed_at = ?1, status_checked_at = ?1, updated_at = ?1 WHERE id = ?2`,
+      ).bind(t, item.id));
       break;
     }
     case 'still': {

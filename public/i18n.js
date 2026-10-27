@@ -5,6 +5,8 @@
 // The old workers.dev address hands over its browser storage in #migrate= (worker moved()):
 // keys this address doesn't have yet are copied, lists are merged, then the fragment is removed.
 // app.js imports this module before it reads storage, so this runs first.
+// movedHere: this page view came from the old address (app.js asks to re-bookmark, once).
+export const movedHere = /^#migrate=/.test(location.hash);
 (function migrate() {
   const m = location.hash.match(/^#migrate=(.+)$/);
   if (!m) return;

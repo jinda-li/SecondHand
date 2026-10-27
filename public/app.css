@@ -458,6 +458,10 @@ img { display: block; max-width: 100%; }
 .sold-rec b { display: block; font-size: 19px; margin-bottom: 2px; }
 .sold-rec .small { opacity: .85; }
 .sold-rec .btn { margin-top: 12px; background: #ffdb00; color: #111; }
+.sold-done { margin: 4px 0 12px; padding: 16px; background: #0058a3; color: #fff; text-align: center; }
+.sold-done b { display: block; font-size: 19px; }
+.sold-done .small { opacity: .85; margin-top: 6px; }
+.sold-done .btn { margin-top: 10px; background: #ffdb00; color: #111; }
 
 /* ---------- 打码 editor ---------- */
 .mosaic-ed { position: fixed; inset: 0; z-index: 100; background: #000; display: flex; flex-direction: column; }
