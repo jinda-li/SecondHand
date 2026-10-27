@@ -305,6 +305,15 @@ img { display: block; max-width: 100%; }
 .share-nudge-row .inp { min-width: 0; }
 .share-or { display: flex; align-items: center; gap: 10px; margin: 14px 0 10px; color: var(--sub); font-size: 13px; }
 .share-or::before, .share-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.share-step .share-or { margin: 4px 0 10px; }
+.share-or b { font-size: 17px; color: var(--text); }
+.share-step .share-or::before, .share-step .share-or::after { height: 2px; background: #cfcfcf; }
+/* Over a page opened from a card QR code: where WeChat's ··· menu is. Tap anywhere to close. */
+.wx-guide { position: fixed; inset: 0; z-index: 95; background: rgba(0,0,0,.82); color: #fff; animation: fade .15s; }
+.wx-guide .arrow { position: absolute; right: 18px; top: 2px; font-size: 64px; line-height: 1; }
+.wx-guide .msg { position: absolute; right: 20px; left: 20px; top: 78px; text-align: right; font-size: 19px; line-height: 1.7; }
+.wx-guide .msg b { font-size: 22px; }
+.wx-guide .ok { position: absolute; left: 50%; bottom: calc(60px + var(--safe-b)); transform: translateX(-50%); border: 1px solid #fff; border-radius: 999px; padding: 8px 28px; background: none; color: #fff; font-size: 16px; }
 .highlight { margin: 0 16px 10px; padding: 14px 16px; background: #fff8cc; border-left: 4px solid #ffdb00; border-radius: 4px; font-size: 14px; line-height: 1.7; }
 .highlight b { display: block; font-size: 16px; margin-bottom: 4px; }
 .contact-title { font-weight: 800; font-size: 16px; color: var(--green); margin-bottom: 10px; }

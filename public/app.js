@@ -24,6 +24,28 @@ function setCardSession(on) {
   } catch {}
 }
 if (OPENED_AS_CARD) setCardSession(true);
+// fw=1 is only on the "send the card" QR code: whoever scans it is about to forward, so point at
+// WeChat's ··· menu. Not when opened from the card itself (from=), and fw is dropped from the address
+// so the forwarded card doesn't carry it.
+{
+  const q = new URLSearchParams(location.search);
+  if (q.has('fw')) {
+    if (isWeChat && !q.has('from')) forwardGuide();
+    q.delete('fw');
+    const rest = q.toString();
+    history.replaceState(null, '', location.pathname + (rest ? `?${rest}` : '') + location.hash);
+  }
+}
+
+function forwardGuide() {
+  const el = document.createElement('div');
+  el.className = 'wx-guide';
+  el.innerHTML = `<div class="arrow">⤴</div>
+    <div class="msg">${tr('点右上角 <b>···</b><br>→「发送给朋友」→ 选群<br>发出去就是卡片了', 'Tap <b>···</b> at the top right<br>→ Send to Chat → pick the group<br>it goes as a card')}</div>
+    <button class="ok">${tr('知道了', 'Got it')}</button>`;
+  el.onclick = () => el.remove();
+  document.body.appendChild(el);
+}
 const HOUR = 3600 * 1000;
 const CHECK_AFTER_MS = 12 * HOUR;
 // The management page starts warning this long before a list pauses (see LIST_TTL_MS in the worker).
@@ -3032,14 +3054,14 @@ function shareSheet(S) {
     }
     return `<h2>${tr('分享到群', 'Share to groups')}</h2>${seg}
     <div class="share-step">
-      <div class="small muted">${tr('两种发法，选一种', 'Two ways, pick one')}</div>
+      <div class="small muted">${tr('两种发法，点一个就行', 'Two ways, one is enough')}</div>
       <button class="btn primary big block" data-act="card">${tr('发卡片', 'Send the card')}</button>
-      <div class="small muted step-why">${tr('群友点卡片就能看大图、预订。发完可以接着点下面的「发文字」，贴上物品和价格。', 'People tap the card to see photos and reserve. Then you can tap "Send the text" below to paste the items and prices.')}</div>
+      <div class="small muted step-why">${tr('群友点卡片就能看照片、预订。要先扫一次二维码，在打开的页面里转发。', 'People tap the card to see photos and reserve. You scan a QR code once and forward the page it opens.')}</div>
+      <div class="share-or"><b>${tr('或者', 'or')}</b></div>
       <button class="btn primary big block" data-act="post">${tr('发长图', 'Send the long picture')}</button>
       <div class="small muted step-why">${tr('一张图：照片、每件的价格和二维码。群友长按识别二维码就能打开预订，不用扫码转卡片。', 'One picture with the photos, every price and a QR code. People long-press the QR code to open the list and reserve.')}</div>
     </div>
     <div class="actions" style="margin-top:4px">
-      <button class="btn block" data-act="text">${tr('发文字（物品和价格）', 'Send the text (items and prices)')}</button>
       <button class="link-btn small" data-act="image" style="margin:4px auto 0">${tr('东西很多？发整份清单图（每件一张照片）', 'Lots of items? Post the full list picture (a photo for each)')}</button>
     </div>
     ${multi}
@@ -3047,18 +3069,14 @@ function shareSheet(S) {
       <div class="survey-title">${tr('怎么分享图文卡片出去？', 'How do I send a card in WeChat?')}</div>
       <div class="group"><div class="cell small" style="display:block;line-height:1.9">
         ${here ? tr(`这个页面转发出去就是卡片，可以直接转发：<br>
-        1. 点右上角 <b>···</b> →「发送给朋友」→ 选群，发出去就是卡片<br>
-        2. 回来点「发文字」，复制后粘贴到同一个群`, `This page already forwards as a card:<br>
-        1. Tap <b>···</b> at the top right → Send to Chat → pick the group<br>
-        2. Come back, tap "Send the text", copy it and paste it in the same group`) : tr(`
+        点右上角 <b>···</b> →「发送给朋友」→ 选群，发出去就是卡片`, `This page already forwards as a card:<br>
+        tap <b>···</b> at the top right → Send to Chat → pick the group`) : tr(`
         1. 点上面的「发卡片」，会出现一个二维码<br>
         2. ${isWeChat ? '<b>长按二维码</b> →「识别图中二维码」' : '保存二维码图片，发到微信「文件传输助手」，在微信里<b>长按这张图</b> →「识别图中二维码」'}<br>
-        3. 页面打开后，点右上角 <b>···</b> →「发送给朋友」→ 选群，发出去就是卡片<br>
-        4. 回来点「发文字」，复制后粘贴到同一个群`, `
+        3. 页面打开后，按箭头点右上角 <b>···</b> →「发送给朋友」→ 选群，发出去就是卡片`, `
         1. Tap "Send the card" above; a QR code appears<br>
         2. ${isWeChat ? '<b>Long-press the QR code</b> → Scan QR Code in Image' : 'Save the QR picture and send it to WeChat File Transfer; in WeChat, <b>long-press it</b> → Scan QR Code in Image'}<br>
-        3. On the page that opens, tap <b>···</b> → Send to Chat → pick the group: it goes as a card<br>
-        4. Come back, tap "Send the text", copy it and paste it in the same group`)}
+        3. On the page that opens, follow the arrow to <b>···</b> at the top right → Send to Chat → pick the group: it goes as a card`)}
       </div></div>
       ${here ? '' : `<div class="small muted" style="margin:0 4px">${tr('别直接点链接打开再转发，那样微信只会发出一串网址。群里有了卡片以后，别人从卡片点进去再转发，也是卡片。', "Don't open the link directly and forward it: WeChat would only send a bare URL. Once a card is in a group, anyone opening it can forward it as a card too.")}</div>`}
     </div>`;
@@ -3088,7 +3106,7 @@ function shareSheet(S) {
       }
       return;
     }
-    if (act === 'text' || act === 'tgtext') {
+    if (act === 'tgtext') {
       s.close();
       return textSheet(S, target);
     }
@@ -3265,6 +3283,7 @@ async function sendCard(url, what) {
   try {
     const qrUrl = new URL(url);
     qrUrl.searchParams.set('c', '1');
+    qrUrl.searchParams.set('fw', '1');
     src = await qrImage(qrUrl.href);
   } finally {
     stop();
@@ -3807,9 +3826,9 @@ async function postSheet(S, target = 'telegram') {
     const stop = loading(tr('正在生成长图…', 'Making the picture…'));
     try {
       const blob = await drawPoster(d.sale, d.items, lang, { link: link(), target });
-      if (url) URL.revokeObjectURL(url);
       file = new File([blob], `${tr('二手清单', 'secondhand-list')}.jpg`, { type: 'image/jpeg' });
-      url = URL.createObjectURL(file);
+      // A data: URL, not blob:, so long-pressing the preview saves or forwards it in WeChat too.
+      url = await fileDataUrl(file);
       writeCaption();
       return true;
     } finally {
@@ -3838,12 +3857,13 @@ async function postSheet(S, target = 'telegram') {
     )}</div></div>`;
   const wxBody = () => `
     <div class="actions">
-      <button class="btn primary block" data-act="save">${isWeChat ? tr('打开大图', 'Open the picture') : tr('保存图片', 'Save the picture')}</button>
+      ${isWeChat ? '' : `<button class="btn primary block" data-act="save">${tr('保存图片', 'Save the picture')}</button>`}
       ${canShareFile() && !isWeChat ? `<button class="btn block" data-act="share">${tr('分享图片到微信', 'Share the picture…')}</button>` : ''}
     </div>
     <div class="group"><div class="cell small" style="display:block;line-height:1.9">${isWeChat
-      ? tr('1. 点「打开大图」，在大图上<b>长按</b> →「发送给朋友」→ 选群<br>2. 群友长按图里的二维码 →「识别图中二维码」，就打开了预订页', '1. Tap "Open the picture", <b>long-press</b> it → Send to Chat → pick the group<br>2. People long-press the QR code in it → Scan QR Code in Image to open the list')
-      : tr('1. 保存图片<br>2. 在微信群里点 ＋ →「相册」，选这张图发送<br>3. 群友长按图里的二维码 →「识别图中二维码」，就打开了预订页', '1. Save the picture<br>2. In the WeChat group, tap ＋ → Album and send it<br>3. People long-press the QR code in it → Scan QR Code in Image to open the list')}</div></div>`;
+      ? tr('1. <b>长按上面的图</b> →「发送给朋友」→ 选群（或者「保存图片」，再到群里发）<br>2. 群友长按图里的二维码 →「识别图中二维码」，就打开了预订页', '1. <b>Long-press the picture above</b> → Send to Chat → pick the group (or Save, then post it in the group)<br>2. People long-press the QR code in it → Scan QR Code in Image to open the list')
+      : tr('1. 长按上面的图保存，或点「保存图片」<br>2. 在微信群里点 ＋ →「相册」，选这张图发送<br>3. 群友长按图里的二维码 →「识别图中二维码」，就打开了预订页', '1. Long-press the picture above to save it, or tap "Save the picture"<br>2. In the WeChat group, tap ＋ → Album and send it<br>3. People long-press the QR code in it → Scan QR Code in Image to open the list')}</div></div>
+    ${isWeChat ? `<button class="link-btn small" data-act="save" style="margin:8px auto 0">${tr('长按没反应？打开大图', "Long-press does nothing? Open it full size")}</button>` : ''}`;
   const sh = openSheet(() => `<h2>${tg ? tr('发到 Telegram 群', 'Post to a Telegram group') : tr('发长图到微信群', 'Post the picture to a WeChat group')}</h2>
     <div class="seg small share-lang">${[['zh', '中文'], ['en', 'English']].map(([k, l]) => `<button class="${lang === k ? 'on' : ''}" data-act="lang" data-l="${k}">${l}</button>`).join('')}</div>
     <img class="post-preview" src="${url}" alt="${tr('要发的图', 'The picture to post')}">
@@ -3883,9 +3903,8 @@ async function postSheet(S, target = 'telegram') {
       remember();
       copy(t, tr('已复制，发图时粘贴', 'Copied, paste it as the caption'));
     }
-    // A data: URL, like the list pictures: WeChat's long-press save can't read blob: URLs.
-    if (act === 'save') showImages([await fileDataUrl(file)], tr('二手清单', 'secondhand-list'));
-  }, { onClose: () => setTimeout(() => URL.revokeObjectURL(url), 60000) });
+    if (act === 'save') showImages([url], tr('二手清单', 'secondhand-list'));
+  });
   return sh;
 }
 
