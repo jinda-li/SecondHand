@@ -55,6 +55,8 @@ const MAX_PHOTOS = 3;
 const TITLE_SUFFIXES = tr(['的二手清单', '的搬家甩卖', '的毕业清仓', '回国前出闲置', '的闲置转让'], ["'s secondhand list", "'s moving sale", "'s graduation sale", "'s leaving sale", "'s stuff for sale"]);
 const TITLE_PICKS = [tr('我的二手清单', 'My secondhand list')];
 const DEFAULT_RULES = RULES[LANG];
+// A new list starts with first come and bundle discount ticked; fixed prices is offered but left off.
+const DEFAULT_RULES_ON = DEFAULT_RULES.slice(1);
 const APP_NAME = tr('二手清单', 'Secondhand List');
 
 // Money, item and list texts in the UI language (see lib.js).
@@ -741,7 +743,7 @@ function saleFormHtml(s, { create = false } = {}) {
   const fbField = `<label class="field"><span>${tr('Facebook 主页链接', 'Facebook profile link')}</span><input type="text" inputmode="url" name="facebook" maxlength="200" value="${esc(s.facebook)}" placeholder="https://www.facebook.com/…" autocomplete="off" autocapitalize="off" spellcheck="false">
         <small class="help fb-help">${tr('Facebook 里点进自己的主页 → ··· →「复制主页链接」', 'In Facebook, open your profile → ··· → Copy profile link')}</small></label>`;
   const contact = `<div class="field"><span>${tr('联系方式', 'How buyers reach you')} <b class="req">*</b></span>
-        <div class="help">${tr('至少填一个：发到微信群要填微信号，发到 Telegram 群要填 Telegram，发到 Facebook 群填 Facebook。买家一般在群里直接私聊你；排第 1 位又找不到你的人，才会看到这里填的。', 'Fill in at least one: your WeChat ID for WeChat groups, your Telegram for Telegram groups, Facebook for Facebook groups. Buyers usually message you in the group; only the first in line sees these, for when they can’t find you there.')}</div></div>
+        <div class="callout"><b>${tr('至少填一个', 'Fill in at least one')}</b>${tr('发到微信群填微信号，发到 Telegram 群填 Telegram，发到 Facebook 群填 Facebook。', 'Your WeChat ID for WeChat groups, Telegram for Telegram groups, Facebook for Facebook groups.')}<small>${tr('买家一般在群里直接私聊你；排第 1 位又找不到你的人，才会看到这里填的。', 'Buyers usually message you in the group. Only the first in line sees these, for when they can’t find you there.')}</small></div></div>
       ${isFacebook ? fbField + tgField + wxField : LANG === 'en' || isTelegram ? tgField + wxField + fbField : wxField + tgField + fbField}
       <label class="field"><span>${tr('取货地点', 'Pick-up place')} <b class="req">*</b></span><input type="text" name="location" maxlength="60" value="${esc(s.location)}" placeholder="${tr('例：地铁站附近自提', 'e.g. near the metro station')}"></label>`;
   const more = `<label class="field"><span>${tr('货币', 'Currency')}</span><select name="currency">${Object.keys(CURRENCIES).map((c) => `<option value="${c}" ${c === s.currency ? 'selected' : ''}>${c} ${CURRENCIES[c].trim()}</option>`).join('')}</select></label>
@@ -749,7 +751,7 @@ function saleFormHtml(s, { create = false } = {}) {
       <label class="field"><span>${tr('截止日期（选填）', 'Last day (optional)')}</span><input type="date" name="leaveDate" value="${esc(s.leaveDate)}"></label>`;
   const nearby = `<label class="field nearby-row"><input type="checkbox" name="nearby" ${s.publicNearby === false ? '' : 'checked'}>
         <span style="margin:0;color:var(--text)">${tr('公开到「附近的二手」：你的东西会出现在附近别人的清单下面，卖得更快', 'Show in "Nearby": your things appear under other lists nearby and sell faster')}<br><span class="small muted">${tr('会用到你的大概位置（约 1 公里范围），不会显示具体地址', 'Uses your rough location (about 1 km), never your address')}</span></span></label>
-      <div class="help nearby-tip" ${nearbyTipWanted(s.publicNearby !== false, s.telegram) ? '' : 'hidden'}>${tr('公开到附近的话，建议也填个 Telegram：附近看到的人不一定在你发的群里，也不一定用微信，Telegram 几乎哪里都有人用。', 'Showing in Nearby? Add a Telegram username too: people who find you there may not be in your group or use WeChat, and Telegram is used almost everywhere.')}</div>`;
+      <div class="help nearby-tip" ${nearbyTipWanted(s.publicNearby !== false, s.telegram) ? '' : 'hidden'}>${tr('公开到附近的话，最好留一个谁都能联系上的方式，Telegram 最合适：附近看到的人不一定在你发的群里。', 'Showing in Nearby? Leave at least one contact anyone can use; Telegram works best. People who find you there may not be in your groups.')}</div>`;
   // Creating: the three required fields up front, the rest folded away with their defaults.
   if (create) {
     return `
@@ -1228,7 +1230,7 @@ async function listsSheet(S) {
 function createSale() {
   $app.innerHTML = `
     <div class="ik-head">${LOGO}<h1>${tr('发布二手清单', 'New secondhand list')}</h1><div class="ik-sub">${tr('填 3 项就能开始上架，其他都有默认值。', 'Three fields and you can start listing; everything else has defaults.')}</div></div>
-    ${saleFormHtml({ owner: store.get('ownerName', ''), wechatId: store.get('sellerWechat', ''), telegram: store.get('sellerTelegram', ''), facebook: store.get('sellerFacebook', ''), location: '', currency: guessCurrency(), rules: DEFAULT_RULES, leaveDate: '' }, { create: true })}
+    ${saleFormHtml({ owner: store.get('ownerName', ''), wechatId: store.get('sellerWechat', ''), telegram: store.get('sellerTelegram', ''), facebook: store.get('sellerFacebook', ''), location: '', currency: guessCurrency(), rules: DEFAULT_RULES_ON, leaveDate: '' }, { create: true })}
     <div class="bottom-bar"><div class="inner"><button class="btn primary big" id="go">${tr('开始上架', 'Start listing')}</button></div></div>`;
   const form = $app.querySelector('.form');
   syncTitle(form);
@@ -1406,7 +1408,7 @@ function previousVisit(saleId, t) {
 }
 
 // Brand mark: the tag icon with the name, so people remember (and can search for) 二手清单.
-const LOGO = `<a class="logo" href="/"><img src="/icon.svg" alt="" width="34" height="34"><span class="logo-txt"><b>${APP_NAME}</b><small>${tr('AI识别 · 多群同步', 'AI photos · all your groups')}</small></span></a>`;
+const LOGO = `<a class="logo" href="/"><img src="/icon.svg" alt="" width="34" height="34"><span class="logo-txt"><b>${APP_NAME}</b><small>${tr('AI识别 · 多群同步', 'AI listing · one link, every group')}</small></span></a>`;
 
 // Buyers arrive from a group card without knowing what this is: a slim dismissible strip
 // (like a store's "get the app" bar) above a bar with the name and, on the right, the

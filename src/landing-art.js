@@ -13,6 +13,7 @@ export const ROOM_DEFS = `<linearGradient id="gWallL" x1="0" y1="0" x2="0" y2="1
 <pattern id="pSpeck" width="22" height="14" patternUnits="userSpaceOnUse"><rect width="22" height="14" fill="#3f8a86"></rect><circle cx="4" cy="4" r="1.2" fill="#f6ecd8"></circle><circle cx="14" cy="9" r="1" fill="#e5b445"></circle><circle cx="19" cy="3" r=".9" fill="#f6ecd8"></circle></pattern>
 <filter id="fBlur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6"></feGaussianBlur></filter>
 <filter id="fSoft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="14"></feGaussianBlur></filter>
+<filter id="fShade" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3"></feGaussianBlur></filter>
 <filter id="fGrain" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="3" seed="7" result="n"></feTurbulence><feColorMatrix in="n" type="matrix" values="0 0 0 0 0.42  0 0 0 0 0.28  0 0 0 0 0.16  0 0 0 1.3 -0.55" result="c"></feColorMatrix><feComposite in="c" in2="SourceGraphic" operator="in"></feComposite></filter>
 <filter id="fWood" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.012 0.18" numOctaves="2" seed="3" result="n"></feTurbulence><feColorMatrix in="n" type="matrix" values="0 0 0 0 0.36  0 0 0 0 0.2  0 0 0 0 0.1  0 0 0 1.2 -0.5" result="c"></feColorMatrix><feComposite in="c" in2="SourceGraphic" operator="in"></feComposite></filter>
 <symbol id="g-sofa" viewBox="0 0 190 160">

@@ -36,9 +36,25 @@ const cjk = (s) => /[㐀-鿿]/.test(s);
 const textW = (s, size) => [...s].reduce((w, c) => w + (cjk(c) ? size : size * 0.58), 0);
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
-// The things, drawn in the room. The buyer's room gets the same things.
+// Where each drawing meets the floor, in the drawing's own units ([viewBox width, height, shape]),
+// so its shadow follows the room's angles. The rug lies flat and the lamp stands on the desk: no shadow.
+const FOOT = {
+  'g-sofa': [190, 160, '<polygon points="10,128 50,148 170,88 130,68"></polygon>'],
+  'g-shelf': [130, 200, '<polygon points="30,162 90,192 114,180 54,150"></polygon>'],
+  'g-desk': [150, 150, '<polygon points="28,102 104,141 140,122 64,83"></polygon>'],
+  'g-chair': [80, 100, '<polygon points="12,87 34,98 68,83 46,72"></polygon>'],
+  'g-plant': [70, 110, '<ellipse cx="35" cy="104" rx="15" ry="6"></ellipse>'],
+  'g-mirror': [70, 150, '<polygon points="12,146 54,125 62,129 20,150"></polygon>'],
+  'g-box': [60, 56, '<polygon points="4,39 30,52 56,39 30,26"></polygon>'],
+};
+
+// The things, drawn in the room, each on a soft shadow nudged away from the window. The buyer's room gets the same things.
 export function thingsSvg() {
-  return THINGS.map((t) => `<g class="it" data-id="${t.id}"><ellipse cx="${t.x + t.w / 2}" cy="${t.y + t.h * 0.93}" rx="${t.w * 0.34}" ry="${t.h * 0.07}" fill="#5a3a2a" fill-opacity="${t.id === 'rug' || t.id === 'lamp' ? 0 : 0.22}"></ellipse><use href="#${t.sym}" x="${t.x}" y="${t.y}" width="${t.w}" height="${t.h}"></use></g>`).join('');
+  return THINGS.map((t) => {
+    const f = FOOT[t.sym];
+    const shade = f ? `<g transform="translate(${t.x + 4} ${t.y + 2}) scale(${t.w / f[0]} ${t.h / f[1]})" fill="#5a3a2a" fill-opacity=".3" filter="url(#fShade)">${f[2]}</g>` : '';
+    return `<g class="it" data-id="${t.id}">${shade}<use href="#${t.sym}" x="${t.x}" y="${t.y}" width="${t.w}" height="${t.h}"></use></g>`;
+  }).join('');
 }
 
 // Price tags: name, a yellow price chip that turns into a blue "sold", and a queue bubble above.
@@ -99,6 +115,8 @@ export function initLanding(root, lang) {
   const caps = $$('[data-cap]');
   const counter = $('#counter');
   const [cPre, cN, cPost] = ['#count-pre', '#count-n', '#count-post'].map($);
+  const steps = $$('#counter .rail li');
+  const live = $('#live');
   const mini = $('#mini');
   const gp = $('#gp');
   const gpm = $('#gpm');
@@ -179,8 +197,15 @@ export function initLanding(root, lang) {
     gpmRows.forEach((el, j) => el.classList.toggle('on', j === g));
     qTotals.forEach((el) => (el.textContent = inLine));
 
+    // The step rail sits where the eye already is, above the room: steps behind are ticked, the
+    // current one is lit and carries the live count.
     counter.classList.toggle('on', phase > 0);
     counter.classList.toggle('done', p >= T_CLEAN);
+    steps.forEach((el, j) => {
+      el.classList.toggle('on', j + 1 === phase);
+      el.classList.toggle('past', j + 1 < phase || p >= T_CLEAN);
+    });
+    if (phase && live.parentNode !== steps[phase - 1]) steps[phase - 1].append(live);
     if (phase === 1) setCount(s.shot, shotCount);
     else if (phase === 2) setCount(s.queue, inLine);
     else if (phase === 3) setCount(p >= T_CLEAN ? s.done : s.left, left);

@@ -1,7 +1,7 @@
 import { money, contactNote, byRecent, itemText, saleText, textLang, normTelegram, looksLikeTelegram, fbProfileUrl, RULES } from '../public/lib.js';
 import { landingHtml } from './landing.js';
 
-const VERSION = '66';
+const VERSION = '67';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 // An open list pauses this long after its last renewal: buyers can look but not queue,
@@ -269,11 +269,11 @@ const FAQ = {
   ],
   en: [
     ['Does it cost anything?', 'No. It is free, with no ads and no commission. The developer pays for the server and the domain, and tips keep it running.'],
-    ['Do I need an app or an account?', 'Neither. It opens in WeChat, Telegram or any browser. Your management access lives on your phone: bookmark the "My lists" page to get it back on a new phone.'],
+    ['Do I need an app or an account?', 'Neither. It opens in any browser, including inside WeChat, Telegram and Facebook. Your management access lives on your phone: bookmark the "My lists" page to get it back on a new phone.'],
     ['How do buyers reach me?', 'Buyers tap Reserve and leave a WeChat ID or Telegram username. Only the first in line sees your contact; if they drop out, the next in line moves up, so two people never come for the same thing.'],
-    ['What is the AI photo recognition?', 'Snap a photo and the AI works out what it is and names it for you. Everyone gets free tries, and once they run out you can still type the name yourself.'],
+    ['How does the AI listing work?','Snap a photo and the AI works out what it is and names it for you. Everyone gets free tries, and once they run out you can still type the name yourself.'],
     ['Which cities does it work in?', 'Any city. Prices can be in euros, US dollars, pounds, yuan or Swedish kronor. Turn on "Nearby" and people in your city see your things too.'],
-    ['Can people who don\'t read Chinese use it?', 'Yes. Every page is in English and Chinese, and item names and details are translated automatically; the seller can edit the translation.'],
+    ['What if a list is written in Chinese?', 'Every page is in English and Chinese, and item names and details are translated automatically, so you can read any list. The seller can edit the translation.'],
     ['Is my information safe?', 'It keeps only what a list needs to work, sells nothing to anyone and never handles payments. The code is open source on GitHub for anyone to check.'],
   ],
 };
