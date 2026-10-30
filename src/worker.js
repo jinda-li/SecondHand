@@ -1,7 +1,7 @@
 import { money, contactNote, byRecent, itemText, saleText, textLang, normTelegram, looksLikeTelegram, fbProfileUrl, RULES } from '../public/lib.js';
 import { landingHtml } from './landing.js';
 
-const VERSION = '67';
+const VERSION = '68';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 // An open list pauses this long after its last renewal: buyers can look but not queue,
@@ -233,13 +233,14 @@ async function route(req, env, ctx) {
 
 const APP_NAME = { zh: '二手清单', en: 'Secondhand List' };
 // What people searching for 二手清单 should land on: the home and /new pages.
+// Search results cut titles at about 30 Chinese characters / 60 letters, so the selling points come first.
 const APP_TITLE = {
-  zh: '二手清单｜出二手，不用一个个回消息',
-  en: 'Secondhand List | Sell your stuff without answering every message',
+  zh: '二手清单｜免费免注册，一个清单同步发微信、Telegram、Facebook',
+  en: 'Secondhand List | Free, one list for WeChat, Telegram, Facebook',
 };
 const APP_DESC = {
-  zh: '二手清单：拍照上架，AI 识别物品，一个链接发到多个群，想要的人自己排队预订。免费 · 不用注册 · 不用下载。',
-  en: 'Secondhand List: snap photos, AI names the items, post one link to any group, and buyers reserve in line themselves. Free, no sign-up, no app.',
+  zh: '想要的人自己排队预订，只有排第一的能联系你，不用一个个回消息。一个清单同时发到微信群、Telegram 群和 Facebook。免费 · 不用注册 · 不用下载，拍照上架，AI 识别物品。',
+  en: 'Buyers reserve in line themselves and only the first in line can contact you, so you stop answering every message. Post one list to WeChat, Telegram and Facebook. Free, no sign-up, no app; snap photos and AI names the items.',
 };
 const appJsonLd = (url, lang) => ({
   '@context': 'https://schema.org',
