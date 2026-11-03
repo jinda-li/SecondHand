@@ -1,7 +1,7 @@
 import { money, contactNote, byRecent, itemText, saleText, textLang, normTelegram, looksLikeTelegram, fbProfileUrl, RULES } from '../public/lib.js';
 import { landingHtml } from './landing.js';
 
-const VERSION = '68';
+const VERSION = '69';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 // An open list pauses this long after its last renewal: buyers can look but not queue,
@@ -1672,7 +1672,8 @@ async function sendFeedback(env, req) {
   const contact = str(b.contact, { max: 60, name: ['联系方式', 'Contact'] });
   // Path only: a manage URL's query holds the admin key.
   const page = String(b.page ?? '').split(/[?#]/)[0].slice(0, 100);
-  const role = ['seller', 'buyer'].includes(b.role) ? b.role : '';
+  // auto: a photo error the app reported by itself.
+  const role = ['seller', 'buyer', 'auto'].includes(b.role) ? b.role : '';
   const ua = `${(req.headers.get('user-agent') || '').slice(0, 300)} · ${Number(b.width) || 0}px`;
   const t = now();
   const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM feedback WHERE client_id = ? AND created_at > ?').bind(clientId, t - 24 * HOUR).first();

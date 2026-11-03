@@ -291,35 +291,59 @@ function canvasBlob(canvas, q) {
   return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', q));
 }
 
+// Rejects when p takes longer than ms, so one stuck photo can't hold up the ones after it.
+function within(p, ms, what) {
+  let t;
+  return Promise.race([p, new Promise((_, reject) => (t = setTimeout(() => reject(new Error(`${what} timed out`)), ms)))]).finally(() => clearTimeout(t));
+}
+
 async function resize(im, maxSide, q) {
   const s = Math.min(1, maxSide / Math.max(im.naturalWidth, im.naturalHeight));
   const c = document.createElement('canvas');
   c.width = Math.round(im.naturalWidth * s);
   c.height = Math.round(im.naturalHeight * s);
-  const g = c.getContext('2d');
-  g.fillStyle = '#fff';
-  g.fillRect(0, 0, c.width, c.height);
-  g.drawImage(im, 0, 0, c.width, c.height);
-  return canvasBlob(c, q);
+  try {
+    // iOS Safari hands out no context (or no blob) once its canvas memory is used up.
+    const g = c.getContext('2d');
+    if (!g) throw new Error(`no canvas ${c.width}x${c.height}`);
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, c.width, c.height);
+    g.drawImage(im, 0, 0, c.width, c.height);
+    const blob = await within(canvasBlob(c, q), 20000, 'toBlob');
+    if (!blob) throw new Error(`no blob ${c.width}x${c.height}`);
+    return blob;
+  } finally {
+    // iOS counts a canvas against its memory cap until it is garbage-collected; zero size frees it now.
+    c.width = c.height = 0;
+  }
+}
+
+// Decodes an image file once for fn(im), then lets go of the decoded pixels straight away.
+async function withImage(blob, fn) {
+  const url = URL.createObjectURL(blob);
+  let im;
+  try {
+    im = await within(loadImage(url), 30000, 'image load');
+    return await fn(im);
+  } finally {
+    if (im) im.src = '';
+    URL.revokeObjectURL(url);
+  }
 }
 
 // Shrinking a big phone photo is the slow part, so the composer starts it as soon as a photo is
 // picked and listing only sends the small JPEGs. One photo at a time: several 48 MP photos
-// decoded at once can run a phone out of memory.
+// decoded at once can run a phone out of memory. A failed shrink is forgotten, so the next
+// use tries again instead of failing for good.
 const shrunk = new WeakMap();
 let shrinkQueue = Promise.resolve();
 function shrinkPhoto(file) {
   let p = shrunk.get(file);
   if (!p) {
-    p = shrinkQueue.then(async () => {
-      const url = URL.createObjectURL(file);
-      try {
-        const im = await loadImage(url);
-        const [full, thumb] = await Promise.all([resize(im, 1280, 0.75), resize(im, 600, 0.72)]);
-        return { full, thumb };
-      } finally {
-        URL.revokeObjectURL(url);
-      }
+    p = shrinkQueue.then(() => withImage(file, async (im) => ({ full: await resize(im, 1280, 0.75), thumb: await resize(im, 600, 0.72) })));
+    p.catch((err) => {
+      if (shrunk.get(file) === p) shrunk.delete(file);
+      reportPhotoError('shrink', err, file);
     });
     shrinkQueue = p.catch(() => {});
     shrunk.set(file, p);
@@ -327,14 +351,28 @@ function shrinkPhoto(file) {
   return p;
 }
 
-// A smaller copy for the AI, made from the shrunk photo rather than decoding the original again.
+// A smaller copy for the AI, made from the shrunk photo rather than decoding the original again;
+// from the original when shrinking failed.
 async function aiImage(file, maxSide, q) {
-  const url = URL.createObjectURL((await shrinkPhoto(file)).full);
+  let src = file;
   try {
-    return await resize(await loadImage(url), maxSide, q);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+    src = (await shrinkPhoto(file)).full;
+  } catch {}
+  return withImage(src, (im) => resize(im, maxSide, q));
+}
+
+// Photo trouble on a phone we can't test on: the first one per page load is sent as feedback,
+// so `npm run feedback` shows what went wrong and on which phone.
+let photoErrorSent = false;
+function reportPhotoError(stage, err, file) {
+  if (photoErrorSent) return;
+  photoErrorSent = true;
+  const form = new FormData();
+  const what = `${err?.name || 'Error'}: ${err?.message || err}`.slice(0, 300);
+  const text = `[auto] photo ${stage} failed: ${what} · ${file?.type || '?'} ${file ? Math.round(file.size / 1024) : '?'} KB · ${navigator.deviceMemory || '?'} GB`;
+  Object.entries({ text, page: location.pathname, role: 'auto', width: innerWidth }).forEach(([k, v]) => form.append(k, v));
+  buyerToken(true);
+  api('/feedback', { method: 'POST', form }).catch(() => {});
 }
 
 async function uploadPhoto(saleId, key, file) {
@@ -2526,7 +2564,10 @@ function composer(S) {
         cards.splice(cards.indexOf(c), 1);
         done++;
       } catch (err) {
-        c.error = err.code === 'NETWORK' ? tr('没保存成功，网络恢复后再点一次', 'Not saved. Tap again once you are back online') : err.message;
+        // A thrown Error is the phone failing to shrink a photo, not an answer from the server.
+        if (err instanceof Error) reportPhotoError('list', err);
+        c.error = err.code === 'NETWORK' ? tr('没保存成功，网络恢复后再点一次', 'Not saved. Tap again once you are back online')
+          : err instanceof Error ? tr('照片没处理好，再点一次试试', 'A photo could not be prepared, tap again') : err.message;
         failed++;
       }
       render();
