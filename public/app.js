@@ -336,12 +336,13 @@ async function withImage(blob, fn) {
 // decoded at once can run a phone out of memory. A failed shrink is forgotten, so the next
 // use tries again instead of failing for good.
 const shrunk = new WeakMap();
+const shrinkDone = new WeakSet();
 let shrinkQueue = Promise.resolve();
 function shrinkPhoto(file) {
   let p = shrunk.get(file);
   if (!p) {
     p = shrinkQueue.then(() => withImage(file, async (im) => ({ full: await resize(im, 1280, 0.75), thumb: await resize(im, 600, 0.72) })));
-    p.catch((err) => {
+    p.then(() => shrinkDone.add(file), (err) => {
       if (shrunk.get(file) === p) shrunk.delete(file);
       reportPhotoError('shrink', err, file);
     });
@@ -2399,7 +2400,10 @@ function composer(S) {
       render();
       return recognise(added);
     }
-    const stop = loading(tr('AI 正在整理照片…', 'The AI is sorting your photos…'));
+    // Big photos take a while to shrink on a phone: count them up, then say the AI has them.
+    const stop = loading('');
+    let ready = 0;
+    const shrinking = () => stop.say(tr(`正在压缩照片 ${ready + 1}/${files.length}…`, `Shrinking photo ${ready + 1} of ${files.length}…`));
     const added = [];
     let dropped = 0;
     let sheet = null;
@@ -2407,8 +2411,10 @@ function composer(S) {
       const batch = files.slice(i, i + AI_BATCH_MAX);
       let items = batch.map((_, j) => ({ photos: [j] }));
       if (!aiStopped) {
+        ready = i;
+        shrinking();
         try {
-          const r = await aiBatch(batch, sale.currency);
+          const r = await aiBatch(batch, sale.currency, null, () => (++ready < i + batch.length ? shrinking() : stop.say(tr('AI 正在整理照片…', 'The AI is sorting your photos…'))));
           items = r.items;
           if (r.limited) sheet = 'limit';
         } catch (err) {
@@ -2552,8 +2558,15 @@ function composer(S) {
     let failed = 0;
     for (const c of todo) {
       const k = done + failed + 1;
-      stop.say(tr(`正在上架第 ${k}/${todo.length} 件，先别关页面…`, `Listing ${k} of ${todo.length}, keep this page open…`));
+      const listing = () => stop.say(tr(`正在上架第 ${k}/${todo.length} 件，先别关页面…`, `Listing ${k} of ${todo.length}, keep this page open…`));
       try {
+        // Photos still being shrunk in the background: say so, rather than a listing that seems stuck.
+        const unshrunk = c.files.filter((f) => !f.photoId && !shrinkDone.has(f.file));
+        if (unshrunk.length) {
+          stop.say(tr(`正在压缩第 ${k}/${todo.length} 件的照片，先别关页面…`, `Shrinking photos for item ${k} of ${todo.length}, keep this page open…`));
+          await Promise.all(unshrunk.map((f) => shrinkPhoto(f.file)));
+        }
+        listing();
         // A card's photos go up together; ones an earlier failed try already sent keep their id.
         await Promise.all(c.files.map(async (f) => (f.photoId ||= await uploadPhoto(S.saleId, S.key, f.file))));
         const body = { name: c.name.trim(), priceCents: priceCents(c), origPriceCents: parsePrice(c.orig), condition: '', note: c.note.trim(), photos: c.files.map((f) => f.photoId) };
@@ -4404,11 +4417,15 @@ const AI_BATCH_MAX = 8;
 // Sort photos picked together into items and recognise each one, in one call.
 // Returns { items: [{ photos: [indices into files], name, note, retail }], limited }.
 // groups: the card each file is on, when the seller already sorted them; the AI then keeps that.
-async function aiBatch(files, currency, groups) {
+// onImage() after each photo is ready, for a progress count while big photos are shrunk.
+async function aiBatch(files, currency, groups, onImage) {
   buyerToken(true);
   const form = new FormData();
   // Smaller than a single recognition (1024) to keep a batch cheap; big print still reads.
-  for (const file of files) form.append('image', await aiImage(file, 768, 0.72), 'photo.jpg');
+  for (const file of files) {
+    form.append('image', await aiImage(file, 768, 0.72), 'photo.jpg');
+    onImage?.();
+  }
   if (currency) form.append('currency', currency);
   if (groups) form.append('groups', groups.join(','));
   return api('/ai/batch', { method: 'POST', form });
