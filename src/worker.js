@@ -1,7 +1,7 @@
 import { money, contactNote, byRecent, itemText, saleText, textLang, normTelegram, looksLikeTelegram, fbProfileUrl, RULES } from '../public/lib.js';
 import { landingHtml } from './landing.js';
 
-const VERSION = '72';
+const VERSION = '73';
 const HOUR = 3600 * 1000;
 const MAYBE_SOLD_MS = 72 * HOUR;
 // An open list pauses this long after its last renewal: buyers can look but not queue,
@@ -262,7 +262,7 @@ const FAQ = {
   zh: [
     ['要钱吗？', '完全免费，没有广告，也不抽成。服务器和域名是开发者自己掏钱，靠大家打赏撑着。'],
     ['要下载 App 或者注册吗？', '都不用。在微信、Telegram 或者任何浏览器里打开就能用。卖家的管理权限存在这台手机上，把「我的清单」页面收藏起来，换手机也能找回。'],
-    ['买家怎么联系我？', '买家点「预订」排队，留下微信号或 Telegram 用户名。只有排第 1 位的人能看到你的联系方式；他不要了，下一位自动顶上，不会两个人约同一件。'],
+    ['买家怎么联系我？', '买家点「预订」排队，留下微信号或 Telegram 用户名。只有排第 1 位的人能看到你的联系方式；TA 不要了，下一位自动顶上，不会两个人约同一件。'],
     ['AI 识图是什么？', '拍一张照片，AI 认出这是什么，帮你写好名字。每人有免费次数，用完了自己打字也一样能上架。'],
     ['在哪些城市能用？', '任何城市都能用，价格可以用欧元、美元、英镑、人民币或瑞典克朗。打开「附近的二手」，同城的人也能刷到你的东西。'],
     ['外国同学能看懂吗？', '能。页面有中文和英文，物品名和说明会自动翻译，卖家可以修改译文。'],
@@ -602,6 +602,15 @@ function contactFor(sale, buyerKind, rows) {
 // The app a buyer's queue rows were left on: Telegram, then Facebook, else WeChat.
 const buyerKindOf = (rows) => (rows.some((r) => r.buyer_telegram) ? 'telegram' : rows.some((r) => r.buyer_facebook) ? 'facebook' : 'wechat');
 
+// Who a queue row belongs to, as the seller sees it: the same id on every row one buyer left, so their
+// reservations can be tallied together. A hash, as the token itself lets its holder cancel the buyer's
+// places. Rows the seller added by name have no token and group by the name they were given.
+async function buyerIdOf(q) {
+  if (!q.buyer_token) return `n:${q.nickname.trim().toLowerCase()}`;
+  const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`buyer|${q.buyer_token}`));
+  return `t:${[...new Uint8Array(h).slice(0, 8)].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+}
+
 async function buyerContact(env, saleRow, buyerToken) {
   const { results } = await env.DB.prepare(
     `SELECT i.no, i.name, i.name_alt, q.buyer_telegram, q.buyer_facebook FROM queues q JOIN items i ON i.id = q.item_id
@@ -728,6 +737,7 @@ async function api(req, env, url, ctx) {
   if ((m = p.match(/^\/sale\/(\w+)\/renew$/)) && M === 'POST') return renewSale(env, await requireSeller(req, env, m[1]));
   if ((m = p.match(/^\/sale\/(\w+)\/photo$/)) && M === 'POST') return uploadPhoto(env, await requireSeller(req, env, m[1]), req, false);
   if ((m = p.match(/^\/sale\/(\w+)\/cover$/)) && M === 'POST') return uploadPhoto(env, await requireSeller(req, env, m[1]), req, url.searchParams.has('wide') ? 'cover_wide' : 'cover_photo');
+  if ((m = p.match(/^\/sale\/(\w+)\/settle$/)) && M === 'POST') return settleBuyer(env, await requireSeller(req, env, m[1]), await body(req));
   if ((m = p.match(/^\/sale\/(\w+)\/translate$/)) && M === 'POST') return translateNow(env, await requireSeller(req, env, m[1]));
   if ((m = p.match(/^\/sale\/(\w+)\/items$/)) && M === 'POST') return createItem(env, ctx, await requireSeller(req, env, m[1]), await body(req));
   if ((m = p.match(/^\/item\/(\w+)$/)) && M === 'PATCH') {
@@ -891,16 +901,25 @@ async function manageData(env, sale) {
   const [itemsRes, queuesRes] = await env.DB.batch([
     // Taken-down items too: the seller has a list of them and can put one back up.
     env.DB.prepare('SELECT * FROM items WHERE sale_id = ? ORDER BY no').bind(sale.id),
-    env.DB.prepare("SELECT seq, item_id, nickname, buyer_wechat, buyer_telegram, buyer_facebook, added_by, created_at FROM queues WHERE sale_id = ? AND status = 'waiting' ORDER BY seq").bind(sale.id),
+    // Sold rows too: who each sold item went to, for the per-buyer tally.
+    env.DB.prepare("SELECT seq, item_id, buyer_token, nickname, buyer_wechat, buyer_telegram, buyer_facebook, status, added_by, created_at FROM queues WHERE sale_id = ? AND status IN ('waiting', 'sold') ORDER BY seq").bind(sale.id),
   ]);
   const queues = {};
+  const soldTo = {};
   for (const q of queuesRes.results) {
-    (queues[q.item_id] ||= []).push({ seq: q.seq, nickname: q.nickname, wechat: q.buyer_wechat, telegram: q.buyer_telegram, facebook: q.buyer_facebook, addedBy: q.added_by, createdAt: q.created_at });
+    const row = { seq: q.seq, buyer: await buyerIdOf(q), nickname: q.nickname, wechat: q.buyer_wechat, telegram: q.buyer_telegram, facebook: q.buyer_facebook, addedBy: q.added_by, createdAt: q.created_at };
+    if (q.status === 'waiting') (queues[q.item_id] ||= []).push(row);
+    else soldTo[q.item_id] = row;
   }
   const soldCents = itemsRes.results.filter((r) => r.status === 'sold').reduce((s, r) => s + r.price_cents, 0);
   return ok({
     sale: { ...mapSale(sale), wechatId: sale.wechat_id, telegram: sale.telegram, facebook: sale.facebook, key: sale.admin_key },
-    items: itemsRes.results.map((r) => ({ ...mapItem(r, t), queue: queues[r.id] || [], queueCount: (queues[r.id] || []).length })),
+    items: itemsRes.results.map((r) => ({
+      ...mapItem(r, t),
+      queue: queues[r.id] || [],
+      queueCount: (queues[r.id] || []).length,
+      soldTo: r.status === 'sold' ? soldTo[r.id] || null : null,
+    })),
     soldCents,
     now: t,
   });
@@ -1039,6 +1058,37 @@ function releaseIfEmpty(env, itemId, t) {
   ).bind(t, itemId);
 }
 
+// Marks an item sold to the first in line (headSeq; none when nobody waits); the rest of the line is closed.
+function sellStmts(db, itemId, headSeq, t) {
+  const stmts = [];
+  if (headSeq != null) {
+    stmts.push(db.prepare("UPDATE queues SET status = 'sold', closed_at = ? WHERE seq = ?").bind(t, headSeq));
+    stmts.push(db.prepare("UPDATE queues SET status = 'removed', closed_at = ? WHERE item_id = ? AND status = 'waiting' AND seq != ?").bind(t, itemId, headSeq));
+  }
+  stmts.push(db.prepare("UPDATE items SET status = 'sold', status_changed_at = ?1, status_checked_at = ?1, updated_at = ?1 WHERE id = ?2").bind(t, itemId));
+  return stmts;
+}
+
+// Settling up with one buyer: every item they are first in line for, sold in one go.
+// b.items: [{ id, seq }], seq being their place at the head of that item's line.
+async function settleBuyer(env, sale, b) {
+  const list = Array.isArray(b.items) ? b.items : [];
+  if (!list.length || list.length > 100) fail('INVALID', ['没有要结算的东西', 'Nothing to settle']);
+  const db = env.DB;
+  const t = now();
+  const stmts = [];
+  for (const { id, seq } of list) {
+    const item = await db.prepare('SELECT id, status FROM items WHERE id = ? AND sale_id = ?').bind(String(id), sale.id).first();
+    if (!item || (item.status !== 'available' && item.status !== 'reserved')) fail('CONFLICT', ['有一件已经处理过了，刷新一下', 'One of these was already handled, refresh the page']);
+    const head = await db.prepare("SELECT seq FROM queues WHERE item_id = ? AND status = 'waiting' ORDER BY seq LIMIT 1").bind(item.id).first();
+    if (!head || head.seq !== seq) fail('CONFLICT', ['排第 1 位的人变了，刷新一下', 'The first in line changed, refresh the page']);
+    stmts.push(...sellStmts(db, item.id, head.seq, t));
+  }
+  stmts.push(touchSale(env, sale.id, t));
+  await db.batch(stmts);
+  return ok({ sold: list.length });
+}
+
 async function itemAction(env, sale, item, b) {
   const t = now();
   const db = env.DB;
@@ -1049,11 +1099,7 @@ async function itemAction(env, sale, item, b) {
   switch (b.action) {
     case 'sell': {
       if (!open) fail('CONFLICT', ['这件已经处理过了', 'This item was already handled']);
-      if (head) {
-        stmts.push(db.prepare("UPDATE queues SET status = 'sold', closed_at = ? WHERE seq = ?").bind(t, head.seq));
-        stmts.push(db.prepare("UPDATE queues SET status = 'removed', closed_at = ? WHERE item_id = ? AND status = 'waiting' AND seq != ?").bind(t, item.id, head.seq));
-      }
-      stmts.push(db.prepare("UPDATE items SET status = 'sold', status_changed_at = ?1, status_checked_at = ?1, updated_at = ?1 WHERE id = ?2").bind(t, item.id));
+      stmts.push(...sellStmts(db, item.id, head?.seq, t));
       break;
     }
     case 'relist': {
@@ -1094,6 +1140,25 @@ async function itemAction(env, sale, item, b) {
     }
     case 'addManual': {
       if (!open) fail('CONFLICT', ['这件已经出了', 'This item is already gone']);
+      if (b.buyer) {
+        // Someone who already reserved on this list: the place goes under their own token, so it
+        // shows on their page like one they took themselves.
+        const { results } = await db.prepare(
+          'SELECT buyer_token, nickname, buyer_wechat, buyer_telegram, buyer_facebook FROM queues WHERE sale_id = ? AND buyer_token IS NOT NULL ORDER BY seq DESC',
+        ).bind(sale.id).all();
+        let q = null;
+        for (const r of results) if (await buyerIdOf(r) === b.buyer) { q = r; break; }
+        if (!q) fail('NOT_FOUND', ['找不到这个人，刷新一下', 'Couldn\’t find this person, refresh the page'], 404);
+        const inLine = await db.prepare("SELECT 1 FROM queues WHERE item_id = ? AND buyer_token = ? AND status = 'waiting'").bind(item.id, q.buyer_token).first();
+        if (inLine) fail('CONFLICT', ['TA 已经在这件的队里了', 'They are already in line for this']);
+        stmts.push(db.prepare(
+          "INSERT INTO queues (sale_id, item_id, buyer_token, nickname, buyer_wechat, buyer_telegram, buyer_facebook, status, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'waiting', 'seller', ?)",
+        ).bind(sale.id, item.id, q.buyer_token, q.nickname, q.buyer_wechat, q.buyer_telegram, q.buyer_facebook, t));
+        stmts.push(db.prepare(
+          "UPDATE items SET status = 'reserved', status_changed_at = ?1, status_checked_at = ?1, updated_at = ?1 WHERE id = ?2 AND status = 'available'",
+        ).bind(t, item.id));
+        break;
+      }
       const nickname = str(b.nickname, { max: 20, min: 1, name: ['称呼', 'Name'] });
       stmts.push(db.prepare(
         "INSERT INTO queues (sale_id, item_id, buyer_token, nickname, note, status, added_by, created_at) VALUES (?, ?, NULL, ?, '', 'waiting', 'seller', ?)",

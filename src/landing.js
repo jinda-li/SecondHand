@@ -172,7 +172,7 @@ export function landingHtml(lang, { appName, faq, esc, repoUrl, tipUrl }) {
         <div class="art art-q" data-subst aria-hidden="true">
           <div class="qh"><span class="qth">${pic('g-sofa')}</span><b>${T('布艺沙发', 'Fabric sofa')}</b><span class="tl-p">€40</span></div>
           <div class="ql">${T('排队名单（3 人）', 'In line (3)')}</div>
-          <div class="qlist">${queue.map(([k, c, n, t], i) => `<div class="qr q${i}${i ? '' : ' first'}"><span class="pos">${i + 1}</span><div class="qr-m"><div><span class="kt ${c}">${k}</span><b>${n}</b><small>${t}</small></div><div class="acts"><span class="b p">${T('卖给他了', 'Sold')}</span><span class="b d">${T('他不要了', 'Backed out')}</span></div></div></div>`).join('')}</div>
+          <div class="qlist">${queue.map(([k, c, n, t], i) => `<div class="qr q${i}${i ? '' : ' first'}"><span class="pos">${i + 1}</span><div class="qr-m"><div><span class="kt ${c}">${k}</span><b>${n}</b><small>${t}</small></div><div class="acts"><span class="b p">${T('卖给TA了', 'Sold')}</span><span class="b d">${T('TA不要了', 'Backed out')}</span></div></div></div>`).join('')}</div>
           <div class="qtoast">${T('下一位顶上', 'Next in line moves up')}</div>
         </div>
         <h3>${T('不用记谁先要的', 'No keeping track of who asked first')}</h3>

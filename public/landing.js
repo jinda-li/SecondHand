@@ -253,7 +253,7 @@ export function initLanding(root, lang) {
   frame();
 
   // ---- small loops in the cards, only while they are on screen ----
-  // The queue card: the seller taps 他不要了 on the first in line, they leave, and the next moves up.
+  // The queue card: the seller taps TA不要了 on the first in line, they leave, and the next moves up.
   const subst = $('[data-subst]');
   const qlist = subst.querySelector('.qlist');
   const qrows = [...subst.querySelectorAll('.qr')];

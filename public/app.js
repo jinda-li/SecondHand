@@ -2648,6 +2648,93 @@ function composer(S) {
 
 // ---------- 6.4 item sheet (seller view) ----------
 
+// A queue row's app (TG / FB / 微信) and the way to reach them on it.
+const kindTagHtml = (r) => (r.telegram ? '<span class="kind-tag tg">TG</span> ' : r.facebook ? '<span class="kind-tag fb">FB</span> ' : r.wechat ? `<span class="kind-tag wx">${tr('微信', 'WeChat')}</span> ` : '');
+const contactLinkHtml = (r) => (r.telegram ? ` <a class="link-btn small" href="${esc(tgChatUrl(r.telegram))}" target="_blank" rel="noopener">${tr('Telegram 发消息', 'Message')}</a>`
+  : r.facebook && fbProfileUrl(r.facebook) ? ` <a class="link-btn small" href="${esc(fbProfileUrl(r.facebook))}" target="_blank" rel="noopener">${tr('打开 Facebook 主页', 'Facebook profile')}</a>`
+  : r.facebook ? ` <span class="small muted">${tr('会在 Facebook 私信你', 'will DM you on Facebook')}</span>`
+  : r.wechat ? ` <button class="link-btn small" data-copy="${esc(r.wechat)}">${tr('复制微信号', 'Copy WeChat ID')}</button>` : '');
+
+// Everyone with a place in a line or an item sold to them, with what they have: first: items they are
+// first in line for (the row is their place), waiting: further back (pos), sold: already theirs.
+// Name and contact are from their latest row.
+function listBuyers(data) {
+  const by = new Map();
+  const get = (r) => {
+    let b = by.get(r.buyer);
+    if (!b) by.set(r.buyer, (b = { buyer: r.buyer, row: r, first: [], waiting: [], sold: [] }));
+    if (r.seq > b.row.seq) b.row = r;
+    return b;
+  };
+  for (const it of data.items) {
+    it.queue.forEach((r, i) => (i ? get(r).waiting.push({ it, pos: i + 1 }) : get(r).first.push({ it, r })));
+    if (it.soldTo) get(it.soldTo).sold.push(it);
+  }
+  return [...by.values()].map((b) => ({ ...b, nickname: b.row.nickname }));
+}
+
+const buyerCount = (data, buyer) => {
+  const b = listBuyers(data).find((x) => x.buyer === buyer);
+  return b ? b.first.length + b.waiting.length + b.sold.length : 0;
+};
+
+// One buyer's tally: what they reserved and what it adds up to, settled in one tap when they come to pick up.
+function buyerSheet(S, buyer, onDone) {
+  const sum = (list) => list.reduce((s, it) => s + it.priceCents, 0);
+  const rowHtml = (it, side) => `<div class="cell bs-row"><span class="no">${it.no}</span><img src="${img(it.photos[0])}" alt=""><span class="grow ellipsis">${esc(itemText(it, LANG).name)}</span>${side}</div>`;
+  const sh = openSheet(() => {
+    const { sale } = S.data();
+    const b = listBuyers(S.data()).find((x) => x.buyer === buyer);
+    if (!b) return `<h2>${tr('TA 已经不在任何队里了', 'They are no longer in any line')}</h2><div class="actions"><button class="btn block" data-act="close">${tr('关闭', 'Close')}</button></div>`;
+    const first = b.first.map((x) => x.it);
+    const m = (c) => esc(money(c, sale.currency));
+    return `
+      <h2>${kindTagHtml(b.row)}${esc(b.nickname)}</h2>
+      <div class="center small" style="margin:-6px 0 12px">${contactLinkHtml(b.row)}</div>
+      ${first.length ? `
+        <div class="small muted" style="margin:0 4px 6px">${tr(`排第 1 位，可以结算（${first.length} 件）`, `First in line, ready to settle (${first.length})`)}</div>
+        <div class="group">
+          ${first.map((it) => rowHtml(it, `<b>${m(it.priceCents)}</b>`)).join('')}
+          <div class="cell bs-total"><span class="grow">${tr('合计', 'Total')}</span><b>${m(sum(first))}</b></div>
+        </div>
+        <div class="actions"><button class="btn primary block" data-act="settle">${tr(`全部卖给 TA · ${m(sum(first))}`, `Sold all to them · ${m(sum(first))}`)}</button></div>
+        <div class="hint center" style="padding-top:0">${tr('每件都记成已出，算进已收回。打了折的话，结算后点那件改成交价。', 'Each is marked sold and counts toward Earned. Gave a discount? Open the item afterwards and fix what it sold for.')}</div>` : ''}
+      ${b.waiting.length ? `
+        <div class="small muted" style="margin:0 4px 6px">${tr('还在排队，前面有人', 'Still in line, someone ahead')}</div>
+        <div class="group">${b.waiting.map(({ it, pos }) => rowHtml(it, `<span class="small muted">${tr(`第 ${pos} 位`, `#${pos} in line`)}</span>`)).join('')}</div>` : ''}
+      ${b.sold.length ? `
+        <div class="small muted" style="margin:0 4px 6px">${tr(`已经卖给 TA（${b.sold.length} 件）`, `Already sold to them (${b.sold.length})`)}</div>
+        <div class="group">
+          ${b.sold.map((it) => rowHtml(it, `<span>${m(it.priceCents)}</span>`)).join('')}
+          <div class="cell bs-total"><span class="grow">${tr('已收', 'Received')}</span><b>${m(sum(b.sold))}</b></div>
+        </div>` : ''}
+      <div class="actions"><button class="btn block" data-act="close">${tr('关闭', 'Close')}</button></div>`;
+  }, async (act, el, s) => {
+    if (act === 'close') return s.close();
+    if (act !== 'settle') return;
+    const b = listBuyers(S.data()).find((x) => x.buyer === buyer);
+    if (!b?.first.length) return;
+    const { sale } = S.data();
+    const total = money(b.first.reduce((t, x) => t + x.it.priceCents, 0), sale.currency);
+    if (!(await ask({
+      title: tr(`${b.first.length} 件都卖给 ${b.nickname}？`, `Mark ${b.first.length} sold to ${b.nickname}?`),
+      text: tr(`${b.first.map((x) => `${x.it.no} 号`).join('、')}，合计 ${total}。后面排队的人会被移出。`, `${b.first.map((x) => `#${x.it.no}`).join(', ')}, ${total} in total. Anyone else in those lines is removed.`),
+      ok: tr('全部卖出', 'Mark all sold'),
+    }))) return;
+    el.disabled = true;
+    try {
+      await api(`/sale/${S.saleId}/settle`, { method: 'POST', key: S.key, body: { items: b.first.map(({ it, r }) => ({ id: it.id, seq: r.seq })) } });
+      toast(tr(`结算好了，收 ${total}`, `Settled: ${total}`));
+      await S.reload();
+      s.refresh();
+    } catch (err) {
+      toast(err.message);
+      el.disabled = false;
+    }
+  }, { onClose: () => onDone?.() });
+  return sh;
+}
+
 // The seller sees the item as written (the original, Chinese or English, whatever the UI language)
 // with the machine translation into the other language beside it. English is what Telegram and
 // English-speaking buyers read, so a Chinese original is nudged when it has none.
@@ -2694,6 +2781,7 @@ function itemSheet(S, itemId) {
         <div class="actions"><button class="btn primary block" data-act="save">${tr('保存', 'Save')}</button><button class="btn block" data-act="cancel-edit">${tr('取消', 'Cancel')}</button></div>`;
     }
     const q = it.queue;
+    const known = adding ? listBuyers(S.data()).filter((b) => b.buyer.startsWith('t:') && !q.some((r) => r.buyer === b.buyer)) : [];
     const missing = !it.nameAlt && textLang(it.name) === 'zh';
     return `
       <div class="row" style="margin-bottom:12px">
@@ -2718,13 +2806,10 @@ function itemSheet(S, itemId) {
             <div class="qrow ${i === 0 ? 'head' : ''}">
               <span class="pos">${i + 1}</span>
               <div class="grow">
-                <div>${r.telegram ? '<span class="kind-tag tg">TG</span> ' : r.facebook ? '<span class="kind-tag fb">FB</span> ' : r.wechat ? `<span class="kind-tag wx">${tr('微信', 'WeChat')}</span> ` : ''}<b>${esc(r.nickname)}</b>${r.addedBy === 'seller' ? ` <span class="small muted">${tr('（手动加）', '(added by you)')}</span>` : ''}
-                  ${r.telegram ? ` <a class="link-btn small" href="${esc(tgChatUrl(r.telegram))}" target="_blank" rel="noopener">${tr('Telegram 发消息', 'Message')}</a>`
-                    : r.facebook && fbProfileUrl(r.facebook) ? ` <a class="link-btn small" href="${esc(fbProfileUrl(r.facebook))}" target="_blank" rel="noopener">${tr('打开 Facebook 主页', 'Facebook profile')}</a>`
-                    : r.facebook ? ` <span class="small muted">${tr('会在 Facebook 私信你', 'will DM you on Facebook')}</span>`
-                    : r.wechat ? ` <button class="link-btn small" data-copy="${esc(r.wechat)}">${tr('复制微信号', 'Copy WeChat ID')}</button>` : ''}</div>
+                <div>${kindTagHtml(r)}<b class="buyer-name" role="button" data-act="buyer" data-buyer="${esc(r.buyer)}">${esc(r.nickname)}</b>${r.addedBy === 'seller' ? ` <span class="small muted">${tr('（手动加）', '(added by you)')}</span>` : ''}
+                  ${contactLinkHtml(r)}</div>
                 <div class="small muted">${new Date(r.createdAt).toLocaleString(tr('zh-CN', 'en-GB'), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
-                ${i === 0 ? `<div class="acts"><button class="btn primary" data-act="sell">${tr('卖给他了', 'Sold')}</button><button class="btn" data-act="decline" data-seq="${r.seq}">${tr('他不要了', 'Backed out')}</button></div>` : ''}
+                ${i === 0 ? `<div class="acts"><button class="btn primary" data-act="sell">${tr('卖给TA了', 'Sold')}</button><button class="btn" data-act="decline" data-seq="${r.seq}">${tr('TA不要了', 'Backed out')}</button>${buyerCount(S.data(), r.buyer) > 1 ? `<button class="btn" data-act="buyer" data-buyer="${esc(r.buyer)}">${tr(`TA的${buyerCount(S.data(), r.buyer)}件`, `All ${buyerCount(S.data(), r.buyer)}`)}</button>` : ''}</div>` : ''}
               </div>
               ${i > 0 ? `<button class="btn small" data-act="rmq" data-seq="${r.seq}">${tr('移除', 'Remove')}</button>` : ''}
             </div>`).join('') : `<div class="cell muted small">${tr('还没人排队', 'Nobody in line yet')}</div>`}
@@ -2733,12 +2818,18 @@ function itemSheet(S, itemId) {
         <div class="group act-list">
           ${q.length ? '' : `<button class="cell go" data-act="sell">✓ ${tr('已经卖掉了', 'Already sold')}</button>`}
           ${adding
-            ? `<div class="cell"><input class="inp grow" name="manual" maxlength="20" placeholder="${tr('称呼，加到队尾', 'Their name, added at the end')}"><button class="btn small primary" data-act="manual">${tr('加入', 'Add')}</button></div>`
+            ? `${known.length ? `<div class="cell col">
+                <div class="small muted">${tr('在这份清单排过队的人，加上后 TA 的页面也会显示', 'Already reserved on this list: they will see it on their page too')}</div>
+                <div class="pick-chips">${known.map((b) => `<button class="chip" data-act="manual-pick" data-buyer="${esc(b.buyer)}">${esc(b.nickname)}</button>`).join('')}</div>
+              </div>` : ''}
+              <div class="cell"><input class="inp grow" name="manual" maxlength="20" placeholder="${tr('新的称呼，加到队尾', 'A new name, added at the end')}"><button class="btn small primary" data-act="manual">${tr('加入', 'Add')}</button></div>
+              <div class="cell small muted">${tr('新称呼只记在你这边，TA 打开清单看不到。想让 TA 那边也显示，让 TA 先在这里点一次预订。', "A new name is only on your side; they won't see it when they open the list. For it to show for them, have them reserve something here once first.")}</div>`
             : `<button class="cell" data-act="add-open"><div class="grow">＋ ${tr('手动加人到队列', 'Add someone to the line')}<div class="small muted">${tr('微信里约好、没在这里排队的人', "Someone who reserved by chat, not here")}</div></div><span class="muted">›</span></button>`}
           <button class="cell danger" data-act="remove">↓ ${tr('下架', 'Take down')}</button>
         </div>` : it.status === 'sold'
         ? `<div class="sold-done">
             <b>${tr('卖出去了！🎉', 'Sold! 🎉')}</b>
+            ${it.soldTo ? `<div class="small">${tr('买家：', 'Buyer: ')}<span class="buyer-name" role="button" data-act="buyer" data-buyer="${esc(it.soldTo.buyer)}">${esc(it.soldTo.nickname)}</span></div>` : ''}
             ${tipOn() ? `<div class="small">${tr('觉得好用？', 'Was it handy?')}</div><button class="btn block" data-act="tip">☕ ${tr('请开发者喝杯咖啡', 'Buy the developer a coffee')}</button>` : ''}
           </div>
           <div class="actions"><button class="btn block" data-act="relist">${tr('点错了？重新上架', 'Not sold after all? Put it back up')}</button></div>`
@@ -2777,6 +2868,11 @@ function itemSheet(S, itemId) {
         adding = false;
         return run({ action: 'addManual', nickname }, tr('已加到队尾', 'Added at the end'));
       }
+      case 'manual-pick':
+        adding = false;
+        return run({ action: 'addManual', buyer: el.dataset.buyer }, tr('已加到队尾，TA 那边也能看到', 'Added at the end; they see it too'));
+      case 'buyer':
+        return buyerSheet(S, el.dataset.buyer, refreshItem);
       case 'add-open':
         adding = true;
         s.refresh();
