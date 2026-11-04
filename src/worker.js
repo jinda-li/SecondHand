@@ -235,12 +235,12 @@ const APP_NAME = { zh: '二手清单', en: 'Secondhand List' };
 // What people searching for 二手清单 should land on: the home and /new pages.
 // Search results cut titles at about 30 Chinese characters / 60 letters, so the selling points come first.
 const APP_TITLE = {
-  zh: '二手清单｜免费免注册，一个清单同步发微信、Telegram、Facebook',
-  en: 'Secondhand List | Free, one list for WeChat, Telegram, Facebook',
+  zh: '二手清单｜一个清单发多个微信群、Telegram、Facebook 群',
+  en: 'Secondhand List | One list in every WeChat, Telegram, Facebook group',
 };
 const APP_DESC = {
-  zh: '想要的人自己排队预订，只有排第一的能联系你，不用一个个回消息。一个清单同时发到微信群、Telegram 群和 Facebook。免费 · 不用注册 · 不用下载，拍照上架，AI 识别物品。',
-  en: 'Buyers reserve in line themselves and only the first in line can contact you, so you stop answering every message. Post one list to WeChat, Telegram and Facebook. Free, no sign-up, no app; snap photos and AI names the items.',
+  zh: '免费、无需注册、无需下载、AI拍照识别上架。东西再多、群再多，一个清单就管得过来。',
+  en: 'Free, no sign-up, no app, and AI lists things from a photo. Lots of stuff, lots of groups: one list keeps track.',
 };
 const appJsonLd = (url, lang) => ({
   '@context': 'https://schema.org',
@@ -260,6 +260,7 @@ const REPO_URL = 'https://github.com/jinda-li/SecondHand';
 // Questions people ask before trying it; shown on the landing page and given to search engines as FAQPage.
 const FAQ = {
   zh: [
+    ['能同时发到好几个群吗？', '能，这正是它的用处。一个清单一个链接（也可以存成一张长图），微信群、Telegram 群、Facebook 群想发几个发几个，大家点开的都是同一份清单。卖掉一件，每个群里看到的都跟着更新，不用回去一个个改。'],
     ['要钱吗？', '完全免费，没有广告，也不抽成。服务器和域名是开发者自己掏钱，靠大家打赏撑着。'],
     ['要下载 App 或者注册吗？', '都不用。在微信、Telegram 或者任何浏览器里打开就能用。卖家的管理权限存在这台手机上，把「我的清单」页面收藏起来，换手机也能找回。'],
     ['买家怎么联系我？', '买家点「预订」排队，留下微信号或 Telegram 用户名。只有排第 1 位的人能看到你的联系方式；TA 不要了，下一位自动顶上，不会两个人约同一件。'],
@@ -269,6 +270,7 @@ const FAQ = {
     ['我的信息安全吗？', '只收集让清单运转需要的最少信息，不卖给任何人，也不经手付款。代码在 GitHub 上开源，谁都可以查。'],
   ],
   en: [
+    ['Can I post it in several groups at once?', 'Yes, that is what it is for. One list is one link (or one long image), and you can share it in as many WeChat, Telegram and Facebook groups as you like. Everyone opens the same list. Sell something and every group sees it gone, with nothing to go back and edit.'],
     ['Does it cost anything?', 'No. It is free, with no ads and no commission. The developer pays for the server and the domain, and tips keep it running.'],
     ['Do I need an app or an account?', 'Neither. It opens in any browser, including inside WeChat, Telegram and Facebook. Your management access lives on your phone: bookmark the "My lists" page to get it back on a new phone.'],
     ['How do buyers reach me?', 'Buyers tap Reserve and leave a WeChat ID or Telegram username. Only the first in line sees your contact; if they drop out, the next in line moves up, so two people never come for the same thing.'],

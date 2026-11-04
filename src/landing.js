@@ -81,9 +81,9 @@ export function landingHtml(lang, { appName, faq, esc, repoUrl, tipUrl }) {
   <div class="pin">
     <div class="words">
       <h1><span class="w-top">${T('出二手，', 'One list,')}</span><span class="w-bot">${T('发一个<em>清单</em>就够了。', 'every <em>group</em>.')}</span></h1>
-      <p class="lede-m">${T('发到微信群、Telegram、Facebook 群，<b>想要的人自己排队</b>。', 'Share it in WeChat, Telegram and Facebook groups. People <b>queue up themselves</b>.')}</p>
+      <p class="lede-m">${T('<b>多个微信群、Telegram 群、Facebook 群</b>，一个清单全搞定。谁想要就点预订排队。', 'Share it in <b>all your WeChat, Telegram and Facebook groups</b>. Anyone interested taps to get in line.')}</p>
       <div class="side">
-        <p>${T('拍照放进一个清单，链接发到微信群、Telegram 群、Facebook 群。<br>想要的人<b>自己排队</b>。', 'Snap your things into one list and share the link in your WeChat, Telegram and Facebook groups.<br>People <b>queue up themselves</b>.')}</p>
+        <p>${T('拍照放进一个清单，一个链接发到<b>多个微信群、Telegram 群、Facebook 群</b>。<br>谁想要就点预订排队，你只跟第 1 位聊。', 'Snap your things into one list and share one link in <b>all your WeChat, Telegram and Facebook groups</b>.<br>Anyone interested taps to get in line; you only chat with #1.')}</p>
         <div class="cta">
           <a class="lp-btn y" href="${start}">${T('开始发布', 'Start posting')}</a>
           <a class="lp-btn ghost" href="${browse}">${T('浏览二手物品', 'Browse secondhand')}</a>
@@ -118,7 +118,7 @@ export function landingHtml(lang, { appName, faq, esc, repoUrl, tipUrl }) {
         <div class="gp-scr">
           <div class="gp-h"><b>${T('发到群里', 'Share to groups')}</b><small><b data-gsent>0</b> / ${groups.length}</small></div>
           <ul class="gp-gs">${groups.map(([a, ic, n]) => `<li class="gg" data-app="${a}">${av(ic)}<span class="kt ${apps[a][0]}">${apps[a][1]}</span><b>${n}</b><span class="ok">${T('已发送', 'Sent')}</span></li>`).join('')}</ul>
-          <div class="gp-to">${T('想要的人点开排队', 'People tap in and queue')}</div>
+          <div class="gp-to">${T('谁想要就点开排队', 'People tap in and queue')}</div>
           <div class="gp-list">
             <div class="gl-h"><img src="/icon.svg" alt="" width="18" height="18"><b>${listTitle}</b><small>${T('排队名单', 'In line')}</small></div>
             ${T([['wx', '微信', '小雨', '沙发'], ['tg', 'TG', 'Lisa', '书桌'], ['fb', 'FB', 'Tom', '台灯']], [['wx', 'WeChat', 'Xiaoyu', 'sofa'], ['tg', 'TG', 'Lisa', 'desk'], ['fb', 'FB', 'Tom', 'lamp']]).map(([c, k, n, it]) => `<div class="gq"><span class="kt ${c}">${k}</span><b>${n}</b><span>${T(`排了${it}`, `queued for the ${it}`)}</span></div>`).join('')}
@@ -132,7 +132,7 @@ export function landingHtml(lang, { appName, faq, esc, repoUrl, tipUrl }) {
         </div>
       </aside>
       <div class="cap" data-cap="1"><h3>${T('拍一张，AI 填好名字', 'Snap it. AI names it.')}</h3><p>${T('你只填价格。', 'You set the price.')}</p></div>
-      <div class="cap" data-cap="2"><h3>${T('群再多，也是同一个清单', 'Many groups, one list')}</h3><p>${T('微信、Telegram、Facebook 各发几个群，想要的人点开自己排队。', 'Post it in any number of WeChat, Telegram and Facebook groups. People open it and queue.')}</p></div>
+      <div class="cap" data-cap="2"><h3>${T('群再多，也是同一个清单', 'Many groups, one list')}</h3><p>${T('微信、Telegram、Facebook 各发几个群，谁想要就点开排队。', 'Post it in any number of WeChat, Telegram and Facebook groups. People open it and queue.')}</p></div>
       <div class="cap" data-cap="3"><h3>${T('卖掉一件，划掉一件', 'Sell one, cross it off')}</h3><p>${T('每个群里都是最新的。', 'Every group sees it live.')}</p></div>
     </div>
     <div class="scroll-hint"><i></i>${T('往下滑', 'Scroll')}</div>
