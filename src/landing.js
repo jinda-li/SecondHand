@@ -36,8 +36,11 @@ export function landingHtml(lang, { appName, faq, esc, repoUrl, tipUrl }) {
   const cup = '<svg class="kofi-cup" viewBox="0 0 120 110" aria-hidden="true"><path d="M30 26 q4 -10 0 -18 M48 26 q4 -10 0 -18 M66 26 q4 -10 0 -18" stroke="#b9a58e" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M14 34 H86 V70 Q86 96 60 96 H40 Q14 96 14 70 Z" fill="#fff" stroke="#2f2a26" stroke-width="3" stroke-linejoin="round"/><path d="M86 44 Q106 42 104 60 Q102 76 84 74" fill="none" stroke="#2f2a26" stroke-width="3"/><path d="M38 58 q12 -12 24 0 q-12 16 -24 0 Z" fill="#e7738a"/><ellipse cx="50" cy="102" rx="44" ry="5" fill="#e3e8ee"/></svg>';
 
   const listTitle = T('搬家出闲置', 'Moving-out sale');
-  // A link to the list as it shows in a chat: a picture of the things, the title, how many are in line.
-  const linkCard = (style = '') => `<div class="lk"${style ? ` style="${style}"` : ''}><div class="lk-img">${draw('g-sofa', '0 0 190 160')}${draw('g-shelf', '0 0 130 200')}${draw('g-lamp', '0 0 50 70')}</div><div class="lk-t"><b>${listTitle}</b><small>${T('<em data-qtotal>0</em> 人在排队', '<em data-qtotal>0</em> in line')}</small></div></div>`;
+  // The groups the list went to, by app (0 WeChat, 1 Telegram, 2 Facebook): avatar, name, members.
+  const groups = T(
+    [[0, 'cat', '校园二手群', '412'], [0, 'bloom', '华人互助群', '500'], [0, 'dog', '搬家甩卖群', '186'], [1, 'hill', '本地二手群', '2,140'], [1, 'guy', '留学生跳蚤市场', '860'], [2, 'girl', 'City Buy & Sell', '12k'], [2, 'cat', 'Campus Marketplace', '3.4k']],
+    [[0, 'cat', 'Campus buy & sell', '412'], [0, 'bloom', 'Chinese community', '500'], [0, 'dog', 'Moving-out sales', '186'], [1, 'hill', 'Local buy & sell', '2,140'], [1, 'guy', 'Student flea market', '860'], [2, 'girl', 'City Buy & Sell', '12k'], [2, 'cat', 'Campus Marketplace', '3.4k']]);
+  const apps = [['wx', T('微信', 'WeChat')], ['tg', 'TG'], ['fb', 'FB']];
 
   // The app's own screens, drawn small: a shared link card, the long picture, list tiles, the queue.
   const wxCard = `<div class="wxc"><b>${listTitle} · ${T('10 件', '10 items')}</b><div class="wxc-r"><span>${T('沙发 €40、书桌 €35、书架 €25…', 'Sofa €40, desk €35, shelf €25…')}</span><i>${pic('g-sofa')}</i></div><div class="wxc-f"><img src="/icon.svg" alt="" width="12" height="12">${appName}</div></div>`;
@@ -113,41 +116,24 @@ export function landingHtml(lang, { appName, faq, esc, repoUrl, tipUrl }) {
       </aside>
       <aside class="gp" id="gp" aria-hidden="true">
         <div class="gp-scr">
-          <div class="gp-tabs"><span class="on">${T('微信群', 'WeChat')}</span><span>Telegram</span><span>${T('朋友圈', 'Facebook')}</span></div>
-          <div class="gp-body">
-            <div class="gp-s on">
-              <div class="gp-name">${T('校园二手群（412）', 'Campus buy & sell (412)')}</div>
-              <div class="msg me">${av('me')}${linkCard()}</div>
-              <div class="msg">${av('cat')}<div class="bub2">${T('沙发我排上了', 'Got in line for the sofa')}</div></div>
-            </div>
-            <div class="gp-s">
-              <div class="gp-name">${T('本地二手群（2,140）', 'Local buy & sell (2,140)')}</div>
-              <div class="msg me">${av('me')}${linkCard()}</div>
-              <div class="msg">${av('hill')}<div class="bub2">Queued for the desk!</div></div>
-            </div>
-            <div class="gp-s">
-              <div class="gp-name">${T('朋友圈', 'Neighbourhood group')}</div>
-              <div class="moments">
-                <div class="who-l">${av('me')}${T('我', 'Me')}</div>
-                <div class="mo-txt">${T('周末搬家，闲置都在这儿', 'Moving out, everything\'s in this list')}</div>
-                ${linkCard('width:100%')}
-                <div class="likes">${T('小雨、Lisa、陈默 排了队', 'Lisa, Xiaoyu and Tom got in line')}</div>
-              </div>
-            </div>
+          <div class="gp-h"><b>${T('发到了 7 个群', 'Shared in 7 groups')}</b><small>${T('都是同一个链接', 'One link in all of them')}</small></div>
+          <ul class="gp-gs">${groups.map(([a, ic, n, m]) => `<li class="gg" data-app="${a}">${av(ic)}<div class="gg-m"><div class="gg-n"><span class="kt ${apps[a][0]}">${apps[a][1]}</span><b>${n}</b><i>${m}</i></div><small>${T('我：[链接] ', 'Me: [Link] ')}${listTitle}${T('｜在售 10 件', ' | 10 for sale')}</small></div><span class="tap"></span></li>`).join('')}</ul>
+          <div class="gp-to">${T('谁想要，自己点开这一个清单', 'Everyone taps into this one list')}</div>
+          <div class="gp-list">
+            <div class="gl-h"><img src="/icon.svg" alt="" width="18" height="18"><b>${listTitle}</b><small>${T('排队名单', 'In line')}</small></div>
+            ${T([['wx', '微信', '小雨', '沙发'], ['tg', 'TG', 'Lisa', '书桌'], ['fb', 'FB', 'Tom', '台灯']], [['wx', 'WeChat', 'Xiaoyu', 'sofa'], ['tg', 'TG', 'Lisa', 'desk'], ['fb', 'FB', 'Tom', 'lamp']]).map(([c, k, n, it]) => `<div class="gq"><span class="kt ${c}">${k}</span><b>${n}</b><span>${T(`排了${it}`, `queued for the ${it}`)}</span></div>`).join('')}
           </div>
-          <div class="gp-foot">${T('三个地方，同一条队', 'Three places, one line')}</div>
+          <div class="gp-foot">${T('群里没人问“还在吗”，点开就自己排上了', 'Nobody asks “still available?” in chat')}</div>
         </div>
       </aside>
       <aside class="gp-m" id="gpm" aria-hidden="true">
         <div class="in">
-          <div class="row-g on">${av('cat')}<span>${T('校园二手群', 'Campus')}</span></div>
-          <div class="row-g">${av('hill')}<span>${T('本地二手群', 'Local')}</span></div>
-          <div class="row-g">${av('girl')}<span>${T('朋友圈', 'Facebook')}</span></div>
-          <div class="t">${T('同一条队 · <b data-qtotal>0</b> 人', 'One line · <b data-qtotal>0</b> people')}</div>
+          ${apps.map(([c, k], a) => `<div class="row-g"><span class="kt ${c}">${k}</span><span>${T(`${groups.filter((g) => g[0] === a).length} 个群`, `× ${groups.filter((g) => g[0] === a).length}`)}</span></div>`).join('')}
+          <div class="t">${T('都点开同一个清单 · <b data-qtotal>0</b> 人排队', 'All open the same list · <b data-qtotal>0</b> in line')}</div>
         </div>
       </aside>
       <div class="cap" data-cap="1"><h3>${T('拍一张，AI 填好名字', 'Snap it. AI names it.')}</h3><p>${T('你只填价格。', 'You set the price.')}</p></div>
-      <div class="cap" data-cap="2"><h3>${T('几个群，排同一条队', 'Many groups, one line')}</h3><p>${T('微信群、Telegram、Facebook 群、朋友圈都行。', 'WeChat, Telegram, Facebook, any group.')}</p></div>
+      <div class="cap" data-cap="2"><h3>${T('群再多，也是同一个清单', 'Many groups, one list')}</h3><p>${T('微信、Telegram、Facebook 各发几个群，想要的人点开自己排队。', 'Post it in any number of WeChat, Telegram and Facebook groups. People open it and queue.')}</p></div>
       <div class="cap" data-cap="3"><h3>${T('卖掉一件，划掉一件', 'Sell one, cross it off')}</h3><p>${T('每个群里都是最新的。', 'Every group sees it live.')}</p></div>
     </div>
     <div class="scroll-hint"><i></i>${T('往下滑', 'Scroll')}</div>

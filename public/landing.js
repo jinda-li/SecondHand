@@ -120,8 +120,8 @@ export function initLanding(root, lang) {
   const mini = $('#mini');
   const gp = $('#gp');
   const gpm = $('#gpm');
-  const gpTabs = [...gp.querySelectorAll('.gp-tabs span')];
-  const gpScreens = [...gp.querySelectorAll('.gp-s')];
+  const gpGroups = [...gp.querySelectorAll('.gg')];
+  const gpQueue = [...gp.querySelectorAll('.gq')];
   const gpmRows = [...gpm.querySelectorAll('.row-g')];
   const qTotals = $$('[data-qtotal]');
   const nav = $('.nav');
@@ -187,13 +187,10 @@ export function initLanding(root, lang) {
     mini.classList.toggle('on', phase === 1 || phase === 3);
     gp.classList.toggle('on', phase === 2);
     gpm.classList.toggle('on', phase === 2);
-    // The same line, seen from three groups in turn.
+    // WeChat, Telegram, then Facebook groups get tapped in turn, and each brings someone into the one list.
     const g = clamp(Math.floor(((p - T_Q) / Q_SPAN) * 3), 0, 2);
-    gpTabs.forEach((el, j) => el.classList.toggle('on', j === g));
-    gpScreens.forEach((el, j) => {
-      el.classList.toggle('on', j === g);
-      el.classList.toggle('off', j < g);
-    });
+    gpGroups.forEach((el) => el.classList.toggle('on', +el.dataset.app === g));
+    gpQueue.forEach((el, j) => el.classList.toggle('on', j <= g));
     gpmRows.forEach((el, j) => el.classList.toggle('on', j === g));
     qTotals.forEach((el) => (el.textContent = inLine));
 
