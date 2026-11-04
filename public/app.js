@@ -2634,7 +2634,7 @@ function itemSheet(S, itemId) {
           <div class="field"><span>${tr('名字', 'Name')} <small class="muted">${tr('原文', 'original')}</small></span><input class="inp" name="name" maxlength="60" value="${esc(edit.name)}">
             <div class="alt-line"><span data-tag-of="name">${altTag(edit.name)}</span><input class="inp" name="name2" maxlength="60" value="${esc(edit.name2)}" placeholder="${tr('保存后自动翻译', 'Translated after saving')}"></div>
           </div>
-          <label class="field"><span>${tr(`价格（${esc(CURRENCIES[sale.currency].trim())}，0 = 免费送）`, `Price (${esc(CURRENCIES[sale.currency].trim())}, 0 = free)`)}</span><input class="inp" name="price" type="number" inputmode="decimal" min="0" step="0.01" value="${edit.priceCents / 100}"></label>
+          <label class="field"><span>${tr(`价格（${esc(CURRENCIES[sale.currency].trim())}，0 = 免费送）`, `Price (${esc(CURRENCIES[sale.currency].trim())}, 0 = free)`)}</span><input class="inp" name="price" type="text" inputmode="decimal" maxlength="9" value="${edit.priceCents / 100}"></label>
           <label class="field"><span>${tr('原价（选填，会划掉显示在价格旁边）', 'Original price (optional, shown struck through)')}</span><input class="inp" name="orig" type="text" inputmode="decimal" maxlength="9" value="${edit.origPriceCents == null || Number.isNaN(edit.origPriceCents) ? '' : edit.origPriceCents / 100}"></label>
           <div class="field"><span>${tr('详情（选填）', 'Details (optional)')} <small class="muted">${tr('原文', 'original')}</small></span><textarea class="inp" name="note" rows="3" maxlength="200" placeholder="${NOTE_HINT}">${esc(edit.note)}</textarea>
             <div class="alt-line"><span data-tag-of="note">${altTag(edit.note || edit.name)}</span><textarea class="inp" name="note2" rows="2" maxlength="200">${esc(edit.note2)}</textarea></div>
@@ -2876,7 +2876,8 @@ function itemSheet(S, itemId) {
   function syncEdit(s) {
     const v = (n) => s.el.querySelector(`[name=${n}]`)?.value ?? '';
     edit.name = v('name').trim();
-    edit.priceCents = Math.round(parseFloat(v('price') || '0') * 100);
+    // Blank means free; "5,50" works like "5.50" (a number input drops the comma European keyboards type).
+    edit.priceCents = parsePrice(v('price')) ?? 0;
     edit.origPriceCents = parsePrice(v('orig'));
     edit.note = v('note').trim();
     edit.name2 = v('name2').trim();
