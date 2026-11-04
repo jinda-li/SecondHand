@@ -116,19 +116,18 @@ export function landingHtml(lang, { appName, faq, esc, repoUrl, tipUrl }) {
       </aside>
       <aside class="gp" id="gp" aria-hidden="true">
         <div class="gp-scr">
-          <div class="gp-h"><b>${T('发到了 7 个群', 'Shared in 7 groups')}</b><small>${T('都是同一个链接', 'One link in all of them')}</small></div>
-          <ul class="gp-gs">${groups.map(([a, ic, n, m]) => `<li class="gg" data-app="${a}">${av(ic)}<div class="gg-m"><div class="gg-n"><span class="kt ${apps[a][0]}">${apps[a][1]}</span><b>${n}</b><i>${m}</i></div><small>${T('我：[链接] ', 'Me: [Link] ')}${listTitle}${T('｜在售 10 件', ' | 10 for sale')}</small></div><span class="tap"></span></li>`).join('')}</ul>
-          <div class="gp-to">${T('谁想要，自己点开这一个清单', 'Everyone taps into this one list')}</div>
+          <div class="gp-h"><b>${T('发到群里', 'Share to groups')}</b><small><b data-gsent>0</b> / ${groups.length}</small></div>
+          <ul class="gp-gs">${groups.map(([a, ic, n]) => `<li class="gg" data-app="${a}">${av(ic)}<span class="kt ${apps[a][0]}">${apps[a][1]}</span><b>${n}</b><span class="ok">${T('已发送', 'Sent')}</span></li>`).join('')}</ul>
+          <div class="gp-to">${T('想要的人点开排队', 'People tap in and queue')}</div>
           <div class="gp-list">
             <div class="gl-h"><img src="/icon.svg" alt="" width="18" height="18"><b>${listTitle}</b><small>${T('排队名单', 'In line')}</small></div>
             ${T([['wx', '微信', '小雨', '沙发'], ['tg', 'TG', 'Lisa', '书桌'], ['fb', 'FB', 'Tom', '台灯']], [['wx', 'WeChat', 'Xiaoyu', 'sofa'], ['tg', 'TG', 'Lisa', 'desk'], ['fb', 'FB', 'Tom', 'lamp']]).map(([c, k, n, it]) => `<div class="gq"><span class="kt ${c}">${k}</span><b>${n}</b><span>${T(`排了${it}`, `queued for the ${it}`)}</span></div>`).join('')}
           </div>
-          <div class="gp-foot">${T('群里没人问“还在吗”，点开就自己排上了', 'Nobody asks “still available?” in chat')}</div>
         </div>
       </aside>
       <aside class="gp-m" id="gpm" aria-hidden="true">
         <div class="in">
-          ${apps.map(([c, k], a) => `<div class="row-g"><span class="kt ${c}">${k}</span><span>${T(`${groups.filter((g) => g[0] === a).length} 个群`, `× ${groups.filter((g) => g[0] === a).length}`)}</span></div>`).join('')}
+          ${apps.map(([c, k], a) => `<div class="row-g"><span class="kt ${c}">${k}</span><span data-gn>${T('0 个群', '× 0')}</span></div>`).join('')}
           <div class="t">${T('都点开同一个清单 · <b data-qtotal>0</b> 人排队', 'All open the same list · <b data-qtotal>0</b> in line')}</div>
         </div>
       </aside>

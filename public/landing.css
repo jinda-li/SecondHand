@@ -325,31 +325,23 @@ to{transform:rotate(360deg)}
 .lp .msg.me{flex-direction:row-reverse}
 .lp .av{flex:none;width:30px;height:30px;border-radius:8px;overflow:hidden;display:block}
 .lp .msg.me .bub2{background:#d8ecff}
-.lp .gp-h{padding:22px 14px 6px;background:#fff;border-bottom:1px solid var(--line);text-align:center;line-height:1.3}
-.lp .gp-h b{display:block;font-size:14px;font-weight:900}
-.lp .gp-h small{font-size:11px;font-weight:700;color:var(--mute)}
+.lp .gp-h{display:flex;align-items:baseline;justify-content:space-between;padding:22px 16px 8px;background:#fff;border-bottom:1px solid var(--line)}
+.lp .gp-h>b{font-size:14px;font-weight:900}
+.lp .gp-h small{font-size:12px;font-weight:800;color:var(--mute)}
+.lp .gp-h small b{font-family:var(--f-num);font-size:14px;color:var(--blue)}
 .lp .gp-gs{list-style:none;margin:0;padding:0;background:#fff}
-.lp .gg{position:relative;display:flex;align-items:center;gap:8px;padding:3px 12px;border-bottom:1px solid #f0f1f4;transition:background .3s}
-.lp .gg .av{width:26px;height:26px;border-radius:7px}
-.lp .gg-m{flex:1;min-width:0;line-height:1.3}
-.lp .gg-n{display:flex;align-items:center;gap:5px;white-space:nowrap}
-.lp .gg-n b{font-size:12px;font-weight:900;overflow:hidden;text-overflow:ellipsis}
-.lp .gg-n i{font-style:normal;font-size:10.5px;font-weight:700;color:var(--mute)}
-.lp .gg small{display:block;font-size:10.5px;font-weight:600;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lp .gg .kt{font-size:9px;line-height:14px}
+/* Each group shows up once the link has been sent to it; the one just sent is lit. */
+.lp .gg{display:flex;align-items:center;gap:7px;padding:4px 12px;border-bottom:1px solid #f0f1f4;white-space:nowrap;opacity:0;transform:translateX(-14px);transition:opacity .3s,transform .4s cubic-bezier(.3,1.4,.5,1),background .3s}
+.lp .gg.sent{opacity:1;transform:none}
 .lp .gg.on{background:#fff8d6}
-/* A finger tapping the link in the group that is lit. */
-.lp .gg .tap{position:absolute;right:16px;top:50%;width:18px;height:18px;margin-top:-9px;border-radius:50%;background:rgba(0,88,163,.25);opacity:0}
-.lp .gg.on .tap{animation:gtap 1.4s ease-out infinite}
-.lp .gg.on:nth-child(even) .tap{animation-delay:.7s}
-@keyframes gtap{
-0%{transform:scale(.4);opacity:0}
-25%{transform:scale(.7);opacity:1}
-100%{transform:scale(1.8);opacity:0}
-}
+.lp .gg .av{width:26px;height:26px;border-radius:7px}
+.lp .gg>b{flex:1;min-width:0;font-size:12.5px;font-weight:900;overflow:hidden;text-overflow:ellipsis}
+.lp .gg .kt{font-size:9px;line-height:14px}
+.lp .gg .ok{font-size:10.5px;font-weight:800;color:#1a9b57}
+.lp .gg .ok::before{content:"✓ "}
 .lp .gp-to{position:relative;padding:9px 12px 6px;font-size:11.5px;font-weight:900;color:var(--blue);text-align:center}
 .lp .gp-to::before{content:"";display:block;width:2px;height:10px;margin:-6px auto 4px;background:var(--blue);border-radius:2px}
-.lp .gp-list{margin:0 12px;flex:1;border-radius:14px;background:#fff;padding:8px 10px;display:flex;flex-direction:column;gap:5px;box-shadow:0 0 0 2px var(--blue)}
+.lp .gp-list{margin:0 12px 14px;flex:1;border-radius:14px;background:#fff;padding:8px 10px;display:flex;flex-direction:column;gap:5px;box-shadow:0 0 0 2px var(--blue)}
 .lp .gl-h{display:flex;align-items:center;gap:6px;padding-bottom:5px;border-bottom:1px solid var(--line)}
 .lp .gl-h img{border-radius:5px}
 .lp .gl-h b{flex:1;font-size:12.5px;font-weight:900}
@@ -358,8 +350,6 @@ to{transform:rotate(360deg)}
 .lp .gq.on{opacity:1;transform:none}
 .lp .gq b{font-weight:900;color:var(--ink)}
 .lp .gq .kt{font-size:9px;line-height:14px}
-.lp .gp-foot{margin-top:6px;padding:9px 12px 12px;background:#fff;border-top:1px solid var(--line);font-size:12px;font-weight:800;color:var(--ink);text-align:center}
-.lp .gp-foot b{font-family:var(--f-num);color:var(--blue)}
 .lp .tip{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:24px 40px;align-items:center;margin-top:28px;padding:clamp(22px,3.4vw,36px);border-radius:28px;background:var(--card);box-shadow:0 1px 0 var(--line)}
 .lp .tip h3{font-size:clamp(22px,2.4vw,28px);font-weight:900}
 .lp .tip p{margin-top:10px;font-size:15px;line-height:1.75;color:var(--mute);max-width:32em}
@@ -642,5 +632,5 @@ to{transform:translate(300px,150px)}
 .lp .bpoints li::before{content:"";flex:none;width:10px;height:10px;border-radius:3px;background:var(--yel);transform:rotate(45deg)}
 @media (prefers-reduced-motion:reduce){
 .lp .it,.lp .tag-in,.lp .keys,.lp .cap,.lp .mini,.lp .row,.lp .qr,.lp .phg,.lp .vf{transition:none!important}
-.lp .it.land,.lp .scroll-hint i::after,.lp .go .wxc,.lp .go .lpic,.lp .go .lpic-in,.lp .go .f2,.lp .go .f3,.lp .go .f3 .msg,.lp .go .fld,.lp .go .scan,.lp .tl-b::after,.lp .gg.on .tap{animation:none!important}
+.lp .it.land,.lp .scroll-hint i::after,.lp .go .wxc,.lp .go .lpic,.lp .go .lpic-in,.lp .go .f2,.lp .go .f3,.lp .go .f3 .msg,.lp .go .fld,.lp .go .scan,.lp .tl-b::after{animation:none!important}
 }

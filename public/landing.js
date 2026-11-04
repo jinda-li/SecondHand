@@ -24,10 +24,12 @@ const S = {
   zh: {
     free: '送', sold: '已售', inLine: (n) => `${n} 人排队`, available: '可预订', soldRow: '已出',
     shot: ['AI 认出', '件'], queue: ['已经有', '人在排队'], left: ['还剩', '件'], done: ['全部卖完，还剩', '件'],
+    groups: (n) => `${n} 个群`,
   },
   en: {
     free: 'Free', sold: 'Sold', inLine: (n) => `${n} in line`, available: 'Available', soldRow: 'Sold',
     shot: ['AI found', 'things'], queue: ['', 'people in line'], left: ['', 'left'], done: ['All sold,', 'left'],
+    groups: (n) => `× ${n}`,
   },
 };
 
@@ -123,6 +125,11 @@ export function initLanding(root, lang) {
   const gpGroups = [...gp.querySelectorAll('.gg')];
   const gpQueue = [...gp.querySelectorAll('.gq')];
   const gpmRows = [...gpm.querySelectorAll('.row-g')];
+  const gpmCounts = gpmRows.map((el) => el.querySelector('[data-gn]'));
+  const gSent = gp.querySelector('[data-gsent]');
+  const gApps = gpGroups.map((el) => +el.dataset.app);
+  // Someone from each app's groups queues once the link has been in two of them for a moment.
+  const gQueueAt = [0, 1, 2].map((a) => gApps.indexOf(a) + 2);
   const qTotals = $$('[data-qtotal]');
   const nav = $('.nav');
   let lastShot = -1;
@@ -187,11 +194,20 @@ export function initLanding(root, lang) {
     mini.classList.toggle('on', phase === 1 || phase === 3);
     gp.classList.toggle('on', phase === 2);
     gpm.classList.toggle('on', phase === 2);
-    // WeChat, Telegram, then Facebook groups get tapped in turn, and each brings someone into the one list.
-    const g = clamp(Math.floor(((p - T_Q) / Q_SPAN) * 3), 0, 2);
-    gpGroups.forEach((el) => el.classList.toggle('on', +el.dataset.app === g));
-    gpQueue.forEach((el, j) => el.classList.toggle('on', j <= g));
-    gpmRows.forEach((el, j) => el.classList.toggle('on', j === g));
+    // The link goes out to one group after another, and people from them turn up in the one list.
+    const G = gpGroups.length;
+    const sent = clamp(Math.ceil(((p - T_Q) / (Q_SPAN * 0.8)) * G), 0, G);
+    gpGroups.forEach((el, j) => {
+      el.classList.toggle('sent', j < sent);
+      el.classList.toggle('on', j === sent - 1);
+    });
+    gSent.textContent = sent;
+    gpQueue.forEach((el, j) => el.classList.toggle('on', sent >= Math.min(gQueueAt[j], G)));
+    const cur = sent ? gApps[sent - 1] : -1;
+    gpmRows.forEach((el, j) => {
+      el.classList.toggle('on', j === cur);
+      gpmCounts[j].textContent = s.groups(gApps.slice(0, sent).filter((a) => a === j).length);
+    });
     qTotals.forEach((el) => (el.textContent = inLine));
 
     // The step rail sits where the eye already is, above the room: steps behind are ticked, the
