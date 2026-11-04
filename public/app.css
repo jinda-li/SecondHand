@@ -281,6 +281,8 @@ img { display: block; max-width: 100%; }
 .pick-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .pick-chips .chip { background: var(--line); }
 .bs-row { gap: 10px; padding-top: 8px; padding-bottom: 8px; }
+.sheet .group button.bs-row { width: 100%; border: 0; border-bottom: 1px solid var(--line); font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.sheet .group button.bs-row:active { background: #f5f5f5; }
 .bs-row img { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; flex: none; }
 .bs-total { font-size: 16px; }
 .photo-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }

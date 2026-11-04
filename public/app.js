@@ -2167,15 +2167,28 @@ function newSaleSheet(S) {
 
 // ---------- 6.5 "这几件卖掉了吗？" ----------
 
-function pendingChecks(data) {
+// The longest unconfirmed go first. Items put off with 稍后再说 rest on this phone for the same
+// 12 hours an answer would give them, so the next open asks about the next few.
+const checkLaterKey = (saleId) => `checkLater:${saleId}`;
+
+function pendingChecks(S, data) {
+  const later = store.get(checkLaterKey(S.saleId), {});
   return data.items
-    .filter((i) => i.status === 'reserved' && data.now - i.statusCheckedAt > CHECK_AFTER_MS)
+    .filter((i) => i.status === 'reserved' && data.now - i.statusCheckedAt > CHECK_AFTER_MS && !(later[i.id] > Date.now()))
+    .sort((a, b) => a.statusCheckedAt - b.statusCheckedAt)
     .slice(0, 5);
+}
+
+function putOffChecks(S, items) {
+  const t = Date.now();
+  const later = Object.fromEntries(Object.entries(store.get(checkLaterKey(S.saleId), {})).filter(([, until]) => until > t));
+  for (const it of items) later[it.id] = t + CHECK_AFTER_MS;
+  store.set(checkLaterKey(S.saleId), later);
 }
 
 function maybeCheck(S, beforeShare, then) {
   const data = S.data();
-  const list = data ? pendingChecks(data) : [];
+  const list = data ? pendingChecks(S, data) : [];
   if (!list.length) return then?.();
   const answered = {};
   let changed = false;
@@ -2216,6 +2229,7 @@ function maybeCheck(S, beforeShare, then) {
     }
   }, {
     onClose: async () => {
+      putOffChecks(S, list.filter((i) => !answered[i.id]));
       if (changed) await S.reload().catch(() => {});
       then?.();
     },
@@ -2681,7 +2695,8 @@ const buyerCount = (data, buyer) => {
 // One buyer's tally: what they reserved and what it adds up to, settled in one tap when they come to pick up.
 function buyerSheet(S, buyer, onDone) {
   const sum = (list) => list.reduce((s, it) => s + it.priceCents, 0);
-  const rowHtml = (it, side) => `<div class="cell bs-row"><span class="no">${it.no}</span><img src="${img(it.photos[0])}" alt=""><span class="grow ellipsis">${esc(itemText(it, LANG).name)}</span>${side}</div>`;
+  // Tapping a row opens that item ready to edit, e.g. to fix what it sold for after a discount.
+  const rowHtml = (it, side) => `<button class="cell bs-row" data-act="item" data-id="${it.id}"><span class="no">${it.no}</span><img src="${img(it.photos[0])}" alt=""><span class="grow ellipsis">${esc(itemText(it, LANG).name)}</span>${side}<span class="muted">›</span></button>`;
   const sh = openSheet(() => {
     const { sale } = S.data();
     const b = listBuyers(S.data()).find((x) => x.buyer === buyer);
@@ -2711,6 +2726,7 @@ function buyerSheet(S, buyer, onDone) {
       <div class="actions"><button class="btn block" data-act="close">${tr('关闭', 'Close')}</button></div>`;
   }, async (act, el, s) => {
     if (act === 'close') return s.close();
+    if (act === 'item') return itemSheet(S, el.dataset.id, { editNow: true, onClose: () => s.refresh() });
     if (act !== 'settle') return;
     const b = listBuyers(S.data()).find((x) => x.buyer === buyer);
     if (!b?.first.length) return;
@@ -2742,10 +2758,12 @@ const LANG_NAME = { zh: tr('中文', 'Chinese'), en: tr('英文', 'English') };
 const otherLang = (s) => (textLang(s) === 'zh' ? 'en' : 'zh');
 const altTag = (orig) => `${LANG_NAME[otherLang(orig)]} · ${tr('自动翻译', 'auto-translated')}`;
 
-function itemSheet(S, itemId) {
+function itemSheet(S, itemId, { editNow = false, onClose } = {}) {
   const { sale } = S.data();
   let it = S.data().items.find((i) => i.id === itemId);
-  let edit = null;
+  if (!it) return;
+  const startEdit = () => ({ name: it.name, note: it.note, name2: it.nameAlt || '', note2: it.noteAlt || '', priceCents: it.priceCents, origPriceCents: it.origPriceCents ?? null, condition: it.condition, photos: [...it.photos] });
+  let edit = editNow ? startEdit() : null;
   let adding = false; // the add-someone row is open as a name field
 
   const refreshItem = async () => {
@@ -2886,7 +2904,7 @@ function itemSheet(S, itemId) {
       case 'tip':
         return tipSheet();
       case 'edit':
-        edit = { name: it.name, note: it.note, name2: it.nameAlt || '', note2: it.noteAlt || '', priceCents: it.priceCents, origPriceCents: it.origPriceCents ?? null, condition: it.condition, photos: [...it.photos] };
+        edit = startEdit();
         return s.refresh();
       case 'retranslate': {
         // Only the saved text is translated (the server takes no text from here), so an edited
@@ -2954,7 +2972,12 @@ function itemSheet(S, itemId) {
         }
       }
     }
-  }, { onClose: () => S.tryRecommend?.() });
+  }, {
+    onClose: () => {
+      S.tryRecommend?.();
+      onClose?.();
+    },
+  });
   bindCopy(sh.el);
   // The translation's language follows the original as it is typed.
   sh.el.addEventListener('input', (e) => {
