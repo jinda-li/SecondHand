@@ -1017,7 +1017,9 @@ async function updateItem(env, ctx, sale, item, b) {
   } else retranslate = !item.name_alt;
   const t = now();
   if ('price_cents' in f && f.price_cents !== item.price_cents) f.price_changed_at = t;
-  if (f.price_cents != null && item.price_cents != null && f.price_cents < item.price_cents) f.price_dropped_at = t;
+  // Fixing a sold item's price to what it went for is not a price drop buyers should see if it is put back up.
+  const open = item.status === 'available' || item.status === 'reserved';
+  if (open && f.price_cents != null && item.price_cents != null && f.price_cents < item.price_cents) f.price_dropped_at = t;
   f.status_checked_at = t;
   f.updated_at = t;
   const cols = Object.keys(f);

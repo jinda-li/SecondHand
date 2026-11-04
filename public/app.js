@@ -2634,7 +2634,9 @@ function itemSheet(S, itemId) {
           <div class="field"><span>${tr('名字', 'Name')} <small class="muted">${tr('原文', 'original')}</small></span><input class="inp" name="name" maxlength="60" value="${esc(edit.name)}">
             <div class="alt-line"><span data-tag-of="name">${altTag(edit.name)}</span><input class="inp" name="name2" maxlength="60" value="${esc(edit.name2)}" placeholder="${tr('保存后自动翻译', 'Translated after saving')}"></div>
           </div>
-          <label class="field"><span>${tr(`价格（${esc(CURRENCIES[sale.currency].trim())}，0 = 免费送）`, `Price (${esc(CURRENCIES[sale.currency].trim())}, 0 = free)`)}</span><input class="inp" name="price" type="text" inputmode="decimal" maxlength="9" value="${edit.priceCents / 100}"></label>
+          <label class="field"><span>${it.status === 'sold'
+            ? tr(`成交价（${esc(CURRENCIES[sale.currency].trim())}，按实际收到的填，算进已收回）`, `Sold for (${esc(CURRENCIES[sale.currency].trim())}, what you actually got; counts toward Earned)`)
+            : tr(`价格（${esc(CURRENCIES[sale.currency].trim())}，0 = 免费送）`, `Price (${esc(CURRENCIES[sale.currency].trim())}, 0 = free)`)}</span><input class="inp" name="price" type="text" inputmode="decimal" maxlength="9" value="${edit.priceCents / 100}"></label>
           <label class="field"><span>${tr('原价（选填，会划掉显示在价格旁边）', 'Original price (optional, shown struck through)')}</span><input class="inp" name="orig" type="text" inputmode="decimal" maxlength="9" value="${edit.origPriceCents == null || Number.isNaN(edit.origPriceCents) ? '' : edit.origPriceCents / 100}"></label>
           <div class="field"><span>${tr('详情（选填）', 'Details (optional)')} <small class="muted">${tr('原文', 'original')}</small></span><textarea class="inp" name="note" rows="3" maxlength="200" placeholder="${NOTE_HINT}">${esc(edit.note)}</textarea>
             <div class="alt-line"><span data-tag-of="note">${altTag(edit.note || edit.name)}</span><textarea class="inp" name="note2" rows="2" maxlength="200">${esc(edit.note2)}</textarea></div>
@@ -2653,7 +2655,7 @@ function itemSheet(S, itemId) {
           <div>${moneyHtml(it.priceCents, sale.currency, it.origPriceCents)} · <span class="st ${it.status}">${statusText[it.status]}</span>${it.condition ? ` · ${conditionText(it.condition, LANG)}` : ''}</div>
           ${it.note ? `<div class="small muted">${esc(it.note)}</div>` : ''}
         </div>
-        ${open ? `<button class="btn small" data-act="share-item">${tr('分享', 'Share')}</button><button class="btn small" data-act="edit">${tr('编辑', 'Edit')}</button>` : ''}
+        ${open ? `<button class="btn small" data-act="share-item">${tr('分享', 'Share')}</button>` : ''}<button class="btn small" data-act="edit">${tr('编辑', 'Edit')}</button>
       </div>
       <div class="alt-box ${missing ? 'missing' : ''}">
         <div class="small muted">${altTag(it.name)}</div>
