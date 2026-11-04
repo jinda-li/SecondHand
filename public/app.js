@@ -268,7 +268,7 @@ function pickFiles({ multiple = true } = {}) {
     input.multiple = multiple;
     input.style.display = 'none';
     input.onchange = () => {
-      resolve([...input.files]);
+      resolve(openable([...input.files]));
       input.remove();
     };
     document.body.appendChild(input);
@@ -297,11 +297,14 @@ function within(p, ms, what) {
   return Promise.race([p, new Promise((_, reject) => (t = setTimeout(() => reject(new Error(`${what} timed out`)), ms)))]).finally(() => clearTimeout(t));
 }
 
+// im is an <img> or an ImageBitmap.
 async function resize(im, maxSide, q) {
-  const s = Math.min(1, maxSide / Math.max(im.naturalWidth, im.naturalHeight));
+  const w = im.naturalWidth || im.width;
+  const h = im.naturalHeight || im.height;
+  const s = Math.min(1, maxSide / Math.max(w, h));
   const c = document.createElement('canvas');
-  c.width = Math.round(im.naturalWidth * s);
-  c.height = Math.round(im.naturalHeight * s);
+  c.width = Math.round(w * s);
+  c.height = Math.round(h * s);
   try {
     // iOS Safari hands out no context (or no blob) once its canvas memory is used up.
     const g = c.getContext('2d');
@@ -329,6 +332,51 @@ async function withImage(blob, fn) {
     if (im) im.src = '';
     URL.revokeObjectURL(url);
   }
+}
+
+// HEIC (what many phones shoot) opens on Apple devices but not in Android WeChat or most other
+// browsers. Picked photos the browser can't open become JPEGs straight away, so the preview, 打码,
+// shrinking and the AI all get a photo they can use. The decoder is big: it loads only then.
+const HEIC_BRANDS = ['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1'];
+async function looksHeic(file) {
+  if (/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name)) return true;
+  const brand = new TextDecoder().decode(await file.slice(8, 12).arrayBuffer());
+  return HEIC_BRANDS.includes(brand.trim());
+}
+
+async function openable(files) {
+  const stuck = [];
+  for (const f of files) {
+    if ((await looksHeic(f)) && !(await withImage(f, () => true).catch(() => false))) stuck.push(f);
+  }
+  if (!stuck.length) return files;
+  const stop = loading(tr('正在转换照片格式…', 'Converting photos…'));
+  const out = new Map();
+  try {
+    const { heicTo } = await import('/vendor/heic-to.mjs');
+    // One at a time: a full-size decode of several photos at once can run a phone out of memory.
+    for (const f of stuck) {
+      try {
+        const bm = await within(heicTo({ blob: f, type: 'bitmap' }), 60000, 'heic decode');
+        try {
+          const jpeg = await resize(bm, 2560, 0.9);
+          out.set(f, new File([jpeg], f.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' }));
+        } finally {
+          bm.close();
+        }
+      } catch (err) {
+        reportPhotoError('heic', err, f);
+      }
+    }
+  } catch (err) {
+    reportPhotoError('heic load', err, stuck[0]);
+  } finally {
+    stop();
+  }
+  if (out.size < stuck.length) {
+    toast(tr('有照片打不开：截个图再选，或把相机格式改成 JPG', "A photo can't be opened: pick a screenshot of it, or set the camera to JPG"), 5000);
+  }
+  return files.map((f) => out.get(f) || f);
 }
 
 // Shrinking a big phone photo is the slow part, so the composer starts it as soon as a photo is
