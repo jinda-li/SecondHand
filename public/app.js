@@ -783,7 +783,7 @@ async function home() {
       <button class="btn big block rec-btn" data-recommend>🎁 ${tr('推荐给要搬家的朋友', 'Recommend to a friend who is moving')}</button>
     </div>
     ${nearbyEntryHtml()}
-    <div class="hint center"><a href="/privacy${tr('', '#en')}">${tr('隐私政策', 'Privacy')}</a> · <a href="/terms${tr('', '#en')}">${tr('服务条款', 'Terms')}</a> · <button class="link-btn small" id="feedback">${tr('反馈', 'Feedback')}</button>${tipOn() ? ` · <button class="link-btn small" id="tip">${tr('打赏开发者', 'Tip the developer')}</button>` : ''}</div>`;
+    <div class="hint center"><a href="/privacy${tr('', '#en')}">${tr('隐私政策', 'Privacy')}</a> · <a href="/terms${tr('', '#en')}">${tr('服务条款', 'Terms')}</a> · <button class="link-btn small" id="feedback">${tr('反馈', 'Feedback')}</button> · <button class="link-btn small" id="tip">☕ ${tr('请开发者喝咖啡', 'Buy me a coffee')}</button></div>`;
   const tipBtn = $app.querySelector('#tip');
   if (tipBtn) tipBtn.onclick = () => tipSheet();
   $app.querySelector('#feedback').onclick = feedbackSheet;
@@ -1208,8 +1208,14 @@ function soldRecommendSheet(S) {
       <div class="small">${tr(`好用的话，转给也要搬家的朋友，送 TA ${GIFT_USES} 次 AI 识图`, `If it helped, pass it to a friend who is moving: they get ${GIFT_USES} AI photo tries`)}</div>
       <button class="btn block" data-recommend>🎁 ${tr('推荐给朋友', 'Tell a friend')}</button>
     </div>
-    <div class="actions"><button class="btn block" data-act="close">${tr('下次再说', 'Maybe later')}</button></div>`,
-  (act, el, s) => act === 'close' && s.close());
+    <div class="small muted center">${tr('省了不少事？顺手请开发者喝杯咖啡', 'Saved you some hassle? Buy the developer a coffee')}</div>
+    ${tipWaysHtml()}
+    <div class="actions"><button class="btn block" data-act="close">${tr('下次再说', 'Maybe later')}</button></div>
+    <div class="center"><button class="link-btn small" data-act="tipped">${tr('打赏好了？领 100 次 AI 识别', 'Tipped? Get 100 AI tries')}</button></div>`,
+  (act, el, s) => {
+    if (act === 'close') s.close();
+    if (act === 'tipped') claimTip(el, s);
+  });
 }
 
 // ---------- 我的清单: every list this seller can manage ----------
@@ -2848,7 +2854,8 @@ function itemSheet(S, itemId, { editNow = false, onClose } = {}) {
         ? `<div class="sold-done">
             <b>${tr('卖出去了！🎉', 'Sold! 🎉')}</b>
             ${it.soldTo ? `<div class="small">${tr('买家：', 'Buyer: ')}<span class="buyer-name" role="button" data-act="buyer" data-buyer="${esc(it.soldTo.buyer)}">${esc(it.soldTo.nickname)}</span></div>` : ''}
-            ${tipOn() ? `<div class="small">${tr('觉得好用？', 'Was it handy?')}</div><button class="btn block" data-act="tip">☕ ${tr('请开发者喝杯咖啡', 'Buy the developer a coffee')}</button>` : ''}
+            <div class="small">${tr('觉得好用？请开发者喝杯咖啡', 'Was it handy? Buy the developer a coffee')}</div>
+            ${tipButtonsHtml()}
           </div>
           <div class="actions"><button class="btn block" data-act="relist">${tr('点错了？重新上架', 'Not sold after all? Put it back up')}</button></div>`
         : `<div class="hint center">${tr(`这件${statusText[it.status]}了`, `This item is ${statusText[it.status].toLowerCase()}`)}</div>
@@ -3073,7 +3080,7 @@ function settingsSheet(S) {
       <button class="btn primary block" data-act="save">${tr('保存', 'Save')}</button>
       <button class="btn block" data-act="link">${tr('把管理入口发给自己（换手机、换浏览器用）', 'Send myself the management link (for a new phone or browser)')}</button>
       <button class="btn block" data-act="feedback">${tr('反馈问题 / 提建议', 'Feedback / ideas')}</button>
-      ${tipOn() ? `<button class="btn block" data-act="tip">☕ ${tr('打赏开发者', 'Tip the developer')}</button>` : ''}
+      <button class="btn block" data-act="tip">☕ ${tr('请开发者喝杯咖啡', 'Buy the developer a coffee')}</button>
       ${sale.status === 'active'
         ? `<button class="btn danger block" data-act="end">${tr('结束清单（对买家隐藏）', 'End the list (hide it from buyers)')}</button>`
         : `<button class="btn block" data-act="reopen">${tr('重新公开', 'Reopen')}</button>`}
@@ -4449,14 +4456,57 @@ function feedbackSheet() {
   setTimeout(() => sh.el.querySelector('[name=fb]')?.focus(), 250);
 }
 
-// Two ways to tip: the WeChat 赞赏码 for Chinese users, and a web tip page (TIP_URL, e.g. Ko-fi or
-// PayPal.me) for everyone else, Telegram users included. We can't see payments, so "我打赏了" is
-// taken on trust (the server grants the bonus once per device).
+// Two ways to tip, always shown side by side: the WeChat 赞赏码 and a web tip page (TIP_URL, Ko-fi:
+// card or PayPal). Whoever reads English outside WeChat sees Ko-fi first. We can't see payments,
+// so "我打赏了" is taken on trust (the server grants the bonus once per device).
 const TIP_QR = '/tip-qr.png';
 const tipUrl = () => CFG.tipUrl || '';
-const wechatTipOn = () => LANG === 'zh' || isWeChat;
-// Whether this viewer has any way to tip; without one, tip buttons are left out.
-const tipOn = () => wechatTipOn() || !!tipUrl();
+const kofiFirst = () => LANG === 'en' && !isWeChat;
+const coarsePointer = () => window.matchMedia?.('(pointer: coarse)').matches;
+// A Ko-fi link; tapping it is remembered so that coming back offers the thank-you (kofiReturn).
+const kofiLink = (cls, label) => `<a class="${cls}" data-kofi href="${esc(tipUrl())}" target="_blank" rel="noopener">${label}</a>`;
+
+// The two ways as cards: the QR code can be long-pressed right here in WeChat, Ko-fi is one tap.
+function tipWaysHtml() {
+  const hint = isWeChat ? tr('长按二维码 → 识别', 'Long-press → Scan QR code')
+    : coarsePointer() ? tr('存图后用微信扫一扫，从相册选', 'Save it, then pick it in WeChat Scan')
+      : tr('用手机微信扫一扫', 'Scan it with WeChat on your phone');
+  const wechat = `<div class="tip-way">
+      <b>${tr('微信赞赏', 'WeChat')}</b>
+      <img class="tip-qr" src="${TIP_QR}" alt="${tr('微信赞赏码', 'WeChat tip code')}">
+      <small>${hint}</small>
+      ${!inAppBrowser && coarsePointer() ? `<a class="btn small" href="${TIP_QR}" download="wechat-tip.png">${tr('存到相册', 'Save picture')}</a>` : ''}
+    </div>`;
+  const kofi = tipUrl() ? `<div class="tip-way">
+      <b>Ko-fi</b>
+      <div class="tip-cup" aria-hidden="true">☕</div>
+      ${kofiLink('btn primary block', tr('去 Ko-fi 打赏', 'Tip on Ko-fi'))}
+      <small>${tr('银行卡、PayPal 都行', 'Card or PayPal')}</small>
+    </div>` : '';
+  return `<div class="tip-ways${kofi ? '' : ' one'}">${kofiFirst() ? kofi + wechat : wechat + kofi}</div>`;
+}
+
+// Two side-by-side buttons for a happy moment: Ko-fi goes straight to the page, WeChat opens the code.
+function tipButtonsHtml() {
+  const wechat = `<button class="btn" data-act="tip">${tr('微信赞赏', 'WeChat')}</button>`;
+  const kofi = tipUrl() ? kofiLink('btn', '☕ Ko-fi') : '';
+  return `<div class="tip-btns">${kofiFirst() ? kofi + wechat : wechat + kofi}</div>`;
+}
+
+async function claimTip(el, s, onRegain) {
+  buyerToken(true);
+  el.disabled = true;
+  try {
+    const r = await api('/ai/tip', { method: 'POST', body: {} });
+    store.set('kofiAt', 0);
+    toast(r.granted ? tr(`谢谢打赏！送你 ${r.bonus} 次 AI 识别`, `Thank you! ${r.bonus} AI tries added`) : tr('谢谢打赏！', 'Thank you!'));
+    s.close();
+    if (r.granted) onRegain?.();
+  } catch (err) {
+    toast(err.message);
+    el.disabled = false;
+  }
+}
 
 async function tipSheet(onRegain) {
   buyerToken(true);
@@ -4464,23 +4514,38 @@ async function tipSheet(onRegain) {
   try {
     q = await api('/ai/quota');
   } catch {}
-  openSheet(() => `<h2>${tr('打赏开发者', 'Tip the developer')}</h2>
-    <div class="hint center" style="padding-top:0">${tr('AI 识别是开发者自掏腰包付的。你打赏，他充 AI，大家接着薅。', 'The AI runs on the developer\'s own money. You tip, the developer tops it up, everyone keeps freeloading.')}</div>
-    ${tipUrl() ? `<div class="actions"><a class="btn ${wechatTipOn() ? '' : 'primary big'} block" href="${esc(tipUrl())}" target="_blank" rel="noopener">☕ ${tr('请开发者喝杯咖啡（Ko-fi，银行卡）', 'Buy the developer a coffee (Ko-fi, card)')}</a></div>` : ''}
-    ${wechatTipOn() ? `<img class="tip-qr" src="${TIP_QR}" alt="${tr('微信赞赏码', 'WeChat tip code')}">
-    <div class="hint center">${isWeChat ? tr('长按二维码，选「识别图中二维码」', 'Long-press the QR code → Scan QR Code in Image') : tr('截图，在微信「扫一扫」里从相册选这张图', 'Screenshot it, then pick it from your album in WeChat Scan')}</div>` : ''}
-    <div class="actions"><button class="btn ${wechatTipOn() ? 'primary big' : ''} block" data-act="tipped">${q.tipped ? tr('我打赏了', 'I tipped') : tr('我打赏了，送我 100 次 AI 识别', 'I tipped, give me 100 AI tries')}</button></div>`, async (act, el, s) => {
-    if (act !== 'tipped') return;
-    el.disabled = true;
-    try {
-      const r = await api('/ai/tip', { method: 'POST', body: {} });
-      toast(r.granted ? tr(`谢谢打赏！送你 ${r.bonus} 次 AI 识别`, `Thank you! ${r.bonus} AI tries added`) : tr('谢谢打赏！', 'Thank you!'));
-      s.close();
-      if (r.granted) onRegain?.();
-    } catch (err) {
-      toast(err.message);
-      el.disabled = false;
-    }
+  openSheet(() => `<h2>${tr('请开发者喝杯咖啡', 'Buy the developer a coffee')}</h2>
+    <div class="hint center" style="padding-top:0">${tr('一个人业余做的，服务器和 AI 都是自己掏钱。你打赏，他充 AI，大家接着薅。', "One person builds this and pays for the server and the AI. You tip, the AI gets topped up, everyone keeps freeloading.")}</div>
+    ${tipWaysHtml()}
+    <div class="actions"><button class="btn block" data-act="tipped">${q.tipped ? tr('我打赏了', 'I tipped') : tr('打赏好了？点这里领 100 次 AI 识别', 'Tipped? Tap for 100 AI tries')}</button></div>`,
+  (act, el, s) => act === 'tipped' && claimTip(el, s, onRegain));
+}
+
+// Back from Ko-fi (a while later, so they had time to pay): thank them and offer the AI bonus.
+// The time is stored because inside WeChat the page itself is left and reloaded.
+const KOFI_MIN_MS = 8000;
+const KOFI_MAX_MS = 30 * 60 * 1000;
+document.addEventListener('click', (e) => {
+  if (e.target.closest('a[data-kofi]')) store.set('kofiAt', Date.now());
+}, true);
+function kofiReturn() {
+  if (document.visibilityState !== 'visible') return;
+  const at = store.get('kofiAt', 0);
+  const gone = Date.now() - at;
+  if (!at || gone < KOFI_MIN_MS) return;
+  store.set('kofiAt', 0);
+  if (gone > KOFI_MAX_MS) return;
+  // The tip sheet is still open: its own button is enough, just bring it forward.
+  const open = document.querySelector('.sheet [data-act=tipped]');
+  if (open) return open.classList.add('primary', 'big');
+  openSheet(() => `<h2>${tr('在 Ko-fi 打赏好了？', 'All done on Ko-fi?')}</h2>
+    <div class="hint center" style="padding-top:0">${tr('谢谢你！点一下，送你 100 次 AI 识别。', 'Thank you! Tap below for 100 AI tries.')}</div>
+    <div class="actions">
+      <button class="btn primary big block" data-act="tipped">${tr('打赏好了', 'Yes, I tipped')}</button>
+      <button class="btn block" data-act="close">${tr('还没有', 'Not yet')}</button>
+    </div>`, (act, el, s) => {
+    if (act === 'tipped') claimTip(el, s);
+    if (act === 'close') s.close();
   });
 }
 
@@ -4490,7 +4555,7 @@ function aiBusySheet() {
     <div class="hint" style="padding-top:0">${tr('AI 识别是开发者自掏腰包付的，今天的额度已经被大家用光了，明天会恢复。自己填名字也很快。<br>想让开发者赶紧加钱？点下面催一下，催的人越多，他越不好意思不充。', "The AI runs on the developer's own money and today's share is gone; it's back tomorrow. Typing a name is quick too.<br>Want the developer to cough up more? Nag below: the more people nag, the more embarrassing it gets not to.")}</div>
     <div class="actions">
       <button class="btn primary big block" data-act="nudge">${tr('催开发者充钱', 'Nag the developer to pay up')}</button>
-      ${tipOn() ? `<button class="btn big block" data-act="tip">${tr('打赏开发者，帮他充钱', 'Tip so the developer can top up')}</button>` : ''}
+      <button class="btn big block" data-act="tip">${tr('打赏开发者，帮他充钱', 'Tip so the developer can top up')}</button>
     </div>
     <div style="margin-top:12px">${inviteRowHtml()}</div>`, (act, el, s) => {
     if (act === 'nudge') nudge(el);
@@ -4509,7 +4574,7 @@ async function aiLimitSheet(onRegain) {
     q = await api('/ai/quota');
   } catch {}
   if (!q.surveyDone) return surveySheet(onRegain);
-  const tipBtn = !q.tipped && tipOn();
+  const tipBtn = !q.tipped;
   openSheet(() => `<h2>${tr('你的免费次数薅完了', "You've freeloaded all your free tries")}</h2>
     <div class="hint" style="padding-top:0">${tr('AI 识别是开发者自掏腰包付的，每人先送这么多次。自己填名字也很快。<br>还想接着用？催开发者加预算吧，催的人多了他就会加。', "The AI runs on the developer's own money, so everyone gets this many to start. Typing a name is quick too.<br>Want more? Nag the developer to raise the budget; enough nagging and it happens.")}</div>
     <div class="actions">
@@ -4669,6 +4734,8 @@ function mountNearbyFeed(root) {
               <div class="name">${esc(itemT(it).name)}</div>
               <div class="extra">📍 ${esc(it.locationAlt && textLang(it.location) !== LANG ? it.locationAlt : it.location)}${it.km != null ? ` · ${kmText(it.km)}` : ''}</div>
             </div>
+document.addEventListener('visibilitychange', kofiReturn);
+window.addEventListener('pageshow', kofiReturn);
           </a>`).join('')}</div>`
         : `<div class="empty">${empty}<br>${tr('你要出二手的话，发一份清单，这里就能看到。', 'Selling something? Post a list and it shows up here.')}</div>`}`;
   };

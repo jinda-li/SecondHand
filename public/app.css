@@ -384,7 +384,16 @@ img { display: block; max-width: 100%; }
 .cstatus.err { color: var(--red); }
 [data-ui~=nordic] .cstatus.err { color: #cc0008; }
 
-.tip-qr { display: block; width: 200px; max-width: 70%; margin: 8px auto 0; border-radius: 8px; }
+/* 打赏: WeChat code and Ko-fi as two equal cards. */
+.tip-ways { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 12px; }
+.tip-ways.one { grid-template-columns: minmax(0, 220px); justify-content: center; }
+.tip-way { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 12px 10px; background: #fff; border-radius: var(--radius); text-align: center; }
+.tip-way b { font-size: 15px; }
+.tip-way small { font-size: 12px; color: var(--sub); line-height: 1.4; }
+.tip-qr { display: block; width: 100%; max-width: 150px; aspect-ratio: 1; border-radius: 8px; }
+.tip-cup { font-size: 56px; line-height: 1; padding: 18px 0; }
+.tip-btns { display: flex; gap: 8px; }
+.tip-btns .btn { flex: 1; }
 
 /* ---------- keep for later / brand card ---------- */
 .sheet .highlight { margin: 0 0 12px; }
