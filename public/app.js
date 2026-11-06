@@ -1,5 +1,5 @@
-import { money as moneyIn, shareText, openItems, byRecent, defaultIntro, stripLinks, listMark, conditionText, CURRENCIES, RULES, itemText, saleText, textLang, contactNote, normTelegram, looksLikeTelegram, fbProfileUrl, fbListing } from './lib.js';
-import { LANG, chosenLang, tr, isWeChat, isTelegram, isFacebook, setLang, movedHere } from './i18n.js';
+import { money as moneyIn, shareText, openItems, byRecent, defaultIntro, stripLinks, listMark, conditionText, CURRENCIES, RULES, itemText, saleText, textLang, contactNote, normTelegram, normWhatsapp, linkInText, looksLikeTelegram, fbProfileUrl, fbListing } from './lib.js';
+import { LANG, chosenLang, tr, isWeChat, isTelegram, isFacebook, isWhatsApp, setLang, movedHere } from './i18n.js';
 
 const $app = document.getElementById('app');
 const UI = new URLSearchParams(location.search).get('ui');
@@ -68,6 +68,23 @@ const saleT = (sale) => saleText(sale, LANG);
 const tgShareUrl = (url, text = '') => `https://t.me/share/url?url=${encodeURIComponent(url)}${text ? `&text=${encodeURIComponent(text)}` : ''}`;
 // A chat with a Telegram user; text is pre-filled where Telegram supports it.
 const tgChatUrl = (username, text = '') => `https://t.me/${encodeURIComponent(username)}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
+// WhatsApp's own share screen: pick a chat or group, the text (link included) is filled in.
+const waShareUrl = (text) => `https://wa.me/?text=${encodeURIComponent(text)}`;
+// A chat with a WhatsApp number (digits only, with the country code), the text filled in.
+const waChatUrl = (number, text = '') => `https://wa.me/${encodeURIComponent(number)}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
+// A number as people read it: +358401234567.
+const waShown = (number) => `+${number}`;
+const WA_PLACEHOLDER = '358 40 123 4567';
+
+// An input with a fixed prefix in front (@ for Telegram, + for WhatsApp): the prefix is drawn, not
+// typed, so the box holds only what people type after it. A prefix they type or paste anyway is
+// dropped as they go (see the input listener below).
+const prefixed = (p, input) => `<span class="pfx" data-p="${p}">${input}</span>`;
+document.addEventListener('input', (e) => {
+  const box = e.target.closest?.('.pfx > input');
+  const p = box?.parentElement.dataset.p;
+  if (p && box.value.trimStart().startsWith(p)) box.value = box.value.trimStart().slice(p.length).trimStart();
+});
 
 // ---------- small utilities ----------
 
@@ -721,12 +738,13 @@ function localKey(saleId) {
 }
 
 // A list's own pages show the seller's view (banner, back-to-manage bar) only in a tab that came
-// from that list's management page (its 买家视角 and 分享 buttons add #preview). Opened any other
+// from that list's management page (its 买家视角 and 分享 buttons add #preview, an item's 分享 adds
+// #share, which also opens the share options). Opened any other
 // way they are the buyer page, even in a browser holding the key: a management link sent to a
 // buyer by mistake leaves the key in their browser.
 function previewing(saleId) {
   try {
-    if (location.hash === '#preview') {
+    if (location.hash === '#preview' || location.hash === '#share') {
       sessionStorage.setItem('preview', saleId);
       history.replaceState(null, '', location.pathname + location.search);
     }
@@ -823,22 +841,27 @@ function saleFormHtml(s, { create = false } = {}) {
         <input type="hidden" name="title">
       </div>`
     : `<label class="field"><span>${tr('标题', 'Title')}</span><input type="text" name="title" maxlength="60" value="${esc(s.title)}"></label>`;
-  // Two boxes, each named for its app, so nobody puts a WeChat ID where a Telegram username goes.
+  // One box per app, each named for it, so nobody puts a WeChat ID where a Telegram username goes.
   // The one this person more likely uses comes first.
-  const tgField = `<label class="field"><span>${tr('Telegram 用户名', 'Telegram username')}</span><input type="text" name="telegram" maxlength="64" value="${esc(s.telegram ? `@${s.telegram}` : '')}" placeholder="@username" autocomplete="off" autocapitalize="off" spellcheck="false"></label>`;
+  const tgField = `<label class="field"><span>${tr('Telegram 用户名', 'Telegram username')}</span>${prefixed('@', `<input type="text" name="telegram" maxlength="64" value="${esc(s.telegram || '')}" placeholder="username" autocomplete="off" autocapitalize="off" spellcheck="false">`)}</label>`;
+  const waField = `<label class="field"><span>${tr('WhatsApp 号码', 'WhatsApp number')}</span>${prefixed('+', `<input type="text" inputmode="tel" name="whatsapp" maxlength="40" value="${esc(s.whatsapp || '')}" placeholder="${WA_PLACEHOLDER}" autocomplete="off">`)}
+        <small class="help fb-help">${tr('带国家区号，例如芬兰 358、中国 86', 'With the country code, like 358 for Finland or 44 for the UK')}</small></label>`;
   const wxField = `<label class="field"><span>${tr('微信号', 'WeChat ID')}</span><input type="text" name="wechatId" maxlength="60" value="${esc(s.wechatId)}" placeholder="${tr('你的微信号', 'Your WeChat ID')}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>`;
   const fbField = `<label class="field"><span>${tr('Facebook 主页链接', 'Facebook profile link')}</span><input type="text" inputmode="url" name="facebook" maxlength="200" value="${esc(s.facebook)}" placeholder="https://www.facebook.com/…" autocomplete="off" autocapitalize="off" spellcheck="false">
         <small class="help fb-help">${tr('Facebook 里点进自己的主页 → ··· →「复制主页链接」', 'In Facebook, open your profile → ··· → Copy profile link')}</small></label>`;
   const contact = `<div class="field"><span>${tr('联系方式', 'How buyers reach you')} <b class="req">*</b></span>
-        <div class="callout"><b>${tr('至少填一个', 'Fill in at least one')}</b>${tr('发到微信群填微信号，发到 Telegram 群填 Telegram，发到 Facebook 群填 Facebook。', 'Your WeChat ID for WeChat groups, Telegram for Telegram groups, Facebook for Facebook groups.')}<small>${tr('买家一般在群里直接私聊你；排第 1 位又找不到你的人，才会看到这里填的。', 'Buyers usually message you in the group. Only the first in line sees these, for when they can’t find you there.')}</small></div></div>
-      ${isFacebook ? fbField + tgField + wxField : LANG === 'en' || isTelegram ? tgField + wxField + fbField : wxField + tgField + fbField}
+        <div class="callout"><b>${tr('至少填一个', 'Fill in at least one')}</b>${tr('发到哪个 App 的群，就填那个 App 的联系方式。', 'The one for each app whose groups you post in.')}<small>${tr('买家一般在群里直接私聊你；排第 1 位又找不到你的人，才会看到这里填的。', 'Buyers usually message you in the group. Only the first in line sees these, for when they can’t find you there.')}</small></div></div>
+      ${isFacebook ? fbField + tgField + waField + wxField
+        : isWhatsApp ? waField + tgField + wxField + fbField
+        : LANG === 'en' || isTelegram ? tgField + waField + wxField + fbField
+        : wxField + tgField + waField + fbField}
       <label class="field"><span>${tr('取货地点', 'Pick-up place')} <b class="req">*</b></span><input type="text" name="location" maxlength="60" value="${esc(s.location)}" placeholder="${tr('例：地铁站附近自提', 'e.g. near the metro station')}"></label>`;
   const more = `<label class="field"><span>${tr('货币', 'Currency')}</span><select name="currency">${Object.keys(CURRENCIES).map((c) => `<option value="${c}" ${c === s.currency ? 'selected' : ''}>${c} ${CURRENCIES[c].trim()}</option>`).join('')}</select></label>
       <div class="field"><span>${tr('规则', 'Rules')}</span><div class="rules">${rulesEditor(s.rules)}</div></div>
       <label class="field"><span>${tr('截止日期（选填）', 'Last day (optional)')}</span><input type="date" name="leaveDate" value="${esc(s.leaveDate)}"></label>`;
   const nearby = `<label class="field nearby-row"><input type="checkbox" name="nearby" ${s.publicNearby === false ? '' : 'checked'}>
         <span style="margin:0;color:var(--text)">${tr('公开到「附近的二手」：你的东西会出现在附近别人的清单下面，卖得更快', 'Show in "Nearby": your things appear under other lists nearby and sell faster')}<br><span class="small muted">${tr('会用到你的大概位置（约 1 公里范围），不会显示具体地址', 'Uses your rough location (about 1 km), never your address')}</span></span></label>
-      <div class="help nearby-tip" ${nearbyTipWanted(s.publicNearby !== false, s.telegram) ? '' : 'hidden'}>${tr('公开到附近的话，最好留一个谁都能联系上的方式，Telegram 最合适：附近看到的人不一定在你发的群里。', 'Showing in Nearby? Leave at least one contact anyone can use; Telegram works best. People who find you there may not be in your groups.')}</div>`;
+      <div class="help nearby-tip" ${nearbyTipWanted(s.publicNearby !== false, s.telegram, s.whatsapp) ? '' : 'hidden'}>${tr('公开到附近的话，最好留一个谁都能联系上的方式，Telegram 或 WhatsApp 最合适：附近看到的人不一定在你发的群里。', 'Showing in Nearby? Leave at least one contact anyone can use; Telegram or WhatsApp works best. People who find you there may not be in your groups.')}</div>`;
   // Creating: the three required fields up front, the rest folded away with their defaults.
   if (create) {
     return `
@@ -862,13 +885,13 @@ function saleFormHtml(s, { create = false } = {}) {
 }
 
 // Strangers from "Nearby" can't reach the seller through a group, so a list shown there without a
-// Telegram username gets a nudge to add one: the one contact that works for most people anywhere.
-const nearbyTipWanted = (nearby, telegram) => nearby && !String(telegram ?? '').trim();
+// Telegram username or WhatsApp number gets a nudge to add one: contacts that work for most people anywhere.
+const nearbyTipWanted = (nearby, telegram, whatsapp) => nearby && !String(telegram ?? '').trim() && !String(whatsapp ?? '').trim();
 
 function bindNearbyTip(root) {
   const sync = () => {
     const tip = root.querySelector('.nearby-tip');
-    if (tip) tip.hidden = !nearbyTipWanted(root.querySelector('[name=nearby]')?.checked, root.querySelector('[name=telegram]')?.value);
+    if (tip) tip.hidden = !nearbyTipWanted(root.querySelector('[name=nearby]')?.checked, root.querySelector('[name=telegram]')?.value, root.querySelector('[name=whatsapp]')?.value);
   };
   root.addEventListener('input', sync);
   root.addEventListener('change', sync);
@@ -890,6 +913,7 @@ function readSaleForm(root) {
     title: v('title'),
     wechatId: v('wechatId'),
     telegram: v('telegram'),
+    whatsapp: v('whatsapp'),
     facebook: v('facebook'),
     location: v('location'),
     currency: v('currency'),
@@ -901,12 +925,15 @@ function readSaleForm(root) {
 
 // The contact boxes, checked before sending: at least one, each in its own box. Returns an error or ''.
 function contactError(f) {
-  if (!f.wechatId && !f.telegram && !f.facebook) return tr('微信号、Telegram、Facebook 至少填一个', 'Add a Telegram username, a Facebook profile link or a WeChat ID');
+  if (!f.wechatId && !f.telegram && !f.whatsapp && !f.facebook) return tr('微信号、Telegram、WhatsApp、Facebook 至少填一个', 'Add a Telegram username, a WhatsApp number, a Facebook profile link or a WeChat ID');
+  if (f.whatsapp && !normWhatsapp(f.whatsapp)) return WA_ERROR();
   if (f.facebook && !fbProfileUrl(f.facebook)) return tr('Facebook 那一栏要填主页链接：在 Facebook 里点进自己的主页 → ··· →「复制主页链接」', 'For Facebook, paste your profile link: open your profile → ··· → Copy profile link');
   if (looksLikeTelegram(f.wechatId)) return tr('微信号那一栏填的像是 Telegram 用户名，请填到 Telegram 那一栏', 'That looks like a Telegram username: put it in the Telegram box');
   if (f.telegram && !normTelegram(f.telegram)) return tr('Telegram 用户名不对：5 到 32 位字母、数字或下划线，例如 @jinda_li', 'Not a Telegram username: 5–32 letters, digits or underscores, like @jinda_li');
   return '';
 }
+
+const WA_ERROR = () => tr('WhatsApp 号码要带国家区号，例如芬兰 358 40 123 4567，区号后面不要加 0', 'Give your WhatsApp number with its country code, like 358 40 123 4567, with no 0 after the country code');
 
 // Approximate position for "附近的二手"; null when unavailable or refused. The server rounds it to ~1 km.
 function getLocation() {
@@ -1323,7 +1350,7 @@ async function listsSheet(S) {
 function createSale() {
   $app.innerHTML = `
     <div class="ik-head">${LOGO}<h1>${tr('发布二手清单', 'New secondhand list')}</h1><div class="ik-sub">${tr('填 3 项就能开始上架，其他都有默认值。', 'Three fields and you can start listing; everything else has defaults.')}</div></div>
-    ${saleFormHtml({ owner: store.get('ownerName', ''), wechatId: store.get('sellerWechat', ''), telegram: store.get('sellerTelegram', ''), facebook: store.get('sellerFacebook', ''), location: '', currency: guessCurrency(), rules: DEFAULT_RULES_ON, leaveDate: '' }, { create: true })}
+    ${saleFormHtml({ owner: store.get('ownerName', ''), wechatId: store.get('sellerWechat', ''), telegram: store.get('sellerTelegram', ''), whatsapp: store.get('sellerWhatsapp', ''), facebook: store.get('sellerFacebook', ''), location: '', currency: guessCurrency(), rules: DEFAULT_RULES_ON, leaveDate: '' }, { create: true })}
     <div class="bottom-bar"><div class="inner"><button class="btn primary big" id="go">${tr('开始上架', 'Start listing')}</button></div></div>`;
   const form = $app.querySelector('.form');
   syncTitle(form);
@@ -1345,6 +1372,7 @@ function createSale() {
     store.set('ownerName', owner);
     store.set('sellerWechat', f.wechatId);
     store.set('sellerTelegram', normTelegram(f.telegram) || '');
+    store.set('sellerWhatsapp', normWhatsapp(f.whatsapp) || '');
     store.set('sellerFacebook', fbProfileUrl(f.facebook) || '');
     e.target.disabled = true;
     if (f.nearby) {
@@ -1428,6 +1456,9 @@ function contactHtml(c) {
   const direct = !value ? '' : c.kind === 'facebook'
     ? `<a class="btn primary block" href="${esc(value)}" target="_blank" rel="noopener">${tr('打开卖家的 Facebook 主页', "Open the seller's Facebook profile")}</a>
       <div class="hint" style="padding:6px 0 0">${tr('在主页上点 Message 私信卖家，发上面那句。', 'Tap Message on their profile and send the line above.')}</div>`
+    : c.kind === 'whatsapp'
+    ? `<a class="btn primary block" href="${esc(waChatUrl(value, note))}" target="_blank" rel="noopener">${tr(`在 WhatsApp 给 ${waShown(value)} 发消息`, `Message ${waShown(value)} on WhatsApp`)}</a>
+      ${row(tr('卖家的 WhatsApp', "Seller's WhatsApp"), waShown(value))}`
     : tg
     ? `<a class="btn primary block" href="${esc(tgChatUrl(value, note))}" target="_blank" rel="noopener">${tr(`在 Telegram 给 @${esc(value)} 发消息`, `Message @${esc(value)} on Telegram`)}</a>
       ${row(tr('卖家的 Telegram', "Seller's Telegram"), `@${value}`)}`
@@ -1436,6 +1467,8 @@ function contactHtml(c) {
   // No seller contact, or one on an app the buyer didn't leave: the seller reaches out to the buyer instead.
   const other = (!value ? tr('卖家没留联系方式，不过', "The seller left no contact here, but ") : tr('另外，', 'Also, ')) + (c.buyerKind === 'telegram'
     ? tr('卖家能在排队名单里看到你的 Telegram，会来找你。', 'the seller sees your Telegram in the line and can message you.')
+    : c.buyerKind === 'whatsapp'
+    ? tr('卖家能在排队名单里看到你的 WhatsApp 号码，会来找你。', 'the seller sees your WhatsApp number in the line and can message you.')
     : c.buyerKind === 'facebook'
     ? tr('卖家能在排队名单里看到你的 Facebook 名字。', 'the seller sees your Facebook name in the line.')
     : tr('卖家能在排队名单里看到你的微信号，会来加你。', 'the seller sees your WeChat ID in the line and can add you.'));
@@ -1644,6 +1677,8 @@ const askCancelQueue = () => ask({
 // ---------- 7.3 buyer item page ----------
 
 function buyerItem(saleId, no) {
+  // #share: the seller tapped 分享 on this item in the management page; open the share options here.
+  let shareNow = location.hash === '#share';
   // Assume seller view right away when previewing with the key; the refetch below confirms it.
   const preview = previewing(saleId);
   let data = BOOT.sale ? { ...BOOT, isOwner: preview && !!localKey(saleId) } : null;
@@ -1692,7 +1727,8 @@ function buyerItem(saleId, no) {
       ${my && my.position > 1 ? `<div class="hint">${tr('前面的人不要了，你会自动升到第 1 位，到时再联系卖家。', "If the people ahead drop out you move up to first; message the seller then.")}</div>` : ''}
       ${my && my.position === 1 && contact ? contactHtml(contact) : ''}
       ${nearbyEntryHtml(sale.id)}
-      <div class="bottom-bar"><div class="inner">${btn}</div></div>`;
+      <div class="bottom-bar"><div class="inner">${data.isOwner ? `<a class="btn big" href="/manage/${sale.id}">${tr('回到管理', 'Manage')}</a>
+        ${closed || sale.paused ? '' : `<button class="btn primary big" data-act="owner-share">${tr('分享这件', 'Share this item')}</button>`}` : btn}</div></div>`;
     const track = $app.querySelector('.track');
     const count = $app.querySelector('.count');
     if (track && count) {
@@ -1702,15 +1738,19 @@ function buyerItem(saleId, no) {
     }
   };
 
+  const ownerShare = () => shareItem({ saleId, data: () => data }, data.items.find((i) => i.no === no));
   const reload = () => api(`/sale/${saleId}`, { key: localKey(saleId) }).then((d) => {
     data = { ...d, isOwner: preview && d.isOwner };
     render();
+    if (shareNow && data.isOwner && data.items.some((i) => i.no === no)) ownerShare();
+    shareNow = false;
   });
 
   $app.addEventListener('click', async (e) => {
     const a = e.target.closest('[data-act]');
     if (!a) return;
     const it = data.items.find((i) => i.no === no);
+    if (a.dataset.act === 'owner-share') return ownerShare();
     if (a.dataset.act === 'join') data.isOwner ? ownerTap(data.sale) : joinSheet(data.sale, it, reload);
     if (a.dataset.act === 'cancel') {
       if (!(await askCancelQueue())) return;
@@ -1730,18 +1770,23 @@ function buyerItem(saleId, no) {
   reload().catch((e) => (e.code === 'NOT_FOUND' ? notFound() : toast(e.message)));
 }
 
-// Joining a queue asks for one contact: a Telegram box and a WeChat box, fill either, plus a Facebook
-// box on lists posted to Facebook (or when the buyer is in Facebook). A seller not on the buyer's app
-// reaches out to them there. The buyer's last choice, or the app they are in, comes first.
+// Joining a queue asks for one contact: a Telegram box and a WeChat box, fill either, plus a WhatsApp
+// box and a Facebook box on lists whose seller is on that app or posted there (or when the buyer
+// came from it). A seller not on the buyer's app reaches out to them there. The buyer's last choice,
+// or the app they are in, comes first.
 function joinSheet(sale, it, reload) {
   let result = null;
-  const sellerOn = { telegram: !!sale.hasTelegram, wechat: sale.hasWechat !== false, facebook: !!sale.hasFacebook };
-  const kind = store.get('buyerKind', '') || (isFacebook ? 'facebook' : isTelegram || (LANG === 'en' && !isWeChat) ? 'telegram' : 'wechat');
+  const sellerOn = { telegram: !!sale.hasTelegram, wechat: sale.hasWechat !== false, whatsapp: !!sale.hasWhatsapp, facebook: !!sale.hasFacebook };
+  const kind = store.get('buyerKind', '') || (isFacebook ? 'facebook' : isWhatsApp ? 'whatsapp' : isTelegram || (LANG === 'en' && !isWeChat) ? 'telegram' : 'wechat');
   const withFb = sellerOn.facebook || isFacebook || kind === 'facebook';
-  const order = [kind, ...['telegram', 'wechat', 'facebook'].filter((k) => k !== kind)].filter((k) => k !== 'facebook' || withFb);
-  const values = { wechat: store.get('buyerWechat', ''), telegram: store.get('buyerTelegram', ''), facebook: store.get('buyerFacebook', '') };
+  const withWa = sellerOn.whatsapp || isWhatsApp || kind === 'whatsapp';
+  const order = [kind, ...['telegram', 'whatsapp', 'wechat', 'facebook'].filter((k) => k !== kind)]
+    .filter((k) => (k !== 'facebook' || withFb) && (k !== 'whatsapp' || withWa));
+  const values = { wechat: store.get('buyerWechat', ''), telegram: store.get('buyerTelegram', ''), whatsapp: store.get('buyerWhatsapp', ''), facebook: store.get('buyerFacebook', '') };
   const field = (k) => k === 'telegram'
-    ? `<label class="field"><span>${tr('Telegram 用户名', 'Telegram username')}</span><input class="inp" type="text" name="telegram" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="@username" value="${esc(values.telegram ? `@${values.telegram}` : '')}"></label>`
+    ? `<label class="field"><span>${tr('Telegram 用户名', 'Telegram username')}</span>${prefixed('@', `<input class="inp" type="text" name="telegram" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="username" value="${esc(values.telegram)}">`)}</label>`
+    : k === 'whatsapp'
+    ? `<label class="field"><span>${tr('WhatsApp 号码（带国家区号）', 'WhatsApp number, with country code')}</span>${prefixed('+', `<input class="inp" type="text" inputmode="tel" name="whatsapp" maxlength="40" autocomplete="tel" placeholder="${WA_PLACEHOLDER}" value="${esc(values.whatsapp)}">`)}</label>`
     : k === 'facebook'
     ? `<label class="field"><span>${tr('Facebook 名字', 'Facebook name')}</span><input class="inp" type="text" name="facebook" maxlength="200" autocomplete="name" spellcheck="false" placeholder="${tr('你在 Facebook 上显示的名字', 'The name Facebook shows for you')}" value="${esc(values.facebook)}"></label>`
     : `<label class="field"><span>${tr('微信号', 'WeChat ID')}</span><input class="inp" type="text" name="wechat" maxlength="30" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${tr('微信号', 'WeChat ID')}" value="${esc(values.wechat)}"></label>`;
@@ -1772,8 +1817,15 @@ function joinSheet(sale, it, reload) {
     values.telegram = tgBox.value.trim().replace(/^@/, '');
     values.wechat = wxBox.value.trim();
     values.facebook = s.el.querySelector('[name=facebook]')?.value.trim() || '';
-    if (!values.telegram && !values.wechat && !values.facebook) {
-      return toast(withFb ? tr('填一个联系方式就行', 'Fill in one contact') : tr('微信号和 Telegram 用户名，填一个就行', 'Add a Telegram username or a WeChat ID'));
+    const waBox = s.el.querySelector('[name=whatsapp]');
+    values.whatsapp = waBox?.value.trim() || '';
+    if (!values.telegram && !values.wechat && !values.whatsapp && !values.facebook) {
+      return toast(withFb || withWa ? tr('填一个联系方式就行', 'Fill in one contact') : tr('微信号和 Telegram 用户名，填一个就行', 'Add a Telegram username or a WeChat ID'));
+    }
+    const number = values.whatsapp ? normWhatsapp(values.whatsapp) : null;
+    if (values.whatsapp && !number) {
+      waBox.focus();
+      return toast(WA_ERROR(), 2600);
     }
     // A Telegram username typed into the WeChat box moves over, when that box is still free.
     if (looksLikeTelegram(values.wechat)) {
@@ -1792,12 +1844,13 @@ function joinSheet(sale, it, reload) {
     const use = filled.find((k) => sellerOn[k]) || filled[0];
     store.set('buyerKind', use);
     if (username) store.set('buyerTelegram', username);
+    if (number) store.set('buyerWhatsapp', number);
     if (values.wechat) store.set('buyerWechat', values.wechat);
     if (values.facebook) store.set('buyerFacebook', values.facebook);
     buyerToken(true);
     el.disabled = true;
     try {
-      const body = use === 'telegram' ? { telegram: username } : use === 'facebook' ? { facebook: values.facebook } : { wechat: values.wechat };
+      const body = use === 'telegram' ? { telegram: username } : use === 'whatsapp' ? { whatsapp: number } : use === 'facebook' ? { facebook: values.facebook } : { wechat: values.wechat };
       result = await api(`/item/${it.id}/join`, { method: 'POST', body });
       s.refresh();
       reload();
@@ -2668,9 +2721,10 @@ function composer(S) {
 
 // ---------- 6.4 item sheet (seller view) ----------
 
-// A queue row's app (TG / FB / 微信) and the way to reach them on it.
-const kindTagHtml = (r) => (r.telegram ? '<span class="kind-tag tg">TG</span> ' : r.facebook ? '<span class="kind-tag fb">FB</span> ' : r.wechat ? `<span class="kind-tag wx">${tr('微信', 'WeChat')}</span> ` : '');
+// A queue row's app (TG / WA / FB / 微信) and the way to reach them on it.
+const kindTagHtml = (r) => (r.telegram ? '<span class="kind-tag tg">TG</span> ' : r.whatsapp ? '<span class="kind-tag wa">WA</span> ' : r.facebook ? '<span class="kind-tag fb">FB</span> ' : r.wechat ? `<span class="kind-tag wx">${tr('微信', 'WeChat')}</span> ` : '');
 const contactLinkHtml = (r) => (r.telegram ? ` <a class="link-btn small" href="${esc(tgChatUrl(r.telegram))}" target="_blank" rel="noopener">${tr('Telegram 发消息', 'Message')}</a>`
+  : r.whatsapp ? ` <a class="link-btn small" href="${esc(waChatUrl(r.whatsapp))}" target="_blank" rel="noopener">${tr('WhatsApp 发消息', 'Message')}</a>`
   : r.facebook && fbProfileUrl(r.facebook) ? ` <a class="link-btn small" href="${esc(fbProfileUrl(r.facebook))}" target="_blank" rel="noopener">${tr('打开 Facebook 主页', 'Facebook profile')}</a>`
   : r.facebook ? ` <span class="small muted">${tr('会在 Facebook 私信你', 'will DM you on Facebook')}</span>`
   : r.wechat ? ` <button class="link-btn small" data-copy="${esc(r.wechat)}">${tr('复制微信号', 'Copy WeChat ID')}</button>` : '');
@@ -2906,8 +2960,11 @@ function itemSheet(S, itemId, { editNow = false, onClose } = {}) {
         if (!(await ask({ title: tr(`下架 ${it.no} 号？`, `Take down #${it.no}?`), text: tr('排队的人会被移出。', 'Everyone in line is removed.'), ok: tr('下架', 'Take down'), danger: true }))) return;
         await run({ action: 'remove' }, tr('已下架', 'Taken down'));
         return s.close();
+      // Sharing starts from the item's own page, as the list's does: forwarding the management
+      // page from WeChat's ··· menu would send the 管理入口 card, key included.
       case 'share-item':
-        return shareItem(S, it);
+        location.href = `/s/${S.saleId}/i/${it.no}#share`;
+        return;
       case 'tip':
         return tipSheet();
       case 'edit':
@@ -3209,16 +3266,25 @@ function isCardHere(url) {
 
 // Where the seller is posting: WeChat groups (card + text, two messages) or Telegram groups
 // (one message whose link Telegram turns into a preview). Remembered per phone.
+// WhatsApp groups like Telegram: one message, the link in the text.
 // Facebook groups: one "Sell something" listing with several pictures, copied in by hand.
 function shareTarget() {
-  return store.get('shareTarget', '') || (isFacebook ? 'facebook' : isTelegram || (LANG === 'en' && !isWeChat) ? 'telegram' : 'wechat');
+  return store.get('shareTarget', '') || (isFacebook ? 'facebook' : isWhatsApp ? 'whatsapp' : isTelegram || (LANG === 'en' && !isWeChat) ? 'telegram' : 'wechat');
 }
+
+// The app's name, for buttons and titles.
+const appName = (target) => ({ telegram: 'Telegram', whatsapp: 'WhatsApp', facebook: 'Facebook' })[target] || tr('微信', 'WeChat');
 
 // Language of what goes out to a group, which can differ from the seller's own UI:
 // a Chinese seller posting in an English Telegram group writes Chinese and shares English.
 function shareLang(target) {
   if (target === 'facebook') return store.get('shareLangFb', 'en');
+  if (target === 'whatsapp') return store.get('shareLangWa', 'en');
   return target === 'telegram' ? store.get('shareLangTg', 'en') : store.get('shareLangWx', LANG);
+}
+
+function setShareLang(target, lang) {
+  store.set({ facebook: 'shareLangFb', whatsapp: 'shareLangWa', telegram: 'shareLangTg' }[target] || 'shareLangWx', lang);
 }
 
 // The link in a Facebook listing: src=fb makes the preview English and the page offer a Facebook
@@ -3234,19 +3300,33 @@ function tgLink(url, lang, v = '') {
   return `${url}?src=tg${lang === 'zh' ? '&cl=zh' : ''}${v ? `&v=${v}` : ''}`;
 }
 
+// The same for a WhatsApp group: src=wa, and v since WhatsApp caches previews too.
+function waLink(url, lang, v = '') {
+  return `${url}?src=wa${lang === 'zh' ? '&cl=zh' : ''}${v ? `&v=${v}` : ''}`;
+}
+
+// The link that goes out in the text of a Telegram or WhatsApp post.
+const textLink = (target, url, lang, v = '') => (target === 'whatsapp' ? waLink : tgLink)(url, lang, v);
+
 // Posting to an app the seller left no contact for: asked for before any way to post shows, so a
 // buyer from that group who can't find the seller there still has a way to reach them.
 function contactGateHtml(sale, target) {
   const tg = target === 'telegram';
   const fb = target === 'facebook';
-  if (fb ? sale.hasFacebook : tg ? sale.hasTelegram : sale.hasWechat) return '';
+  const wa = target === 'whatsapp';
+  if (fb ? sale.hasFacebook : tg ? sale.hasTelegram : wa ? sale.hasWhatsapp : sale.hasWechat) return '';
+  const box = 'class="inp boxed grow" name="nudge" autocomplete="off" autocapitalize="off" spellcheck="false"';
   return `<div class="share-nudge">
-      <div class="small">${fb
+      <div class="small">${wa
+        ? tr('发到 WhatsApp 群之前，先填你的 WhatsApp 号码，不然在群里找不到你的买家没法联系你。', "Before posting to WhatsApp groups, add your WhatsApp number, so buyers who can't find you in the group can still reach you.")
+        : fb
         ? tr('发到 Facebook 群之前，先填你的 Facebook 主页链接（Facebook 里点进自己的主页 → ··· →「复制主页链接」），不然从别处看到清单的买家没法私信你。', "Before posting to Facebook groups, add your Facebook profile link (open your profile → ··· → Copy profile link), so buyers who find the list elsewhere can still DM you.")
         : tg
         ? tr('发到 Telegram 群之前，先填你的 Telegram 用户名，不然在群里找不到你的买家没法联系你。', "Before posting to Telegram groups, add your Telegram username, so buyers who can't find you in the group can still reach you.")
         : tr('发到微信群之前，先填你的微信号，不然在群里找不到你的买家没法加你。', "Before posting to WeChat groups, add your WeChat ID, so buyers who can't find you in the group can still add you.")}</div>
-      <div class="share-nudge-row"><input class="inp boxed grow" name="nudge" placeholder="${fb ? 'https://www.facebook.com/…' : tg ? '@username' : tr('你的微信号', 'Your WeChat ID')}" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="share-nudge-row">${wa ? prefixed('+', `<input ${box} inputmode="tel" placeholder="${WA_PLACEHOLDER}">`)
+        : tg ? prefixed('@', `<input ${box} placeholder="username">`)
+        : `<input ${box} placeholder="${fb ? 'https://www.facebook.com/…' : tr('你的微信号', 'Your WeChat ID')}">`}
         <button class="btn small primary" data-act="nudgesave">${tr('保存', 'Save')}</button></div>
     </div>`;
 }
@@ -3256,11 +3336,11 @@ function shareSheet(S) {
   const here = isCardHere(publicUrl(S));
   let target = shareTarget();
   const sh = openSheet(() => {
-    const seg = `<div class="seg share-target">${[['wechat', tr('微信群', 'WeChat')], ['telegram', 'Telegram'], ['facebook', 'Facebook']]
+    const seg = `<div class="seg share-target">${[['wechat', tr('微信群', 'WeChat')], ['telegram', 'Telegram'], ['whatsapp', 'WhatsApp'], ['facebook', 'Facebook']]
       .map(([k, l]) => `<button class="${target === k ? 'on' : ''}" data-act="target" data-t="${k}">${l}</button>`).join('')}</div>`;
     const gate = contactGateHtml(sale, target);
     if (gate) return `<h2>${tr('分享到群', 'Share to groups')}</h2>${seg}${gate}`;
-    const multi = `<div class="small muted" style="margin:10px 4px 0">${tr('可以发到好几个群（微信、Telegram、Facebook 都行）：大家排的是同一个队，先到先得，不会撞单。', 'Post it to as many groups as you like, WeChat, Telegram and Facebook alike: everyone joins the same line, first come first served, no double-selling.')}</div>`;
+    const multi = `<div class="small muted" style="margin:10px 4px 0">${tr('可以发到好几个群（微信、Telegram、WhatsApp、Facebook 都行）：大家排的是同一个队，先到先得，不会撞单。', 'Post it to as many groups as you like, WeChat, Telegram, WhatsApp and Facebook alike: everyone joins the same line, first come first served, no double-selling.')}</div>`;
     if (target === 'facebook') {
       return `<h2>${tr('分享到群', 'Share to groups')}</h2>${seg}
       <div class="share-step">
@@ -3269,13 +3349,14 @@ function shareSheet(S) {
       </div>
       ${multi}`;
     }
-    if (target === 'telegram') {
+    if (linkInText(target)) {
+      const app = appName(target);
       return `<h2>${tr('分享到群', 'Share to groups')}</h2>${seg}
       <div class="share-step">
         <button class="btn primary big block" data-act="post">${tr('发长图（推荐）', 'Post the long picture (recommended)')}</button>
         <div class="small muted step-why">${tr('一条消息就够：一张长图，照片、每件的价格和二维码都在上面；下面配两三行字和预订链接。', 'One message does it: a long picture with the photos, every price and a QR code, and two or three lines with the link under it.')}</div>
         <button class="btn big block" data-act="tgtext">${tr('只发文字和链接', 'Text and link only')}</button>
-        <div class="small muted step-why">${tr('一条消息：开头一句、链接、物品清单，Telegram 会显示带图的预览。', 'One message with a line, the link and the item list; Telegram shows a preview with a picture.')}</div>
+        <div class="small muted step-why">${tr(`一条消息：开头一句、链接、物品清单，${app} 会显示带图的预览。`, `One message with a line, the link and the item list; ${app} shows a preview with a picture.`)}</div>
       </div>
       ${multi}`;
     }
@@ -3315,17 +3396,17 @@ function shareSheet(S) {
     }
     if (act === 'nudgesave') {
       const v = s.el.querySelector('[name=nudge]').value.trim();
-      const tg = target === 'telegram';
-      const fb = target === 'facebook';
-      const bad = fb ? contactError({ facebook: v }) : tg ? contactError({ telegram: v }) : contactError({ wechatId: v });
+      const field = { facebook: 'facebook', telegram: 'telegram', whatsapp: 'whatsapp' }[target] || 'wechatId';
+      const bad = contactError({ [field]: v });
       if (!v || bad) return toast(!v ? tr('先填一下', 'Fill it in first') : bad, 2600);
       el.disabled = true;
       try {
-        await api(`/sale/${S.saleId}`, { method: 'PATCH', key: S.key, body: fb ? { facebook: v } : tg ? { telegram: v } : { wechatId: v } });
-        if (fb) store.set('sellerFacebook', fbProfileUrl(v));
-        else if (tg) store.set('sellerTelegram', normTelegram(v));
+        await api(`/sale/${S.saleId}`, { method: 'PATCH', key: S.key, body: { [field]: v } });
+        if (field === 'facebook') store.set('sellerFacebook', fbProfileUrl(v));
+        else if (field === 'telegram') store.set('sellerTelegram', normTelegram(v));
+        else if (field === 'whatsapp') store.set('sellerWhatsapp', normWhatsapp(v));
         else store.set('sellerWechat', v);
-        sale[fb ? 'hasFacebook' : tg ? 'hasTelegram' : 'hasWechat'] = true;
+        sale[{ facebook: 'hasFacebook', telegram: 'hasTelegram', whatsapp: 'hasWhatsapp' }[field] || 'hasWechat'] = true;
         toast(tr('已保存', 'Saved'));
         s.refresh();
         S.reload?.();
@@ -3390,17 +3471,18 @@ async function translatedData(S, lang, d = S.data()) {
 
 // Editable group text. The opening line is the seller's own (remembered per list, app and language);
 // the item list below the list mark is regenerated every time so it is never stale.
-// For Telegram the link goes right under the opening line, and the card picture is refreshed in the
-// background so the preview shows what is for sale now.
+// For Telegram and WhatsApp the link goes right under the opening line, and the card picture is
+// refreshed in the background so the preview shows what is for sale now.
 async function textSheet(S, target = 'wechat') {
   let { sale, items } = S.data();
-  const tg = target === 'telegram';
+  const tg = linkInText(target);
+  const app = appName(target);
   let lang = shareLang(target);
   const optsKey = tg ? 'shareTextOptsTg' : 'shareTextOpts';
   const opts = { prices: tg, compact: false, ...store.get(optsKey, {}) };
   const introKey = () => (!tg && lang === 'zh' ? S.saleId : `${S.saleId}:${target}:${lang}`);
   const ver = Date.now().toString(36).slice(-5);
-  const link = () => (tg ? tgLink(publicUrl(S), lang, ver) : '');
+  const link = () => (tg ? textLink(target, publicUrl(S), lang, ver) : '');
   const ensure = async () => ({ sale, items } = await translatedData(S, lang, { sale, items }));
   await ensure();
   const def = () => defaultIntro(sale, { lang, target });
@@ -3416,7 +3498,7 @@ async function textSheet(S, target = 'wechat') {
     store.set('shareIntro', all);
   };
   const text = () => build(stripLinks(store.get('shareIntro', {})[introKey()]));
-  const sh = openSheet(() => `<h2>${tg ? tr('Telegram 群文字', 'Telegram post') : tr('群文字', 'Group text')}</h2>
+  const sh = openSheet(() => `<h2>${tg ? tr(`${app} 群文字`, `${app} post`) : tr('群文字', 'Group text')}</h2>
     <div class="seg small share-lang">${[['zh', '中文'], ['en', 'English']].map(([k, l]) => `<button class="${lang === k ? 'on' : ''}" data-act="lang" data-l="${k}">${l}</button>`).join('')}</div>
     <div class="hint" style="padding-top:0">${tr(`开头那段可以随便改，下次会记住；${esc(listMark(lang))}下面每次按最新状态重新生成。`, `Rewrite the opening as you like, it is remembered; everything under ${esc(listMark(lang))} is rebuilt from the latest list.`)}${lang !== textLang(sale.title) ? tr('物品名用的是自动翻译，不对的话在物品里改。', ' Item names are auto-translated; fix any in the item itself.') : ''}</div>
     <textarea class="inp boxed share-text" rows="12">${esc(text())}</textarea>
@@ -3425,20 +3507,20 @@ async function textSheet(S, target = 'wechat') {
       <label class="nearby-row"><input type="checkbox" data-act="compact" ${opts.compact ? 'checked' : ''}><span>${tr('紧凑（用 · 隔开，不换行）', 'Compact (one line, separated by ·)')}</span></label>
     </div>
     <div class="actions" style="margin-top:12px">
-      ${tg ? `<button class="btn primary block" data-act="tgsend">${tr('在 Telegram 里选群发送', 'Pick a Telegram group and send')}</button>
+      ${tg ? `<button class="btn primary block" data-act="tgsend">${tr(`在 ${app} 里选群发送`, `Pick a ${app} group and send`)}</button>
       <button class="btn block" data-act="copy">${tr('复制，去群里粘贴', 'Copy, then paste in the group')}</button>`
         : `<button class="btn primary block" data-act="copy">${tr('复制，去群里粘贴', 'Copy, then paste in the group')}</button>`}
       ${canShare && !tg ? `<button class="btn block" data-act="share">${tr('分享到微信', 'Share…')}</button>` : ''}
       <button class="link-btn small" data-act="reset" style="margin:4px auto 0">${tr('恢复默认开头', 'Reset the opening')}</button>
     </div>
-    ${tg ? `<div class="small muted" style="margin:8px 4px 0">${tr('Telegram 的预览图是发送那一刻的样子；卖掉的东西在页面上会实时更新。', 'The Telegram preview shows the list as it was when sent; the page itself is always live.')}</div>` : ''}`,
+    ${tg ? `<div class="small muted" style="margin:8px 4px 0">${tr(`${app} 的预览图是发送那一刻的样子；卖掉的东西在页面上会实时更新。`, `The ${app} preview shows the list as it was when sent; the page itself is always live.`)}</div>` : ''}`,
   async (act, el, s) => {
     const box = s.el.querySelector('.share-text');
     const t = box.value;
     if (act === 'lang') {
       remember(t);
       lang = el.dataset.l;
-      store.set(tg ? 'shareLangTg' : 'shareLangWx', lang);
+      setShareLang(target, lang);
       await ensure();
       if (tg) uploadCover(S, lang, true).catch(() => {});
       return s.refresh();
@@ -3455,7 +3537,8 @@ async function textSheet(S, target = 'wechat') {
     if (act === 'tgsend') {
       remember(t);
       // Telegram's share page puts the link first and the text under it, so the text goes without it.
-      location.href = tgShareUrl(link(), t.replace(link(), '').replace(/\n{3,}/g, '\n\n').trim());
+      // WhatsApp takes the text as it is, link included, and previews the link.
+      location.href = target === 'whatsapp' ? waShareUrl(t) : tgShareUrl(link(), t.replace(link(), '').replace(/\n{3,}/g, '\n\n').trim());
     }
     if (act === 'share') {
       remember(t);
@@ -3473,15 +3556,19 @@ async function textSheet(S, target = 'wechat') {
   return sh;
 }
 
-// One item: a WeChat card (QR code first), or its link for Telegram.
+// One item: a WeChat card (QR code first), or its link for Telegram or WhatsApp.
 function shareItem(S, it) {
   const url = `${publicUrl(S)}/i/${it.no}`;
   if (isWeChat) return sendCard(url, it.name);
-  const lang = shareLang('telegram');
-  const t = itemText(it, lang);
+  const line = (lang) => { const t = itemText(it, lang); return `${t.name} ${moneyIn(it.priceCents, S.data().sale.currency, lang)}`; };
+  const tgLang = shareLang('telegram');
+  const waLang = shareLang('whatsapp');
+  const waFirst = shareTarget() === 'whatsapp';
+  const tgBtn = `<a class="btn ${waFirst ? '' : 'primary'} block" href="${esc(tgShareUrl(tgLink(url, tgLang), line(tgLang)))}">${tr('发到 Telegram', 'Send to Telegram')}</a>`;
+  const waBtn = `<a class="btn ${waFirst ? 'primary' : ''} block" href="${esc(waShareUrl(`${line(waLang)}\n${waLink(url, waLang)}`))}">${tr('发到 WhatsApp', 'Send to WhatsApp')}</a>`;
   openSheet(() => `<h2>${tr('发这件', 'Share this item')}</h2>
     <div class="actions">
-      <a class="btn primary block" href="${esc(tgShareUrl(tgLink(url, lang), `${t.name} ${moneyIn(it.priceCents, S.data().sale.currency, lang)}`))}">${tr('发到 Telegram', 'Send to Telegram')}</a>
+      ${waFirst ? waBtn + tgBtn : tgBtn + waBtn}
       <button class="btn block" data-act="wechat">${tr('发微信卡片', 'Send a WeChat card')}</button>
     </div>`, (act, el, s) => {
     if (act !== 'wechat') return;
@@ -3749,7 +3836,7 @@ async function saveSaleImage(S, lang = LANG) {
       toast(tr('还没有在售的东西', 'Nothing for sale yet'));
       return;
     }
-    const url = shareTarget() === 'telegram' ? tgLink(publicUrl(S), lang) : publicUrl(S);
+    const url = linkInText(shareTarget()) ? textLink(shareTarget(), publicUrl(S), lang) : publicUrl(S);
     const qr = await qrMatrix(url);
     const pages = [];
     for (let i = 0; i < list.length; i += 30) pages.push(list.slice(i, i + 30));
@@ -4029,7 +4116,7 @@ async function drawPoster(sale, items, lang, { link, target }) {
   const tw = POST_W - tx - pad;
   const n = items.filter((i) => i.status === 'available').length;
   g.fillStyle = '#111';
-  g.fillText(fitFont(g, !qr ? L('点链接预订', 'Reserve at the link') : target === 'telegram' ? L('扫码或点链接', 'Scan or tap the link') : L('长按识别二维码', 'Long-press the QR code'), tw, 54, 900), tx, top + 112);
+  g.fillText(fitFont(g, !qr ? L('点链接预订', 'Reserve at the link') : linkInText(target) ? L('扫码或点链接', 'Scan or tap the link') : L('长按识别二维码', 'Long-press the QR code'), tw, 54, 900), tx, top + 112);
   g.fillText(fitFont(g, L('预订 · 先到先得', 'to reserve, first come'), tw, 54, 900), tx, top + 178);
   g.fillText(fitFont(g, L('回复不算占位，几个群排同一个队', "Replies don't hold a spot"), tw, 30, 700), tx, top + 240);
   g.fillText(fitFont(g, L(`在售 ${n} 件 · 页面实时更新`, `${n} for sale · the page is always live`), tw, 28, 400), tx, top + 286);
@@ -4045,21 +4132,22 @@ async function drawPoster(sale, items, lang, { link, target }) {
 // system share sheet (picture and caption go together) or save + copy + post by hand; for WeChat,
 // save the picture and send it to the group.
 async function postSheet(S, target = 'telegram') {
-  const tg = target === 'telegram';
+  const tg = linkInText(target);
+  const app = appName(target);
   let lang = shareLang(target);
   let withItems = tg && store.get('tgPostItems', false);
   let d = await translatedData(S, lang);
   const ver = Date.now().toString(36).slice(-5);
   // WeChat: c=1 marks a page opened from our QR code, which forwards as a card.
-  const link = () => (tg ? tgLink(publicUrl(S), lang, ver) : `${publicUrl(S)}?c=1`);
+  const link = () => (tg ? textLink(target, publicUrl(S), lang, ver) : `${publicUrl(S)}?c=1`);
   let file = null;
   let url = '';
   let caption = '';
-  const introKey = () => `${S.saleId}:telegram:${lang}`;
+  const introKey = () => `${S.saleId}:${target}:${lang}`;
   const writeCaption = () => {
     if (!tg) return;
-    const intro = stripLinks(store.get('shareIntro', {})[introKey()]) || defaultIntro(d.sale, { lang, target: 'telegram' });
-    caption = postCaption(d.sale, d.items, { withItems, prices: true, lang, target: 'telegram', link: link(), intro });
+    const intro = stripLinks(store.get('shareIntro', {})[introKey()]) || defaultIntro(d.sale, { lang, target });
+    caption = postCaption(d.sale, d.items, { withItems, prices: true, lang, target, link: link(), intro });
   };
   const make = async () => {
     if (!openItems(d.items).length) {
@@ -4090,13 +4178,13 @@ async function postSheet(S, target = 'telegram') {
     <label class="switch-row"><input type="checkbox" data-act="items" ${withItems ? 'checked' : ''}><span>${tr('配文也带物品清单和价格', 'Put the item list and prices in the caption too')}</span></label>
     <textarea class="inp boxed share-text" rows="${withItems ? 8 : 4}">${esc(caption)}</textarea>
     <div class="actions" style="margin-top:12px">
-      ${canShareFile() ? `<button class="btn primary block" data-act="share">${tr('发到 Telegram（图和配文一起）', 'Send to Telegram (picture and caption)')}</button>` : ''}
+      ${canShareFile() ? `<button class="btn primary block" data-act="share">${tr(`发到 ${app}（图和配文一起）`, `Send to ${app} (picture and caption)`)}</button>` : ''}
       <button class="btn ${canShareFile() ? '' : 'primary'} block" data-act="save">${tr('保存图片', 'Save the picture')}</button>
       <button class="btn block" data-act="copy">${tr('复制配文', 'Copy the caption')}</button>
     </div>
     <div class="group"><div class="cell small" style="display:block;line-height:1.9">${tr(
-      `${canShareFile() ? '不能直接发的话：' : ''}1. 保存图片<br>2. 复制配文<br>3. 在 Telegram 群里点 📎，选这张图，粘贴配文，发送`,
-      `${canShareFile() ? "If sending directly doesn't work: " : ''}1. Save the picture<br>2. Copy the caption<br>3. In the Telegram group, tap 📎, pick the picture, paste the caption, send`,
+      `${canShareFile() ? '不能直接发的话：' : ''}1. 保存图片<br>2. 复制配文<br>3. 在 ${app} 群里点 📎，选这张图，粘贴配文，发送`,
+      `${canShareFile() ? "If sending directly doesn't work: " : ''}1. Save the picture<br>2. Copy the caption<br>3. In the ${app} group, tap 📎, pick the picture, paste the caption, send`,
     )}</div></div>`;
   const wxBody = () => `
     <div class="actions">
@@ -4107,7 +4195,7 @@ async function postSheet(S, target = 'telegram') {
       ? tr('1. <b>长按上面的图</b> →「发送给朋友」→ 选群（或者「保存图片」，再到群里发）<br>2. 群友长按图里的二维码 →「识别图中二维码」，就打开了预订页', '1. <b>Long-press the picture above</b> → Send to Chat → pick the group (or Save, then post it in the group)<br>2. People long-press the QR code in it → Scan QR Code in Image to open the list')
       : tr('1. 长按上面的图保存，或点「保存图片」<br>2. 在微信群里点 ＋ →「相册」，选这张图发送<br>3. 群友长按图里的二维码 →「识别图中二维码」，就打开了预订页', '1. Long-press the picture above to save it, or tap "Save the picture"<br>2. In the WeChat group, tap ＋ → Album and send it<br>3. People long-press the QR code in it → Scan QR Code in Image to open the list')}</div></div>
     ${isWeChat ? `<button class="link-btn small" data-act="save" style="margin:8px auto 0">${tr('长按没反应？打开大图', "Long-press does nothing? Open it full size")}</button>` : ''}`;
-  const sh = openSheet(() => `<h2>${tg ? tr('发到 Telegram 群', 'Post to a Telegram group') : tr('发长图到微信群', 'Post the picture to a WeChat group')}</h2>
+  const sh = openSheet(() => `<h2>${tg ? tr(`发到 ${app} 群`, `Post to a ${app} group`) : tr('发长图到微信群', 'Post the picture to a WeChat group')}</h2>
     <div class="seg small share-lang">${[['zh', '中文'], ['en', 'English']].map(([k, l]) => `<button class="${lang === k ? 'on' : ''}" data-act="lang" data-l="${k}">${l}</button>`).join('')}</div>
     <img class="post-preview" src="${url}" alt="${tr('要发的图', 'The picture to post')}">
     ${tg ? tgBody() : wxBody()}`, async (act, el, s) => {
@@ -4116,7 +4204,7 @@ async function postSheet(S, target = 'telegram') {
       if (!tg) return;
       const intro = stripLinks(t.split(listMark(lang))[0]).trim();
       const all = store.get('shareIntro', {});
-      if (intro && intro !== defaultIntro(d.sale, { lang, target: 'telegram' })) all[introKey()] = intro;
+      if (intro && intro !== defaultIntro(d.sale, { lang, target })) all[introKey()] = intro;
       else delete all[introKey()];
       store.set('shareIntro', all);
     };
@@ -4130,7 +4218,7 @@ async function postSheet(S, target = 'telegram') {
     if (act === 'lang') {
       remember();
       lang = el.dataset.l;
-      store.set(tg ? 'shareLangTg' : 'shareLangWx', lang);
+      setShareLang(target, lang);
       d = await translatedData(S, lang, d);
       if (await make()) s.refresh();
     }

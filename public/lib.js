@@ -75,6 +75,16 @@ export function fbProfileUrl(v) {
   return `https://${m[1].toLowerCase() === 'm.me' ? 'm.me' : 'www.facebook.com'}${u.pathname}${id ? `?id=${id}` : ''}`;
 }
 
+// A WhatsApp number in international form: "+358 40 123 4567", "00358401234567", "358-40-1234567"
+// or a wa.me link -> "358401234567" (digits only, as wa.me takes it); null when it can't be one.
+// A local number (leading 0) has no country code and is refused.
+export function normWhatsapp(v) {
+  const s = String(v ?? '').trim()
+    .replace(/^(?:https?:\/\/)?(?:www\.)?wa\.me\//i, '').replace(/[?#/].*$/, '')
+    .replace(/[\s\-.()]/g, '').replace(/^(?:\+|00)/, '');
+  return /^[1-9]\d{7,14}$/.test(s) ? s : null;
+}
+
 // Typed into a WeChat box but clearly a Telegram handle.
 export const looksLikeTelegram = (v) => /^\s*@|t(?:elegram)?\.me\//i.test(String(v ?? ''));
 
@@ -118,9 +128,12 @@ export const LIST_MARK = '【物品清单】';
 const LIST_MARK_EN = '[ Items ]';
 export const listMark = (lang = 'zh') => (lang === 'en' ? LIST_MARK_EN : LIST_MARK);
 
+// Telegram and WhatsApp groups get one message: the link follows the opening line and the app
+// turns it into a preview.
+export const linkInText = (target) => target === 'telegram' || target === 'whatsapp';
+
 // The editable opening line of the group text; the seller can rewrite it.
 // WeChat: no link, it goes under the card sent just before, which is what buyers tap.
-// Telegram: one message, the link follows this line and Telegram turns it into a preview.
 export function defaultIntro(sale, { lang = 'zh', target = 'wechat' } = {}) {
   const where = saleText(sale, lang).location;
   if (target === 'facebook') {
@@ -128,7 +141,7 @@ export function defaultIntro(sale, { lang = 'zh', target = 'wechat' } = {}) {
       ? `Moving out, selling my stuff 📍 ${where}\nTo reserve, open the link and tap Reserve on what you want: first come, first served. Questions? Just DM me here.`
       : `搬家出二手，${where}。想要的话打开链接，在想要的东西上点「预订」，先到先得；有问题直接私信我。`;
   }
-  if (target === 'telegram') {
+  if (linkInText(target)) {
     return lang === 'en'
       ? `Selling my stuff 📍 ${where}\nPlease reserve at the link, not by replying: I post in several groups and the link keeps one line, first come first served 👇`
       : `出二手，${where}。预订请点链接排队，别在群里回复占位：我在几个群同时发，链接里先到先得 👇`;
@@ -165,11 +178,11 @@ export function shareText(sale, items, { intro, maxListed = 30, prices = false, 
     return prices ? `${name} ${money(i.priceCents, sale.currency, lang)}` : name;
   });
   const head = [intro ?? defaultIntro(sale, { lang, target })];
-  if (target === 'telegram' && link) head.push(link);
+  if (linkInText(target) && link) head.push(link);
   const lines = [...head, '', listMark(lang), ...(compact && names.length ? [names.join(' · ')] : names)];
   const more = open.length - maxListed;
   if (more > 0) {
-    const where = target === 'telegram' ? (lang === 'en' ? 'see the link' : '点链接看全部') : lang === 'en' ? 'tap the card' : '点卡片看全部';
+    const where = linkInText(target) ? (lang === 'en' ? 'see the link' : '点链接看全部') : lang === 'en' ? 'tap the card' : '点卡片看全部';
     lines.push(lang === 'en' ? `…and ${more} more, ${where}` : `还有 ${more} 件，${where}`);
   }
   return lines.join('\n');

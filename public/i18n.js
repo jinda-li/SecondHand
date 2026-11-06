@@ -36,6 +36,8 @@ export const isWeChat = /MicroMessenger/i.test(ua);
 export const isTelegram = !isWeChat && (q.get('src') === 'tg' || typeof window.TelegramWebviewProxy !== 'undefined' || /Telegram/i.test(ua));
 // Facebook's in-app browser (FBAN/FBAV/FB_IAB in its user agent), or a link we shared to a Facebook group.
 export const isFacebook = !isWeChat && !isTelegram && (q.get('src') === 'fb' || /FBAN|FBAV|FB_IAB/.test(ua));
+// A link we shared to a WhatsApp group (WhatsApp mostly opens links in the phone's own browser).
+export const isWhatsApp = !isWeChat && !isTelegram && !isFacebook && (q.get('src') === 'wa' || /WhatsApp/i.test(ua));
 
 function saved() {
   try {

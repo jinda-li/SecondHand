@@ -213,3 +213,29 @@ test('fbProfileUrl turns a pasted profile link into a clean one, and a plain nam
   assert.equal(fbProfileUrl('Alex Korhonen'), null);
   assert.equal(fbProfileUrl('https://evil.example/facebook.com/x'), null);
 });
+
+import { normWhatsapp, linkInText } from '../public/lib.js';
+
+test('normWhatsapp keeps the digits of an international number, and refuses local ones', () => {
+  assert.equal(normWhatsapp('+358 40 123 4567'), '358401234567');
+  assert.equal(normWhatsapp('358-40-123-4567'), '358401234567');
+  assert.equal(normWhatsapp('00358 (40) 123.4567'), '358401234567');
+  assert.equal(normWhatsapp('https://wa.me/8613800138000?text=hi'), '8613800138000');
+  assert.equal(normWhatsapp('wa.me/358401234567'), '358401234567');
+  assert.equal(normWhatsapp('040 123 4567'), null);
+  assert.equal(normWhatsapp('1234'), null);
+  assert.equal(normWhatsapp('jinda_li'), null);
+  assert.equal(normWhatsapp(''), null);
+});
+
+test('shareText for WhatsApp carries the link like Telegram', () => {
+  const sale = { title: 'Moving sale', location: 'Otaniemi', currency: 'EUR', rules: [] };
+  const items = [{ no: 1, name: 'Kettle', priceCents: 300, status: 'available' }];
+  const link = 'https://x.dev/s/abc?src=wa';
+  assert.ok(linkInText('whatsapp') && linkInText('telegram') && !linkInText('wechat') && !linkInText('facebook'));
+  assert.equal(
+    shareText(sale, items, { lang: 'en', target: 'whatsapp', link, prices: true }),
+    [defaultIntro(sale, { lang: 'en', target: 'whatsapp' }), link, '', listMark('en'), 'Kettle €3'].join('\n'),
+  );
+  assert.equal(defaultIntro(sale, { lang: 'en', target: 'whatsapp' }), defaultIntro(sale, { lang: 'en', target: 'telegram' }));
+});
